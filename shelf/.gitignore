@@ -1,0 +1,13 @@
+node_modules/
+dist/
+uploads/
+*.log
+.DS_Store
+Thumbs.db
+
+# Capacitor — commit android/ but ignore build outputs
+android/app/build/
+android/.gradle/
+android/build/
+android/local.properties
+ios/
