@@ -3,6 +3,12 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    /* Safe area insets for mobile notches/status bars */
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+  }
+
   body {
     @apply bg-slate-900 text-slate-200;
   }
@@ -24,4 +30,13 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
+}
+
+/* Hide scrollbar for horizontal scroll containers (mobile) */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

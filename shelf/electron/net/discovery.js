@@ -113,7 +113,6 @@ class Discovery {
     if (data.id === this.deviceId) return;
 
     if (data.type === 'hello') {
-      const isNew = !this.peers.has(data.id);
       this.peers.set(data.id, {
         id: data.id,
         name: data.name,
@@ -123,7 +122,8 @@ class Discovery {
         lastSeen: Date.now(),
       });
 
-      if (isNew && this.onPeerFound) {
+      // Always fire onPeerFound — peerManager handles dedup/cooldown
+      if (this.onPeerFound) {
         this.onPeerFound(this.peers.get(data.id));
       }
     } else if (data.type === 'bye') {
