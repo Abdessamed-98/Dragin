@@ -2,8 +2,8 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    ArrowRightLeft, Upload, Loader2, Download, Trash2, AlertCircle,
-    X, Check, Image as ImageIcon, Film, ChevronDown, ClipboardPaste
+    ArrowRight, Upload, Loader2, Download, Trash2, AlertCircle,
+    X, Check, Image as ImageIcon, Film, Music, ClipboardPaste, ArrowRightLeft, Copy, Ban
 } from 'lucide-react';
 import {
     getConvertStatus, convertImage, startVideoConversion, getVideoProgress, getFileThumbnail
@@ -19,7 +19,8 @@ interface ConverterToolProps {
     clearGen?: number;
 }
 
-type FileType = 'image' | 'video' | 'gif';
+type FileType = 'image' | 'video' | 'gif' | 'audio';
+type GroupId = 'image' | 'video' | 'audio';
 
 interface ConvertFileItem {
     id: string;
@@ -39,7 +40,7 @@ interface ConvertFileItem {
 }
 
 const IMAGE_FORMATS: ConvertFormat[] = ['jpg', 'png', 'webp', 'bmp', 'tiff'];
-const VIDEO_FORMATS: ConvertFormat[] = ['mp4', 'webm', 'mov', 'avi', 'mkv'];
+const VIDEO_FORMATS: ConvertFormat[] = ['mp4', 'webm', 'mov', 'avi', 'mkv', 'gif'];
 const AUDIO_FORMATS: ConvertFormat[] = ['mp3', 'wav', 'ogg'];
 const GIF_OUTPUT_FORMATS: ConvertFormat[] = ['mp4', 'webm'];
 
@@ -56,12 +57,19 @@ const detectFileType = (file: File): FileType | null => {
     if (file.type === 'image/gif') return 'gif';
     if (file.type.startsWith('image/')) return 'image';
     if (file.type.startsWith('video/')) return 'video';
-    // Check extension as fallback
+    if (file.type.startsWith('audio/')) return 'audio';
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
     if (['gif'].includes(ext)) return 'gif';
     if (['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'psd', 'ai'].includes(ext)) return 'image';
     if (['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv'].includes(ext)) return 'video';
+    if (['mp3', 'wav', 'ogg', 'flac', 'aac', 'wma', 'm4a'].includes(ext)) return 'audio';
     return null;
+};
+
+const getGroupForType = (type: FileType): GroupId => {
+    if (type === 'image') return 'image';
+    if (type === 'video' || type === 'gif') return 'video';
+    return 'audio';
 };
 
 const getCurrentFormat = (name: string): string => {
@@ -71,26 +79,12 @@ const getCurrentFormat = (name: string): string => {
     return ext;
 };
 
-const getDefaultTarget = (type: FileType, currentFormat: string): ConvertFormat => {
-    if (type === 'image') {
-        const options = IMAGE_FORMATS.filter(f => f !== currentFormat);
-        return options[0] || 'png';
-    }
-    if (type === 'gif') return 'mp4';
-    // video
-    const options = VIDEO_FORMATS.filter(f => f !== currentFormat);
-    return options[0] || 'mp4';
-};
-
 const getAvailableFormats = (type: FileType, currentFormat: string, ffmpegAvailable: boolean): ConvertFormat[] => {
-    if (type === 'image') {
-        return IMAGE_FORMATS.filter(f => f !== currentFormat);
-    }
-    if (type === 'gif') {
-        return ffmpegAvailable ? GIF_OUTPUT_FORMATS : [];
-    }
+    if (type === 'image') return IMAGE_FORMATS.filter(f => f !== currentFormat);
+    if (type === 'gif') return ffmpegAvailable ? GIF_OUTPUT_FORMATS : [];
+    if (type === 'audio') return ffmpegAvailable ? AUDIO_FORMATS.filter(f => f !== currentFormat) : [];
     // video
-    const formats = [...VIDEO_FORMATS, 'gif' as ConvertFormat, ...AUDIO_FORMATS].filter(f => f !== currentFormat);
+    const formats = [...VIDEO_FORMATS, ...AUDIO_FORMATS].filter(f => f !== currentFormat);
     return ffmpegAvailable ? formats : [];
 };
 
@@ -100,24 +94,47 @@ const FORMAT_LABELS: Record<string, string> = {
     mp3: 'MP3', wav: 'WAV', ogg: 'OGG', gif: 'GIF',
 };
 
+const GROUP_FORMATS: Record<GroupId, ConvertFormat[]> = {
+    image: IMAGE_FORMATS,
+    video: VIDEO_FORMATS,
+    audio: AUDIO_FORMATS,
+};
+
+const GROUP_ICON: Record<GroupId, React.ReactNode> = {
+    image: <ImageIcon className="w-3.5 h-3.5 text-blue-400" />,
+    video: <Film className="w-3.5 h-3.5 text-purple-400" />,
+    audio: <Music className="w-3.5 h-3.5 text-emerald-400" />,
+};
+
+const FILE_ACCEPT = 'image/*,video/*,audio/*,.gif,.mp4,.webm,.mov,.avi,.mkv,.psd,.ai,.tiff,.tif,.mp3,.wav,.ogg,.flac,.aac,.wma,.m4a';
+
 export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
     const [files, setFiles] = useState<ConvertFileItem[]>([]);
     const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
+    const [cancelHover, setCancelHover] = useState(false);
+    const [isCopying, setIsCopying] = useState(false);
+    const [showCopySuccess, setShowCopySuccess] = useState(false);
     const pollTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
-    // Report item count to parent (for collapsed badge)
+    // Per-group selected target format
+    const [groupTarget, setGroupTarget] = useState<Record<GroupId, ConvertFormat>>({
+        image: 'jpg',
+        video: 'mp4',
+        audio: 'mp3',
+    });
+    const groupTargetRef = useRef(groupTarget);
+    groupTargetRef.current = groupTarget;
+
     useEffect(() => { onItemCountChange?.(files.length); }, [files.length, onItemCountChange]);
 
-    // Check FFmpeg on mount
     useEffect(() => {
         getConvertStatus()
             .then(r => setFfmpegAvailable(r.ffmpeg))
             .catch(() => setFfmpegAvailable(false));
     }, []);
 
-    // Handle files dropped from DockApp (skip stale props on remount)
     const lastDropGen = useRef(dropGeneration);
     useEffect(() => {
         if (dropGeneration === 0) return;
@@ -127,7 +144,6 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
         addFiles(droppedFiles);
     }, [dropGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Clear all files when global clear is triggered
     const lastClearGen = useRef(clearGen);
     useEffect(() => {
         if (clearGen === 0 || clearGen === lastClearGen.current) return;
@@ -137,7 +153,6 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
         setFiles([]);
     }, [clearGen]);
 
-    // Cleanup poll timers + preview blob URLs on unmount
     const filesRef = useRef<ConvertFileItem[]>([]);
     useEffect(() => { filesRef.current = files; }, [files]);
     useEffect(() => {
@@ -155,40 +170,39 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
             const type = detectFileType(file);
             if (!type) continue;
             const currentFormat = getCurrentFormat(file.name);
+            const group = getGroupForType(type);
+            // Use current group toggle as default target; fall back if same as source
+            const preferred = groupTargetRef.current[group];
+            const available = getAvailableFormats(type, currentFormat, true);
+            const targetFormat = available.includes(preferred) ? preferred : (available[0] || preferred);
+
             let previewUrl: string | undefined;
             let previewNeedsRevoke = false;
-            try {
-                const result = await getFileThumbnail(file, 64);
-                if (result) { previewUrl = result.url; previewNeedsRevoke = result.needsRevoke; }
-            } catch { /* preview failed — proceed without */ }
+            if (type === 'image' || type === 'gif') {
+                try {
+                    const result = await getFileThumbnail(file, 80);
+                    if (result) { previewUrl = result.url; previewNeedsRevoke = result.needsRevoke; }
+                } catch { /* no preview */ }
+            } else if (type === 'video') {
+                previewUrl = URL.createObjectURL(file);
+                previewNeedsRevoke = true;
+            }
             items.push({
-                id: genId(),
-                file,
-                name: file.name,
-                sizeBytes: file.size,
-                type,
-                status: 'idle',
-                targetFormat: getDefaultTarget(type, currentFormat),
-                previewUrl,
-                previewNeedsRevoke,
+                id: genId(), file, name: file.name, sizeBytes: file.size, type,
+                status: 'idle', targetFormat, previewUrl, previewNeedsRevoke,
             });
         }
-        if (items.length > 0) {
-            setFiles(prev => [...prev, ...items]);
-        }
+        if (items.length > 0) setFiles(prev => [...prev, ...items]);
     }, []);
 
     const removeFile = (fileId: string) => {
-        // Stop any active poll for this file
         if (pollTimers.current[fileId]) {
             clearInterval(pollTimers.current[fileId]);
             delete pollTimers.current[fileId];
         }
         setFiles(prev => {
             const removed = prev.find(f => f.id === fileId);
-            if (removed?.previewUrl && removed.previewNeedsRevoke) {
-                URL.revokeObjectURL(removed.previewUrl);
-            }
+            if (removed?.previewUrl && removed.previewNeedsRevoke) URL.revokeObjectURL(removed.previewUrl);
             return prev.filter(f => f.id !== fileId);
         });
     };
@@ -197,40 +211,35 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
         setFiles(prev => prev.map(f => f.id === fileId ? { ...f, ...updates } : f));
     };
 
-    const setTargetFormat = (fileId: string, format: ConvertFormat) => {
-        setFiles(prev => prev.map(f => f.id === fileId ? { ...f, targetFormat: format, status: 'idle', resultDataUrl: undefined, resultSize: undefined, error: undefined } : f));
+    // Change group toggle → update all files in that group
+    const handleGroupChange = (group: GroupId, format: ConvertFormat) => {
+        setGroupTarget(prev => ({ ...prev, [group]: format }));
+        setFiles(prev => prev.map(f => {
+            if (getGroupForType(f.type) !== group || f.status === 'converting') return f;
+            const available = getAvailableFormats(f.type, getCurrentFormat(f.name), ffmpegAvailable ?? false);
+            if (available.includes(format)) {
+                return { ...f, targetFormat: format, status: 'idle', resultDataUrl: undefined, resultSize: undefined, error: undefined };
+            }
+            return f;
+        }));
     };
 
     const convertSingleFile = useCallback(async (item: ConvertFileItem) => {
         updateFile(item.id, { status: 'converting', progress: 0, error: undefined });
-
         try {
             if (item.type === 'image') {
-                // Instant image conversion
                 const result = await convertImage(item.file, item.targetFormat as ImageFormat);
-                updateFile(item.id, {
-                    status: 'done',
-                    resultDataUrl: result.dataUrl,
-                    resultSize: result.size,
-                });
+                updateFile(item.id, { status: 'done', resultDataUrl: result.dataUrl, resultSize: result.size });
             } else {
-                // Video/GIF → FFmpeg async
                 const { jobId } = await startVideoConversion(item.file, item.targetFormat);
                 updateFile(item.id, { jobId });
-
-                // Poll for progress
                 const timer = setInterval(async () => {
                     try {
                         const prog = await getVideoProgress(jobId);
                         if (prog.status === 'done') {
                             clearInterval(timer);
                             delete pollTimers.current[item.id];
-                            updateFile(item.id, {
-                                status: 'done',
-                                progress: 100,
-                                resultDataUrl: prog.dataUrl,
-                                resultSize: prog.size,
-                            });
+                            updateFile(item.id, { status: 'done', progress: 100, resultDataUrl: prog.dataUrl, resultSize: prog.size });
                         } else if (prog.status === 'error') {
                             clearInterval(timer);
                             delete pollTimers.current[item.id];
@@ -252,35 +261,27 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
     }, []);
 
     const convertAll = () => {
-        const idleFiles = files.filter(f => f.status === 'idle');
-        for (const item of idleFiles) {
-            convertSingleFile(item);
-        }
+        for (const item of files.filter(f => f.status === 'idle')) convertSingleFile(item);
     };
 
     const handleDownload = async () => {
         const completed = files.filter(f => f.status === 'done' && f.resultDataUrl);
         if (completed.length === 0) return;
-
         if (completed.length === 1) {
             const item = completed[0];
             const link = document.createElement('a');
             link.href = item.resultDataUrl!;
-            const base = item.name.replace(/\.[^.]+$/, '');
-            link.download = `${base}-converted.${item.targetFormat}`;
+            link.download = `${item.name.replace(/\.[^.]+$/, '')}.${item.targetFormat}`;
             link.click();
             return;
         }
-
-        // Multiple files → zip
         setIsDownloading(true);
         try {
             const zip = new JSZip();
             await Promise.all(completed.map(async (item) => {
                 const res = await fetch(item.resultDataUrl!);
                 const blob = await res.blob();
-                const base = item.name.replace(/\.[^.]+$/, '');
-                zip.file(`${base}-converted.${item.targetFormat}`, blob);
+                zip.file(`${item.name.replace(/\.[^.]+$/, '')}.${item.targetFormat}`, blob);
             }));
             const content = await zip.generateAsync({ type: 'blob' });
             const link = document.createElement('a');
@@ -298,10 +299,54 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
     const handleClear = () => {
         Object.values(pollTimers.current).forEach(clearInterval);
         pollTimers.current = {};
-        files.forEach(f => {
-            if (f.previewUrl && f.previewNeedsRevoke) URL.revokeObjectURL(f.previewUrl);
-        });
+        files.forEach(f => { if (f.previewUrl && f.previewNeedsRevoke) URL.revokeObjectURL(f.previewUrl); });
         setFiles([]);
+        onClose();
+    };
+
+    const cancelAll = () => {
+        Object.values(pollTimers.current).forEach(clearInterval);
+        pollTimers.current = {};
+        setFiles(prev => prev.map(f =>
+            f.status === 'converting' ? { ...f, status: 'idle', progress: undefined, jobId: undefined } : f
+        ));
+        setCancelHover(false);
+    };
+
+    const handleCopy = async () => {
+        const completed = files.filter(f => f.status === 'done' && f.resultDataUrl);
+        if (completed.length === 0 || isCopying) return;
+        setIsCopying(true);
+        try {
+            const clipItems = await Promise.all(completed.map(async (item) => {
+                const res = await fetch(item.resultDataUrl!);
+                const blob = await res.blob();
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+                const base = item.name.replace(/\.[^.]+$/, '');
+                return { dataUrl, name: `${base}.${item.targetFormat}` };
+            }));
+            if ((window as any).electron?.clipboardWrite) {
+                await (window as any).electron.clipboardWrite(clipItems);
+            } else {
+                const first = clipItems[0];
+                const res = await fetch(first.dataUrl);
+                const blob = await res.blob();
+                if (blob.type.startsWith('image/')) {
+                    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+                }
+            }
+            setShowCopySuccess(true);
+            setTimeout(() => setShowCopySuccess(false), 1500);
+        } catch (err) {
+            console.error('Copy failed:', err);
+        } finally {
+            setIsCopying(false);
+        }
     };
 
     const handlePaste = async () => {
@@ -324,8 +369,7 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
                     if (imageType) {
                         const blob = await clipItem.getType(imageType);
                         const ext = imageType.split('/')[1] || 'png';
-                        const file = new File([blob], `pasted.${ext}`, { type: imageType });
-                        addFiles([file]);
+                        addFiles([new File([blob], `pasted.${ext}`, { type: imageType })]);
                         return;
                     }
                 }
@@ -335,27 +379,18 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
         }
     };
 
-    // Drag handlers
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
-        const droppedFiles = Array.from(e.dataTransfer.files);
-        if (droppedFiles.length > 0) addFiles(droppedFiles);
+        const dropped = Array.from(e.dataTransfer.files);
+        if (dropped.length > 0) addFiles(dropped);
     }, [addFiles]);
 
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragOver(true);
-    };
-
+    const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); };
     const handleDragLeave = (e: React.DragEvent) => {
-        if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
-            setIsDragOver(false);
-        }
+        if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) setIsDragOver(false);
     };
-
     const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
         const f = e.target.files;
         if (f && f.length > 0) addFiles(Array.from(f));
@@ -366,12 +401,118 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
     const isConverting = files.some(f => f.status === 'converting');
     const hasIdle = files.some(f => f.status === 'idle');
     const allCompleted = files.length > 0 && files.every(f => f.status === 'done');
+
+    // Group files
+    const imageFiles = files.filter(f => f.type === 'image');
+    const videoFiles = files.filter(f => f.type === 'video' || f.type === 'gif');
+    const audioFiles = files.filter(f => f.type === 'audio');
+
     const getTypeIcon = (type: FileType) => {
         switch (type) {
-            case 'image': return <ImageIcon className="w-3.5 h-3.5 text-blue-400" />;
-            case 'video': return <Film className="w-3.5 h-3.5 text-purple-400" />;
-            case 'gif': return <Film className="w-3.5 h-3.5 text-amber-400" />;
+            case 'image': return <ImageIcon className="w-4 h-4 text-blue-400" />;
+            case 'video': return <Film className="w-4 h-4 text-purple-400" />;
+            case 'gif': return <Film className="w-4 h-4 text-amber-400" />;
+            case 'audio': return <Music className="w-4 h-4 text-emerald-400" />;
         }
+    };
+
+    // Shared file row renderer
+    const renderFileRow = (item: ConvertFileItem) => {
+        const originalFormat = getCurrentFormat(item.name).toUpperCase();
+        const nameWithoutExt = item.name.replace(/\.[^.]+$/, '');
+
+        return (
+            <div
+                key={item.id}
+                className="flex items-center gap-2.5 px-3 py-2.5 bg-slate-800/40 rounded-lg border border-white/5 shrink-0 group"
+            >
+                {/* Thumbnail */}
+                {item.previewUrl && item.type === 'video' ? (
+                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-900 shrink-0 flex items-center justify-center">
+                        <video src={`${item.previewUrl}#t=0.1`} className="max-w-full max-h-full" muted preload="metadata" />
+                    </div>
+                ) : item.previewUrl && (item.type === 'image' || item.type === 'gif') ? (
+                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-900 shrink-0 flex items-center justify-center">
+                        <img src={item.previewUrl} className="max-w-full max-h-full object-contain" alt="" />
+                    </div>
+                ) : (
+                    <div className="w-10 h-10 rounded-lg bg-slate-900/60 flex items-center justify-center shrink-0">
+                        {getTypeIcon(item.type)}
+                    </div>
+                )}
+
+                {/* Name + size */}
+                <div className="flex-1 min-w-0">
+                    <p className="text-xs text-slate-200 truncate font-medium">{nameWithoutExt}</p>
+                    <p className="text-[11px] text-slate-500">{formatSize(item.sizeBytes)}</p>
+                </div>
+
+                {/* Original format → Target format */}
+                <span className="text-[11px] font-bold text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded shrink-0">
+                    {originalFormat}
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 text-blue-400/50 shrink-0" />
+                <span className="text-[11px] font-bold text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded shrink-0">
+                    {FORMAT_LABELS[item.targetFormat] || item.targetFormat.toUpperCase()}
+                </span>
+
+                {/* Status */}
+                <div className="w-10 shrink-0 flex justify-end">
+                    {item.status === 'converting' && (
+                        <div className="flex items-center gap-1">
+                            <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+                            {item.progress !== undefined && item.progress > 0 && (
+                                <span className="text-[10px] text-blue-300">{item.progress}%</span>
+                            )}
+                        </div>
+                    )}
+                    {item.status === 'done' && <Check className="w-3.5 h-3.5 text-green-400" />}
+                    {item.status === 'error' && <AlertCircle className="w-3 h-3 text-red-400" title={item.error} />}
+                </div>
+
+                {/* Remove */}
+                <button
+                    onClick={() => removeFile(item.id)}
+                    disabled={item.status === 'converting'}
+                    className="shrink-0 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-30"
+                >
+                    <X className="w-3.5 h-3.5" />
+                </button>
+            </div>
+        );
+    };
+
+    // Shared group section renderer
+    const renderGroup = (group: GroupId, groupFiles: ConvertFileItem[]) => {
+        if (groupFiles.length === 0) return null;
+        const formats = GROUP_FORMATS[group];
+        const active = groupTarget[group];
+
+        return (
+            <div key={group} className="flex flex-col gap-1">
+                {/* Group toggle bar */}
+                <div className="flex items-center gap-2 mb-0.5">
+                    {GROUP_ICON[group]}
+                    <div className="flex flex-wrap gap-0.5 rounded-lg bg-slate-800/80 border border-white/5 p-0.5">
+                        {formats.map(fmt => (
+                            <button
+                                key={fmt}
+                                onClick={() => handleGroupChange(group, fmt)}
+                                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
+                                    active === fmt
+                                        ? 'bg-blue-600 text-white shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                }`}
+                            >
+                                {FORMAT_LABELS[fmt]}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                {/* Files */}
+                {groupFiles.map(renderFileRow)}
+            </div>
+        );
     };
 
     return (
@@ -396,11 +537,9 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
                 </button>
             </div>
 
-
             {/* Body */}
             <div className="flex-1 flex flex-col min-h-0 p-3 gap-2">
                 <AnimatePresence mode="wait">
-                    {/* Empty state */}
                     {!hasFiles && (
                         <motion.label
                             key="empty"
@@ -428,193 +567,81 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
                                     {isDragOver ? 'أفلت الملفات هنا' : 'اسحب ملفات هنا للتحويل'}
                                 </p>
                                 <p className="text-xs text-slate-500 mt-1">أو اضغط للاختيار يدويًا</p>
-                                <p className="text-[10px] text-slate-600 mt-2">
-                                    صور: JPG · PNG · WEBP · BMP · TIFF · PSD · AI
-                                </p>
-                                <p className="text-[10px] text-slate-600">
-                                    فيديو: MP4 · WEBM · MOV · AVI · MKV · GIF
-                                </p>
+                                <p className="text-[10px] text-slate-600 mt-2">صور: JPG · PNG · WEBP · BMP · TIFF · PSD · AI</p>
+                                <p className="text-[10px] text-slate-600">فيديو: MP4 · WEBM · MOV · AVI · MKV · GIF</p>
+                                <p className="text-[10px] text-slate-600">صوت: MP3 · WAV · OGG</p>
                             </div>
-                            <input
-                                id="converter-file-input"
-                                type="file"
-                                accept="image/*,video/*,.gif,.mp4,.webm,.mov,.avi,.mkv,.psd,.ai,.tiff,.tif"
-                                multiple
-                                className="sr-only"
-                                onChange={handleFileInput}
-                            />
+                            <input id="converter-file-input" type="file" accept={FILE_ACCEPT} multiple className="sr-only" onChange={handleFileInput} />
                         </motion.label>
                     )}
 
-                    {/* File list */}
                     {hasFiles && (
                         <motion.div
                             key="list"
                             initial={{ opacity: 0, y: 8 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0 }}
-                            className="flex-1 flex flex-col gap-1.5 min-h-0 overflow-y-auto"
+                            className="flex-1 flex flex-col gap-3 min-h-0 overflow-y-auto"
                         >
-                            {files.map(item => (
-                                <div
-                                    key={item.id}
-                                    className="flex items-center gap-2 px-2.5 py-2 bg-slate-800/60 rounded-lg border border-white/5 shrink-0 group"
-                                >
-                                    {/* Thumbnail or type icon */}
-                                    {item.previewUrl ? (
-                                        <div className="w-8 h-8 rounded overflow-hidden bg-slate-900 shrink-0">
-                                            <img src={item.previewUrl} className="w-full h-full object-cover" alt="" />
-                                        </div>
-                                    ) : (
-                                        <div className="shrink-0">{getTypeIcon(item.type)}</div>
-                                    )}
+                            {renderGroup('image', imageFiles)}
+                            {renderGroup('video', videoFiles)}
+                            {renderGroup('audio', audioFiles)}
 
-                                    {/* Name + size */}
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-[11px] text-slate-300 truncate">{item.name}</p>
-                                        <p className="text-[10px] text-slate-600">{formatSize(item.sizeBytes)}</p>
-                                    </div>
-
-                                    {/* Arrow */}
-                                    <ArrowRightLeft className="w-3 h-3 text-slate-600 shrink-0" />
-
-                                    {/* Format selector */}
-                                    <div className="relative shrink-0">
-                                        <select
-                                            value={item.targetFormat}
-                                            onChange={e => setTargetFormat(item.id, e.target.value as ConvertFormat)}
-                                            disabled={item.status === 'converting'}
-                                            className="appearance-none bg-slate-700/80 border border-white/10 rounded-md text-[11px] text-slate-200 pl-2 pr-5 py-1 cursor-pointer focus:outline-none focus:border-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            {getAvailableFormats(item.type, getCurrentFormat(item.name), ffmpegAvailable ?? false).map(fmt => (
-                                                <option key={fmt} value={fmt}>{FORMAT_LABELS[fmt] || fmt.toUpperCase()}</option>
-                                            ))}
-                                        </select>
-                                        <ChevronDown className="absolute right-1 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500 pointer-events-none" />
-                                    </div>
-
-                                    {/* Status indicator */}
-                                    <div className="w-14 text-right shrink-0">
-                                        {item.status === 'idle' && (
-                                            <span className="text-[10px] text-slate-600">—</span>
-                                        )}
-                                        {item.status === 'converting' && (
-                                            <div className="flex items-center gap-1 justify-end">
-                                                <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
-                                                {item.type !== 'image' && item.progress !== undefined && (
-                                                    <span className="text-[10px] text-blue-300">{item.progress}%</span>
-                                                )}
-                                            </div>
-                                        )}
-                                        {item.status === 'done' && (
-                                            <div className="flex items-center gap-1 justify-end">
-                                                <Check className="w-3 h-3 text-green-400" />
-                                                {item.resultSize && (
-                                                    <span className="text-[10px] text-green-300">{formatSize(item.resultSize)}</span>
-                                                )}
-                                            </div>
-                                        )}
-                                        {item.status === 'error' && (
-                                            <div className="flex items-center gap-1 justify-end" title={item.error}>
-                                                <AlertCircle className="w-3 h-3 text-red-400" />
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Remove button */}
-                                    <button
-                                        onClick={() => removeFile(item.id)}
-                                        disabled={item.status === 'converting'}
-                                        className="shrink-0 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-30"
-                                        title="إزالة"
-                                    >
-                                        <X className="w-3.5 h-3.5" />
-                                    </button>
-                                </div>
-                            ))}
-
-                            {/* Add more files zone */}
+                            {/* Add more */}
                             <label
                                 htmlFor="converter-add-input"
                                 className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed cursor-pointer transition-colors shrink-0 ${
-                                    isDragOver
-                                        ? 'border-blue-400 bg-blue-500/10'
-                                        : 'border-slate-700 hover:border-slate-500 bg-slate-800/20'
+                                    isDragOver ? 'border-blue-400 bg-blue-500/10' : 'border-slate-700 hover:border-slate-500 bg-slate-800/20'
                                 }`}
                             >
                                 <Upload className="w-3.5 h-3.5 text-slate-500" />
                                 <span className="text-[11px] text-slate-500">إضافة ملفات</span>
-                                <input
-                                    id="converter-add-input"
-                                    type="file"
-                                    accept="image/*,video/*,.gif,.mp4,.webm,.mov,.avi,.mkv,.psd,.ai,.tiff,.tif"
-                                    multiple
-                                    className="sr-only"
-                                    onChange={handleFileInput}
-                                />
+                                <input id="converter-add-input" type="file" accept={FILE_ACCEPT} multiple className="sr-only" onChange={handleFileInput} />
                             </label>
                         </motion.div>
                     )}
                 </AnimatePresence>
             </div>
 
-            {/* Footer: [Main button] | [Paste][Clear] */}
+            {/* Footer */}
             <div className="flex items-center gap-1.5 px-3 pb-3 shrink-0">
-                {/* Left half: Main action / download */}
                 {isConverting ? (
                     <button
-                        disabled
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-blue-600/50 text-white/60 cursor-not-allowed"
+                        onMouseEnter={() => setCancelHover(true)}
+                        onMouseLeave={() => setCancelHover(false)}
+                        onClick={cancelHover ? cancelAll : undefined}
+                        className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${
+                            cancelHover
+                                ? 'bg-red-600 hover:bg-red-500 text-white cursor-pointer'
+                                : 'bg-blue-600/50 text-white/60'
+                        }`}
                     >
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري التحويل...
+                        {cancelHover ? <><Ban className="w-4 h-4" />إلغاء</> : <><Loader2 className="w-4 h-4 animate-spin" />جاري التحويل...</>}
                     </button>
                 ) : allCompleted ? (
-                    <button
-                        onClick={handleDownload}
-                        disabled={isDownloading}
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
-                    >
+                    <button onClick={handleDownload} disabled={isDownloading} className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50">
                         {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                         تحميل
                     </button>
                 ) : hasIdle ? (
-                    <button
-                        onClick={convertAll}
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-blue-600 hover:bg-blue-500 text-white"
-                    >
+                    <button onClick={convertAll} className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-blue-600 hover:bg-blue-500 text-white">
                         <ArrowRightLeft className="w-4 h-4" />
                         تحويل
                     </button>
                 ) : (
-                    <button
-                        disabled
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-slate-800/50 text-slate-600 cursor-not-allowed"
-                    >
+                    <button disabled className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-slate-800/50 text-slate-600 cursor-not-allowed">
                         <ArrowRightLeft className="w-4 h-4" />
                         تحويل الصيغة
                     </button>
                 )}
-
-                {/* Right half: Paste | Clear */}
                 <div className="flex-1 flex items-center gap-1">
-                    <button
-                        onClick={handlePaste}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white"
-                        title="لصق"
-                    >
+                    <button onClick={handleCopy} disabled={isCopying || !files.some(f => f.status === 'done')} className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed" title="نسخ">
+                        {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopySuccess ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                    <button onClick={handlePaste} className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white" title="لصق">
                         <ClipboardPaste className="w-4 h-4" />
                     </button>
-                    <button
-                        onClick={handleClear}
-                        disabled={!hasFiles || isConverting}
-                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            !hasFiles || isConverting
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'
-                        }`}
-                        title="مسح الكل"
-                    >
+                    <button onClick={handleClear} disabled={!hasFiles || isConverting} className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${!hasFiles || isConverting ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed' : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'}`} title="مسح الكل">
                         <Trash2 className="w-4 h-4" />
                     </button>
                 </div>

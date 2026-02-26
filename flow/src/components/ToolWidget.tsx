@@ -1,7 +1,7 @@
 
 import React, { DragEvent, useState, useEffect, useRef, MouseEvent } from 'react';
 import { motion } from 'framer-motion';
-import { LucideIcon, X, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, PenTool, Minimize2, Settings, File as FileIcon, ClipboardPaste, Paintbrush, Zap, Crosshair } from 'lucide-react';
+import { LucideIcon, X, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, PenTool, Minimize2, Settings, File as FileIcon, ClipboardPaste, Paintbrush, Zap, Crosshair, Ban } from 'lucide-react';
 import { ActiveSession, ToolId, SessionItem } from '../types';
 import JSZip from 'jszip';
 import { CropperTool } from './tools/CropperTool';
@@ -13,6 +13,7 @@ import { ConverterTool } from './tools/ConverterTool';
 import { UpscalerTool } from './tools/UpscalerTool';
 import { MetadataTool } from './tools/MetadataTool';
 import { WatermarkTool } from './tools/WatermarkTool';
+import { PaletteTool } from './tools/PaletteTool';
 import { MagicBrushTool } from './tools/MagicBrushTool';
 import { dragState } from '../state/dragState';
 import { clipboardState } from '../state/clipboardState';
@@ -58,11 +59,18 @@ interface ToolWidgetProps {
     /** Watermark tool: files forwarded from DockApp drop handler */
     watermarkDroppedFiles?: File[];
     watermarkDropGen?: number;
+    /** Palette tool: files forwarded from DockApp drop handler */
+    paletteDroppedFiles?: File[];
+    paletteDropGen?: number;
     /** Clear signal — incremented when user confirms "clear all data" */
     clearGen?: number;
     /** Remover tool: processing options */
     removerOptions?: import('../services/api').RemoverOptions;
     onRemoverModeChange?: (mode: import('../services/api').RemoverMode) => void;
+    onCancelProcessing?: () => void;
+    emptyHint?: string;
+    emptySubHint?: string;
+    formatLines?: string[];
 }
 
 // Extract a still frame from a video URL as a data-URL thumbnail
@@ -183,11 +191,18 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     metadataDropGen,
     watermarkDroppedFiles,
     watermarkDropGen,
+    paletteDroppedFiles,
+    paletteDropGen,
     clearGen,
     removerOptions,
     onRemoverModeChange,
+    onCancelProcessing,
+    emptyHint,
+    emptySubHint,
+    formatLines,
 }) => {
     const [isDragHover, setIsDragHover] = useState(false);
+    const [cancelHover, setCancelHover] = useState(false);
     const [showOriginal, setShowOriginal] = useState(false);
     const [, forceUpdate] = useState(0);
     const [selfItemCount, setSelfItemCount] = useState(0); // count from self-contained tools (always mounted)
@@ -592,7 +607,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
         converter: 'converted',
         vectorizer: 'vectorized',
         ocr: 'OCR',
-        scanner: 'scanned',
+        palette: 'palette',
     };
 
     const getOutputFileName = (originalName: string, toolId: string): string => {
@@ -900,11 +915,25 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         onClick={(e) => { if (e.target === e.currentTarget && isMultiple) { /* Deselect logic optional */ } }}>
 
                         {!items.length ? (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
-                                <div className={`p-4 rounded-full bg-${colorClass}-500/5 border border-${colorClass}-500/10 mb-4`}>
-                                    <Icon className={`w-10 h-10 text-${colorClass}-500/40`} />
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed border-slate-700 bg-slate-800/30">
+                                <div className="p-4 rounded-2xl bg-slate-800">
+                                    <Icon className="w-8 h-8 text-slate-500" />
                                 </div>
-                                <p className="text-slate-500 text-xs">لا يوجد ملفات</p>
+                                <div className="text-center px-4">
+                                    <p className="text-sm font-semibold text-slate-300">
+                                        {emptyHint || 'اسحب ملفات هنا'}
+                                    </p>
+                                    {emptySubHint && (
+                                        <p className="text-xs text-slate-500 mt-1">{emptySubHint}</p>
+                                    )}
+                                    {formatLines && formatLines.length > 0 && (
+                                        <div className="mt-2">
+                                            {formatLines.map((line, i) => (
+                                                <p key={i} className="text-[10px] text-slate-600">{line}</p>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         ) : (
                             <>
@@ -1104,11 +1133,19 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                             {/* Left half: Main action / download */}
                             {anyProcessing ? (
                                 <button
-                                    disabled
-                                    className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-${colorClass}-600/50 text-white/60 cursor-not-allowed`}
+                                    onMouseEnter={() => setCancelHover(true)}
+                                    onMouseLeave={() => setCancelHover(false)}
+                                    onClick={cancelHover && onCancelProcessing ? onCancelProcessing : undefined}
+                                    className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${
+                                        cancelHover && onCancelProcessing
+                                            ? 'bg-red-600 hover:bg-red-500 text-white cursor-pointer'
+                                            : `bg-${colorClass}-600/50 text-white/60`
+                                    }`}
                                 >
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                    جاري المعالجة...
+                                    {cancelHover && onCancelProcessing
+                                        ? <><Ban className="w-4 h-4" />إلغاء</>
+                                        : <><Loader2 className="w-4 h-4 animate-spin" />جاري المعالجة...</>
+                                    }
                                 </button>
                             ) : hasCompleted ? (
                                 <button
@@ -1248,6 +1285,22 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         onClose={onClose}
                         droppedFiles={watermarkDroppedFiles || []}
                         dropGeneration={watermarkDropGen || 0}
+                        onItemCountChange={setSelfItemCount}
+                        clearGen={clearGen || 0}
+                    />
+                </motion.div>
+            )}
+            {id === 'palette' && (
+                <motion.div
+                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
+                    animate={{ opacity: isActive ? 1 : 0 }}
+                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
+                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
+                >
+                    <PaletteTool
+                        onClose={onClose}
+                        droppedFiles={paletteDroppedFiles || []}
+                        dropGeneration={paletteDropGen || 0}
                         onItemCountChange={setSelfItemCount}
                         clearGen={clearGen || 0}
                     />

@@ -3,7 +3,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ShieldAlert, Upload, Loader2, Download, Trash2, AlertCircle,
-    X, Check, ClipboardPaste, ChevronDown, ChevronUp
+    X, Check, ClipboardPaste, ChevronDown, ChevronUp, Ban, Copy
 } from 'lucide-react';
 import { scrubMetadata, getFileThumbnail } from '../../services/api';
 import type { ScrubResult } from '../../services/api';
@@ -52,6 +52,9 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
     const [files, setFiles] = useState<MetaFileItem[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
+    const [cancelHover, setCancelHover] = useState(false);
+    const [isCopying, setIsCopying] = useState(false);
+    const [showCopySuccess, setShowCopySuccess] = useState(false);
 
     // Report item count to parent
     useEffect(() => { onItemCountChange?.(files.length); }, [files.length, onItemCountChange]);
@@ -179,6 +182,35 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
     const handleClear = () => {
         files.forEach(f => { if (f.previewUrl && f.previewNeedsRevoke) URL.revokeObjectURL(f.previewUrl); });
         setFiles([]);
+        onClose();
+    };
+
+    const cancelAll = () => {
+        setFiles(prev => prev.map(f => f.status === 'processing' ? { ...f, status: 'idle' as const } : f));
+        setCancelHover(false);
+    };
+
+    const handleCopy = async () => {
+        const completed = files.filter(f => f.status === 'done' && f.resultUrl);
+        if (completed.length === 0 || isCopying) return;
+        setIsCopying(true);
+        try {
+            const clipItems = await Promise.all(completed.map(async (item) => {
+                const res = await fetch(item.resultUrl!);
+                const blob = await res.blob();
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+                return { dataUrl, name: item.name };
+            }));
+            if ((window as any).electron?.clipboardWrite) await (window as any).electron.clipboardWrite(clipItems);
+            setShowCopySuccess(true);
+            setTimeout(() => setShowCopySuccess(false), 1500);
+        } catch (err) { console.error('Copy failed:', err); }
+        finally { setIsCopying(false); }
     };
 
     const handlePaste = async () => {
@@ -200,6 +232,7 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
 
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
+        e.stopPropagation();
         setIsDragOver(false);
         const f = Array.from(e.dataTransfer.files);
         if (f.length > 0) addFiles(f);
@@ -403,11 +436,20 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
             <div className="flex items-center gap-1.5 px-3 pb-3 shrink-0">
                 {isProcessing ? (
                     <button
-                        disabled
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-red-600/50 text-white/60 cursor-not-allowed"
+                        onMouseEnter={() => setCancelHover(true)}
+                        onMouseLeave={() => setCancelHover(false)}
+                        onClick={cancelHover ? cancelAll : undefined}
+                        className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${
+                            cancelHover
+                                ? 'bg-red-600 hover:bg-red-500 text-white cursor-pointer'
+                                : 'bg-red-600/50 text-white/60'
+                        }`}
                     >
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري المعالجة...
+                        {cancelHover ? (
+                            <><Ban className="w-4 h-4" />إلغاء</>
+                        ) : (
+                            <><Loader2 className="w-4 h-4 animate-spin" />جاري المعالجة...</>
+                        )}
                     </button>
                 ) : allDone ? (
                     <button
@@ -429,6 +471,24 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                 )}
 
                 <div className="flex-1 flex items-center gap-1">
+                    <button
+                        onClick={handleCopy}
+                        disabled={!files.some(f => f.status === 'done' && f.resultUrl) || isCopying}
+                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
+                            !files.some(f => f.status === 'done' && f.resultUrl)
+                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
+                                : 'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
+                        }`}
+                        title="نسخ"
+                    >
+                        {isCopying ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : showCopySuccess ? (
+                            <Check className="w-4 h-4 text-green-400" />
+                        ) : (
+                            <Copy className="w-4 h-4" />
+                        )}
+                    </button>
                     <button
                         onClick={handlePaste}
                         className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white"

@@ -57,6 +57,11 @@ export const removeBackgroundBatch = async (files: File[], options?: RemoverOpti
   }
 };
 
+/** Tell the backend to free cached bg-removal models (reclaims ~7 GB RAM). */
+export const unloadRemoverModels = async (): Promise<void> => {
+  await fetch(`${BASE_URL}/process/unload`, { method: 'POST' }).catch(() => {});
+};
+
 // 1.1 Remove Empty Space (Trim Transparency - Canvas API)
 export const trimTransparency = async (dataUrl: string): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -254,7 +259,27 @@ export const scrubMetadata = async (file: File): Promise<ScrubResult> => {
   };
 };
 
-// 8. Watermarker
+// 8. Color Palette
+export interface PaletteColor {
+  hex: string;
+  rgb: [number, number, number];
+  percentage: number;
+}
+
+export const extractPalette = async (file: File, count = 8): Promise<PaletteColor[]> => {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('count', String(count));
+  const res = await fetch(`${BASE_URL}/extract-palette`, { method: 'POST', body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(err.error || `Server error: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.colors;
+};
+
+// 9. Watermarker
 export interface WatermarkOptions {
   text: string;
   opacity: number;
@@ -297,7 +322,7 @@ export interface VectorizeOptions {
 export const vectorizeImage = async (
   file: File,
   options: Partial<VectorizeOptions> = {}
-): Promise<{ svgString: string; svgDataUrl: string }> => {
+): Promise<{ svgString: string; svgDataUrl: string; pathCount: number; svgSize: number }> => {
   const formData = new FormData();
   formData.append('image', file);
 
@@ -335,7 +360,7 @@ export const vectorizeImage = async (
   const svgBlob = new Blob([svgString], { type: 'image/svg+xml' });
   const svgDataUrl = URL.createObjectURL(svgBlob);
 
-  return { svgString, svgDataUrl };
+  return { svgString, svgDataUrl, pathCount: data.pathCount || 0, svgSize: data.svgSize || 0 };
 };
 // --- PDF Tools ---
 
@@ -525,7 +550,8 @@ export const convertImage = async (file: File, format: ImageFormat): Promise<Con
     const err = await res.json().catch(() => ({ error: 'Unknown error' }));
     throw new Error(err.error || `Server error: ${res.status}`);
   }
-  return await res.json();
+  const json = await res.json();
+  return { dataUrl: json.data, format: json.format, size: json.size };
 };
 
 export const startVideoConversion = async (file: File, format: ConvertFormat): Promise<VideoJobResult> => {

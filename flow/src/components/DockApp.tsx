@@ -7,6 +7,7 @@ import {
     removeBackground,
     compressImage,
     cropImage,
+    unloadRemoverModels,
     RemoverOptions,
     RemoverMode,
 } from '../services/api';
@@ -98,6 +99,10 @@ const DockAppInner: React.FC = () => {
     // Watermark tool: forward dropped files via props (WatermarkTool is self-contained)
     const [watermarkDroppedFiles, setWatermarkDroppedFiles] = useState<File[]>([]);
     const [watermarkDropGen, setWatermarkDropGen] = useState(0);
+
+    // Palette tool: forward dropped files via props (PaletteTool is self-contained)
+    const [paletteDroppedFiles, setPaletteDroppedFiles] = useState<File[]>([]);
+    const [paletteDropGen, setPaletteDropGen] = useState(0);
 
     // Remover tool: processing mode + per-mode result cache
     const [removerOptions, setRemoverOptions] = useState<RemoverOptions>({
@@ -373,6 +378,13 @@ const DockAppInner: React.FC = () => {
             return;
         }
 
+        // Palette tool is self-contained. Forward files via state props.
+        if (toolId === 'palette') {
+            setPaletteDroppedFiles(Array.from(files));
+            setPaletteDropGen(g => g + 1);
+            return;
+        }
+
         // Overlay tools only operate on one file at a time — silently take the first.
         if (SINGLE_FILE_TOOLS.has(toolId)) files = files.slice(0, 1);
 
@@ -551,6 +563,24 @@ const DockAppInner: React.FC = () => {
         }
     };
 
+    const handleCancelProcessing = (toolId: ToolId) => {
+        setSessions(prev => {
+            const session = prev[toolId];
+            if (!session) return prev;
+            return {
+                ...prev,
+                [toolId]: {
+                    ...session,
+                    items: session.items.map(item =>
+                        item.status === 'processing' ? { ...item, status: 'idle' as const } : item
+                    ),
+                    status: session.items.every(i => i.status === 'completed' || i.status === 'error' || i.status === 'processing')
+                        ? 'idle' as const : session.status,
+                },
+            };
+        });
+    };
+
     const handleDelete = (toolId: ToolId) => {
         dlog('delete', { toolId });
         // Clean up remover mode cache for deleted items
@@ -581,11 +611,13 @@ const DockAppInner: React.FC = () => {
 
             if (!hasSelection) {
                 if (expandedToolId === toolId) setExpandedToolId(null);
+                if (toolId === 'remover') unloadRemoverModels();
                 return { ...prev, [toolId]: undefined };
             } else {
                 const newItems = session.items.filter(item => !session.selectedItemIds.includes(item.id));
                 if (newItems.length === 0) {
                     if (expandedToolId === toolId) setExpandedToolId(null);
+                    if (toolId === 'remover') unloadRemoverModels();
                     return { ...prev, [toolId]: undefined };
                 }
                 return { ...prev, [toolId]: { ...session, items: newItems, selectedItemIds: [] } };
@@ -599,6 +631,7 @@ const DockAppInner: React.FC = () => {
     const handleRemoveTool = (id: ToolId) => {
         dispatch('REMOVE_TOOL', id);
         if (expandedToolId === id) setExpandedToolId(null);
+        if (id === 'remover') unloadRemoverModels();
     };
 
     const handleReorderTools = (newOrder: ToolId[]) => {
@@ -694,9 +727,12 @@ const DockAppInner: React.FC = () => {
                 metadataDropGen={metadataDropGen}
                 watermarkDroppedFiles={watermarkDroppedFiles}
                 watermarkDropGen={watermarkDropGen}
+                paletteDroppedFiles={paletteDroppedFiles}
+                paletteDropGen={paletteDropGen}
                 clearGen={clearGen}
                 removerOptions={removerOptions}
                 onRemoverModeChange={handleRemoverModeChange}
+                onCancelProcessing={() => handleCancelProcessing(tool.id)}
             />
         </div>
     );

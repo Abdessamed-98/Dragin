@@ -8,7 +8,7 @@ export type ToolId =
   | 'converter'
   | 'vectorizer'
   | 'ocr'
-  | 'scanner'
+  | 'palette'
   | 'cropper'
   | 'upscaler'   // New
   | 'pdf'        // New
@@ -21,6 +21,9 @@ export interface ToolDefinition {
   description: string;
   icon: LucideIcon;
   colorClass: string;
+  emptyHint?: string;
+  emptySubHint?: string;
+  formatLines?: string[];
 }
 
 export interface SessionItem {

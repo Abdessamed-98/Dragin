@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     FileText, Upload, Loader2, Download, Trash2, AlertCircle,
     GripVertical, X, Plus, Layers, LayoutGrid, Minimize2, Check, FileOutput,
-    Copy, ClipboardPaste
+    Copy, ClipboardPaste, Ban
 } from 'lucide-react';
 import { getPdfThumbnails, mergePdfs, organizePdf, compressPdf, convertPdfToWord, convertPdfToPptx } from '../../services/api';
 import type { PdfCompressPreset } from '../../services/api';
@@ -60,6 +60,10 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
     const [isDragOver, setIsDragOver] = useState(false);
     const [isLoadingFiles, setIsLoadingFiles] = useState(false);
     const [showDownload, setShowDownload] = useState(false);
+
+    const [cancelHover, setCancelHover] = useState(false);
+    const [isCopying, setIsCopying] = useState(false);
+    const [showCopySuccess, setShowCopySuccess] = useState(false);
 
     // Compress state
     const [compressPreset, setCompressPreset] = useState<PdfCompressPreset>('medium');
@@ -541,6 +545,46 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
         }
     };
 
+    // ── Cancel all ──────────────────────────────────────────────────────
+    const cancelAll = () => {
+        setIsProcessing(false);
+        setCancelHover(false);
+    };
+
+    // ── Copy to clipboard ────────────────────────────────────────────────
+    const handleCopy = async () => {
+        if (pdfFiles.length === 0 || isCopying) return;
+        setIsCopying(true);
+        try {
+            const clipItems = await Promise.all(pdfFiles.map(async (pf) => {
+                const blob = pf.file;
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+                return { dataUrl, name: pf.name };
+            }));
+            if ((window as any).electron?.clipboardWrite) {
+                await (window as any).electron.clipboardWrite(clipItems);
+            } else {
+                const first = clipItems[0];
+                const res = await fetch(first.dataUrl);
+                const blob = await res.blob();
+                if (blob.type.startsWith('application/pdf')) {
+                    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+                }
+            }
+            setShowCopySuccess(true);
+            setTimeout(() => setShowCopySuccess(false), 1500);
+        } catch (err) {
+            console.error('Copy failed:', err);
+        } finally {
+            setIsCopying(false);
+        }
+    };
+
     // ── Download ────────────────────────────────────────────────────────
     const handleDownload = async () => {
         if (pdfFiles.length === 0) return;
@@ -848,11 +892,16 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                     {/* Left: Action / Download */}
                     {isProcessing ? (
                         <button
-                            disabled
-                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-teal-600/50 text-white/60 cursor-not-allowed"
+                            onMouseEnter={() => setCancelHover(true)}
+                            onMouseLeave={() => setCancelHover(false)}
+                            onClick={cancelHover ? cancelAll : undefined}
+                            className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${
+                                cancelHover
+                                    ? 'bg-red-600 hover:bg-red-500 text-white cursor-pointer'
+                                    : 'bg-teal-600/50 text-white/60'
+                            }`}
                         >
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            جاري المعالجة...
+                            {cancelHover ? <><Ban className="w-4 h-4" />إلغاء</> : <><Loader2 className="w-4 h-4 animate-spin" />جاري المعالجة...</>}
                         </button>
                     ) : showDownload && hasFiles ? (
                         <button
@@ -908,11 +957,12 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                     {/* Right: Copy | Paste | Delete */}
                     <div className="flex-1 flex items-center gap-1.5">
                         <button
-                            disabled={!hasFiles || isProcessing}
+                            onClick={handleCopy}
+                            disabled={!hasFiles || isProcessing || isCopying}
                             className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
                             title="نسخ"
                         >
-                            <Copy className="w-4 h-4" />
+                            {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopySuccess ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
                         </button>
                         <label
                             htmlFor="pdf-paste-input"
@@ -939,10 +989,16 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                         <button
                             onClick={() => {
                                 if (selectedFileIds.size > 0) {
-                                    setPdfFiles(prev => prev.filter(f => !selectedFileIds.has(f.id)));
+                                    const remaining = pdfFiles.filter(f => !selectedFileIds.has(f.id));
+                                    setPdfFiles(remaining);
                                     setSelectedFileIds(new Set());
+                                    if (remaining.length === 0) {
+                                        setActiveSubtool(null); setError(null); setShowDownload(false);
+                                        onClose();
+                                    }
                                 } else {
                                     setPdfFiles([]); setActiveSubtool(null); setError(null); setShowDownload(false);
+                                    onClose();
                                 }
                             }}
                             disabled={!hasFiles || isProcessing}

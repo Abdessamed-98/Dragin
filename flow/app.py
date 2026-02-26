@@ -16,7 +16,7 @@ _device = 'CPU'
 print(f"[Backend] Device: {_device}")
 
 # ── Model cache ─────────────────────────────────────────────────────
-# Lazy-load models on first use, keep them cached for reuse.
+# Lazy-load models on first use, auto-unload after idle timeout.
 # User-facing modes mapped to internal rembg model names
 MODE_TO_MODEL = {
     'precision': 'birefnet-general-lite',
@@ -24,17 +24,43 @@ MODE_TO_MODEL = {
 }
 DEFAULT_MODE = 'speed'
 _model_cache = {}
+_model_lock = threading.Lock()
+_model_last_used = 0.0          # time.time() of last /process call
+_MODEL_IDLE_TIMEOUT = 300       # 5 minutes
 
 def get_model(name):
-    if name not in _model_cache:
-        print(f"Loading model: {name} ...")
-        _model_cache[name] = new_session(name, providers=_providers)
-        print(f"Model {name} ready.")
-    return _model_cache[name]
+    global _model_last_used
+    with _model_lock:
+        _model_last_used = time.time()
+        if name not in _model_cache:
+            print(f"[Remover] Loading model: {name} ...")
+            _model_cache[name] = new_session(name, providers=_providers)
+            print(f"[Remover] Model {name} ready.")
+        return _model_cache[name]
 
-# Pre-load default model at startup
-print("Loading AI Model...")
-get_model(MODE_TO_MODEL[DEFAULT_MODE])
+def _unload_models():
+    """Free all cached rembg models to reclaim memory."""
+    with _model_lock:
+        if _model_cache:
+            names = list(_model_cache.keys())
+            _model_cache.clear()
+            import gc; gc.collect()
+            print(f"[Remover] Unloaded models: {names} — memory freed")
+
+def _model_idle_watcher():
+    """Background thread: unload models after idle timeout."""
+    while True:
+        time.sleep(60)  # check every minute
+        with _model_lock:
+            if _model_cache and _model_last_used > 0:
+                idle = time.time() - _model_last_used
+                if idle >= _MODEL_IDLE_TIMEOUT:
+                    names = list(_model_cache.keys())
+                    _model_cache.clear()
+                    import gc; gc.collect()
+                    print(f"[Remover] Auto-unloaded after {int(idle)}s idle: {names}")
+
+threading.Thread(target=_model_idle_watcher, daemon=True).start()
 
 
 
@@ -89,6 +115,12 @@ def process():
 def list_modes():
     """Return available bg-removal modes."""
     return jsonify({"modes": list(MODE_TO_MODEL.keys()), "default": DEFAULT_MODE})
+
+@app.route('/process/unload', methods=['POST'])
+def unload_models():
+    """Explicitly free cached bg-removal models to reclaim RAM."""
+    _unload_models()
+    return jsonify({"ok": True})
 
 @app.route('/compress', methods=['POST'])
 def compress():
@@ -183,6 +215,10 @@ def vectorize():
             pass  # keep alpha
         else:
             img = img.convert('RGBA')
+
+        # Cap large images for performance (2000px max side)
+        img.thumbnail((2000, 2000), Image.LANCZOS)
+
         png_buffer = io.BytesIO()
         img.save(png_buffer, format='PNG')
         png_bytes = png_buffer.getvalue()
@@ -201,9 +237,14 @@ def vectorize():
             path_precision=path_precision,
         )
 
+        path_count = svg_str.count('<path')
+        svg_size = len(svg_str.encode('utf-8'))
+
         return jsonify({
             "svg": svg_str,
-            "colormode": colormode
+            "colormode": colormode,
+            "pathCount": path_count,
+            "svgSize": svg_size,
         })
 
     except Exception as e:
@@ -1190,6 +1231,81 @@ def scrub_metadata():
 
     except Exception as e:
         print(f"[Metadata] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Color Palette ───────────────────────────────────────────────────
+
+@app.route('/extract-palette', methods=['POST'])
+def extract_palette():
+    """Extract dominant colors from an image."""
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files['file']
+    count = int(request.form.get('count', 8))
+    count = max(2, min(count, 16))
+
+    try:
+        raw = file.read()
+        img = Image.open(io.BytesIO(raw)).convert('RGB')
+
+        # Resize for speed (max 150px on longest side)
+        img.thumbnail((150, 150), Image.LANCZOS)
+
+        # Quantize to more colors than needed, then filter by distance
+        oversample = min(count * 3, 32)
+        quantized = img.quantize(colors=oversample, method=Image.Quantize.MEDIANCUT)
+        palette_data = quantized.getpalette()  # flat [R,G,B,R,G,B,...]
+        pixels = list(quantized.getdata())
+        total = len(pixels)
+
+        # Count frequency of each color index
+        freq = {}
+        for idx in pixels:
+            freq[idx] = freq.get(idx, 0) + 1
+
+        # Build candidate list sorted by frequency (most dominant first)
+        candidates = []
+        for idx, count_val in sorted(freq.items(), key=lambda x: -x[1]):
+            if idx * 3 + 2 >= len(palette_data):
+                continue
+            r = palette_data[idx * 3]
+            g = palette_data[idx * 3 + 1]
+            b = palette_data[idx * 3 + 2]
+            percentage = round((count_val / total) * 100, 1)
+            candidates.append({"rgb": (r, g, b), "percentage": percentage})
+
+        # Greedy selection: pick most dominant, then skip colors too close
+        MIN_DIST = 35  # minimum Euclidean distance in RGB space
+        selected = []
+        for c in candidates:
+            if len(selected) >= count:
+                break
+            too_close = False
+            for s in selected:
+                dr = c["rgb"][0] - s["rgb"][0]
+                dg = c["rgb"][1] - s["rgb"][1]
+                db = c["rgb"][2] - s["rgb"][2]
+                if (dr*dr + dg*dg + db*db) ** 0.5 < MIN_DIST:
+                    too_close = True
+                    break
+            if not too_close:
+                selected.append(c)
+
+        colors = []
+        for c in selected:
+            r, g, b = c["rgb"]
+            colors.append({
+                "hex": f'#{r:02X}{g:02X}{b:02X}',
+                "rgb": [r, g, b],
+                "percentage": c["percentage"],
+            })
+
+        return jsonify({"colors": colors})
+
+    except Exception as e:
+        print(f"[Palette] Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 

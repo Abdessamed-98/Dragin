@@ -3,7 +3,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ImagePlus, Upload, Loader2, Download, Trash2, AlertCircle,
-    X, Check, ClipboardPaste
+    X, Check, ClipboardPaste, Ban, Copy
 } from 'lucide-react';
 import {
     getUpscaleStatus, startUpscale, getUpscaleProgress,
@@ -62,6 +62,9 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
     const [available, setAvailable] = useState<boolean | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
+    const [cancelHover, setCancelHover] = useState(false);
+    const [isCopying, setIsCopying] = useState(false);
+    const [showCopySuccess, setShowCopySuccess] = useState(false);
     const [globalScale, setGlobalScale] = useState<UpscaleScale>(4);
     const [globalModel, setGlobalModel] = useState<UpscaleModel>('realesrgan-x4plus');
     const pollTimers = useRef<Record<string, NodeJS.Timeout>>({});
@@ -199,6 +202,15 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
         }
     };
 
+    const cancelAll = () => {
+        Object.values(pollTimers.current).forEach(clearInterval);
+        pollTimers.current = {};
+        setFiles(prev => prev.map(f =>
+            f.status === 'processing' ? { ...f, status: 'idle' as const, progress: undefined, jobId: undefined } : f
+        ));
+        setCancelHover(false);
+    };
+
     const handleDownload = async () => {
         const completed = files.filter(f => f.status === 'done' && f.jobId);
         if (completed.length === 0) return;
@@ -247,6 +259,7 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
             if (f.jobId) cleanupUpscaleJob(f.jobId);
         });
         setFiles([]);
+        onClose();
     };
 
     const handlePaste = async () => {
@@ -278,6 +291,30 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
         } catch (err) {
             console.warn('Clipboard read failed:', err);
         }
+    };
+
+    const handleCopy = async () => {
+        const completed = files.filter(f => f.status === 'done' && f.jobId);
+        if (completed.length === 0 || isCopying) return;
+        setIsCopying(true);
+        try {
+            const clipItems = await Promise.all(completed.map(async (item) => {
+                const blob = await fetchUpscaleResultBlob(item.jobId!);
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+                return { dataUrl, name: item.name };
+            }));
+            if ((window as any).electron?.clipboardWrite) {
+                await (window as any).electron.clipboardWrite(clipItems);
+            }
+            setShowCopySuccess(true);
+            setTimeout(() => setShowCopySuccess(false), 1500);
+        } catch (err) { console.error('Copy failed:', err); }
+        finally { setIsCopying(false); }
     };
 
     // Drag handlers
@@ -552,11 +589,18 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                 {/* Left half: Main action / download */}
                 {isProcessing ? (
                     <button
-                        disabled
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-pink-600/50 text-white/60 cursor-not-allowed"
+                        onMouseEnter={() => setCancelHover(true)}
+                        onMouseLeave={() => setCancelHover(false)}
+                        onClick={cancelHover ? cancelAll : undefined}
+                        className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${
+                            cancelHover ? 'bg-red-600 hover:bg-red-500 text-white cursor-pointer' : 'bg-pink-600/50 text-white/60'
+                        }`}
                     >
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري التكبير...
+                        {cancelHover ? (
+                            <><Ban className="w-4 h-4" />إلغاء</>
+                        ) : (
+                            <><Loader2 className="w-4 h-4 animate-spin" />جاري التكبير...</>
+                        )}
                     </button>
                 ) : allCompleted ? (
                     <button
@@ -590,8 +634,20 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                     </button>
                 )}
 
-                {/* Right half: Paste | Clear */}
+                {/* Right half: Copy | Paste | Clear */}
                 <div className="flex-1 flex items-center gap-1">
+                    <button
+                        onClick={handleCopy}
+                        disabled={!files.some(f => f.status === 'done' && f.jobId) || isCopying}
+                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
+                            !files.some(f => f.status === 'done' && f.jobId)
+                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
+                                : 'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
+                        }`}
+                        title="نسخ"
+                    >
+                        {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopySuccess ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                    </button>
                     <button
                         onClick={handlePaste}
                         className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white"

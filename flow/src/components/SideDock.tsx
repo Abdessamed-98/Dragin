@@ -96,6 +96,8 @@ interface SideDockProps {
   metadataDropGen?: number;
   watermarkDroppedFiles?: File[];
   watermarkDropGen?: number;
+  paletteDroppedFiles?: File[];
+  paletteDropGen?: number;
   clearGen?: number;
   removerOptions?: import('../services/api').RemoverOptions;
   onRemoverModeChange?: (mode: import('../services/api').RemoverMode) => void;
@@ -135,6 +137,8 @@ export const SideDock: React.FC<SideDockProps> = ({
   metadataDropGen,
   watermarkDroppedFiles,
   watermarkDropGen,
+  paletteDroppedFiles,
+  paletteDropGen,
   clearGen,
   removerOptions,
   onRemoverModeChange,
@@ -403,6 +407,9 @@ export const SideDock: React.FC<SideDockProps> = ({
                   description={tool.description}
                   icon={tool.icon}
                   colorClass={tool.colorClass}
+                  emptyHint={tool.emptyHint}
+                  emptySubHint={tool.emptySubHint}
+                  formatLines={tool.formatLines}
                   isDockVisible={isVisible}
                   isExpanded={isActive}
                   activeSession={sessions[tool.id] || null}
@@ -429,6 +436,8 @@ export const SideDock: React.FC<SideDockProps> = ({
                   metadataDropGen={tool.id === 'metadata' ? metadataDropGen : undefined}
                   watermarkDroppedFiles={tool.id === 'watermark' ? watermarkDroppedFiles : undefined}
                   watermarkDropGen={tool.id === 'watermark' ? watermarkDropGen : undefined}
+                  paletteDroppedFiles={tool.id === 'palette' ? paletteDroppedFiles : undefined}
+                  paletteDropGen={tool.id === 'palette' ? paletteDropGen : undefined}
                   clearGen={clearGen}
                   removerOptions={tool.id === 'remover' ? removerOptions : undefined}
                   onRemoverModeChange={tool.id === 'remover' ? onRemoverModeChange : undefined}

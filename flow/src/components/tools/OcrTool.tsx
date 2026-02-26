@@ -96,6 +96,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
         setExtractedText('');
         setFileName('');
         setErrorMsg('');
+        onClose();
     };
 
     return (
