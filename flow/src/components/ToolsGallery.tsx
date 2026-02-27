@@ -278,23 +278,23 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
                                                     </div>
                                                     <div className="text-center">
                                                         <div className={`text-xs font-bold ${isInstalled ? 'text-slate-300 group-hover:text-white' : 'text-slate-400'}`}>{tool.title}</div>
-                                                        {/* Size label for not-installed tools */}
-                                                        {!isInstalled && !isInstalling && manifest && manifest.totalSizeBytes > 0 && (
-                                                            <div className="text-[10px] text-slate-600 mt-0.5">{formatSize(manifest.totalSizeBytes)}</div>
-                                                        )}
-                                                        {/* Progress bar when installing */}
-                                                        {isInstalling && progress && (
-                                                            <div className="w-full mt-1.5">
-                                                                <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
-                                                                    <div className="h-full bg-emerald-500 transition-all duration-300 rounded-full" style={{ width: `${progress.progress}%` }} />
-                                                                </div>
-                                                            </div>
+                                                        {/* Size label for not-installed tools (invisible during install to keep height stable) */}
+                                                        {!isInstalled && manifest && manifest.totalSizeBytes > 0 && (
+                                                            <div className={`text-[10px] text-slate-600 mt-0.5 ${isInstalling ? 'invisible' : ''}`}>{formatSize(manifest.totalSizeBytes)}</div>
                                                         )}
                                                         {/* Error message */}
                                                         {isError && progress?.error && (
                                                             <div className="text-[10px] text-red-400 mt-0.5 truncate max-w-[120px]">{progress.error}</div>
                                                         )}
                                                     </div>
+                                                    {/* Progress bar when installing — full card width */}
+                                                    {isInstalling && progress && (
+                                                        <div className="absolute bottom-0 left-0 right-0 px-3 pb-2.5">
+                                                            <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+                                                                <div className="h-full bg-emerald-500 transition-all duration-300 rounded-full" style={{ width: `${progress.progress}%` }} />
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             );
                                         })}

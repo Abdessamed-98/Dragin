@@ -79,7 +79,9 @@ function startPythonServer() {
 
     console.log(`[Python] Starting backend from: ${executablePath}`);
 
-    pyServer = spawn(executablePath, args);
+    pyServer = spawn(executablePath, args, {
+        env: { ...process.env, DRAGIN_TOOLS_DIR: getToolsDir() },
+    });
 
     pyServer.stdout.on('data', (data) => console.log(`[Python] ${data}`));
     pyServer.stderr.on('data', (data) => {
@@ -232,10 +234,10 @@ const ALL_TOOL_IDS = ['remover', 'compressor', 'shelf', 'converter', 'vectorizer
 
 // Download URLs for on-demand tools (mirrors toolRegistry.ts for main process)
 const TOOL_DOWNLOAD_URLS = {
-    remover:   'https://github.com/AnasDragin/flow-tools/releases/download/remover-v1/remover-win-x64.zip',
-    upscaler:  'https://github.com/AnasDragin/flow-tools/releases/download/upscaler-v1/upscaler-win-x64.zip',
-    ocr:       'https://github.com/AnasDragin/flow-tools/releases/download/ocr-v1/ocr-win-x64.zip',
-    converter: 'https://github.com/AnasDragin/flow-tools/releases/download/converter-v1/converter-win-x64.zip',
+    remover:   'https://github.com/Abdessamed-98/flow-tools/releases/download/remover-v1/remover-win-x64.zip',
+    upscaler:  'https://github.com/Abdessamed-98/flow-tools/releases/download/upscaler-v1/upscaler-win-x64.zip',
+    ocr:       'https://github.com/Abdessamed-98/flow-tools/releases/download/ocr-v1/ocr-win-x64.zip',
+    converter: 'https://github.com/Abdessamed-98/flow-tools/releases/download/converter-v1/converter-win-x64.zip',
 };
 const ON_DEMAND_TOOL_IDS = Object.keys(TOOL_DOWNLOAD_URLS);
 
@@ -499,7 +501,7 @@ let lastProposedIndex = 0;        // Last proposed dock insertion index
 function broadcastState() {
     const windows = BrowserWindow.getAllWindows();
     windows.forEach(win => {
-        win.webContents.send('state-update', state);
+        try { win.webContents.send('state-update', state); } catch (_) {}
     });
 }
 

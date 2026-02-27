@@ -9,6 +9,15 @@ import numpy as np
 app = Flask(__name__)
 CORS(app)
 
+# ── On-demand tools directory (set by Electron main process) ──────
+TOOLS_DIR = os.environ.get('DRAGIN_TOOLS_DIR', '')
+
+# Point rembg at downloaded models (must be set BEFORE importing rembg)
+if TOOLS_DIR:
+    _remover_models = os.path.join(TOOLS_DIR, 'remover', 'models')
+    if os.path.isdir(_remover_models):
+        os.environ['U2NET_HOME'] = _remover_models
+
 # ── Lazy rembg import ──────────────────────────────────────────────
 # rembg is an on-demand dependency — only imported when the remover tool is used.
 _rembg_remove = None
@@ -322,8 +331,17 @@ def get_ocr_reader():
     if ocr_reader is None:
         print("[OCR] Loading EasyOCR reader (first call)...")
         import easyocr
-        # gpu=False for CPU-only; add more langs as needed
-        ocr_reader = easyocr.Reader(['en', 'ar'], gpu=False, verbose=False)
+        kwargs = {'gpu': False, 'verbose': False}
+        if TOOLS_DIR:
+            ocr_dir = os.path.join(TOOLS_DIR, 'ocr')
+            # EasyOCR expects {storage_dir}/model/ — our zip extracts to models/
+            models_dir = os.path.join(ocr_dir, 'models')
+            model_dir = os.path.join(ocr_dir, 'model')
+            if os.path.isdir(models_dir) and not os.path.isdir(model_dir):
+                os.rename(models_dir, model_dir)
+            if os.path.isdir(model_dir):
+                kwargs['model_storage_directory'] = ocr_dir
+        ocr_reader = easyocr.Reader(['en', 'ar'], **kwargs)
         print("[OCR] Reader ready.")
     return ocr_reader
 
@@ -725,9 +743,13 @@ convert_jobs = {}
 convert_jobs_lock = threading.Lock()
 
 def find_ffmpeg():
-    """Return path to ffmpeg binary — bundled or system."""
-    bundled = os.path.join(os.path.dirname(__file__), 'bin',
-                           'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
+    """Return path to ffmpeg binary — downloaded, bundled, or system."""
+    exe = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
+    if TOOLS_DIR:
+        downloaded = os.path.join(TOOLS_DIR, 'converter', exe)
+        if os.path.isfile(downloaded):
+            return downloaded
+    bundled = os.path.join(os.path.dirname(__file__), 'bin', exe)
     if os.path.isfile(bundled):
         return bundled
     if shutil.which('ffmpeg'):
@@ -735,9 +757,13 @@ def find_ffmpeg():
     return None
 
 def find_ffprobe():
-    """Return path to ffprobe binary — bundled or system."""
-    bundled = os.path.join(os.path.dirname(__file__), 'bin',
-                           'ffprobe.exe' if sys.platform == 'win32' else 'ffprobe')
+    """Return path to ffprobe binary — downloaded, bundled, or system."""
+    exe = 'ffprobe.exe' if sys.platform == 'win32' else 'ffprobe'
+    if TOOLS_DIR:
+        downloaded = os.path.join(TOOLS_DIR, 'converter', exe)
+        if os.path.isfile(downloaded):
+            return downloaded
+    bundled = os.path.join(os.path.dirname(__file__), 'bin', exe)
     if os.path.isfile(bundled):
         return bundled
     if shutil.which('ffprobe'):
@@ -997,9 +1023,13 @@ upscale_jobs = {}
 upscale_jobs_lock = threading.Lock()
 
 def find_realesrgan():
-    """Return path to realesrgan-ncnn-vulkan binary — bundled or system."""
-    bundled = os.path.join(os.path.dirname(__file__), 'bin',
-                           'realesrgan-ncnn-vulkan.exe' if sys.platform == 'win32' else 'realesrgan-ncnn-vulkan')
+    """Return path to realesrgan-ncnn-vulkan binary — downloaded, bundled, or system."""
+    exe = 'realesrgan-ncnn-vulkan.exe' if sys.platform == 'win32' else 'realesrgan-ncnn-vulkan'
+    if TOOLS_DIR:
+        downloaded = os.path.join(TOOLS_DIR, 'upscaler', exe)
+        if os.path.isfile(downloaded):
+            return downloaded
+    bundled = os.path.join(os.path.dirname(__file__), 'bin', exe)
     if os.path.isfile(bundled):
         return bundled
     if shutil.which('realesrgan-ncnn-vulkan'):
@@ -1007,7 +1037,11 @@ def find_realesrgan():
     return None
 
 def find_models_dir():
-    """Return path to the models directory."""
+    """Return path to the upscaler models directory."""
+    if TOOLS_DIR:
+        downloaded = os.path.join(TOOLS_DIR, 'upscaler', 'models')
+        if os.path.isdir(downloaded):
+            return downloaded
     bundled = os.path.join(os.path.dirname(__file__), 'bin', 'models')
     if os.path.isdir(bundled):
         return bundled

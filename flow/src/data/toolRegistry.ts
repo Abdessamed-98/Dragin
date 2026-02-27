@@ -37,7 +37,7 @@ export const TOOL_REGISTRY: ToolManifest[] = [
         default: false,
         deps: [{ label: 'rembg + ONNX models', sizeBytes: 330_000_000 }],
         totalSizeBytes: 330_000_000,
-        downloadUrl: 'https://github.com/AnasDragin/flow-tools/releases/download/remover-v1/remover-win-x64.zip',
+        downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/remover-v1/remover-win-x64.zip',
     },
     {
         id: 'upscaler',
@@ -47,21 +47,21 @@ export const TOOL_REGISTRY: ToolManifest[] = [
             { label: 'Upscaler models', sizeBytes: 35_000_000 },
         ],
         totalSizeBytes: 42_000_000,
-        downloadUrl: 'https://github.com/AnasDragin/flow-tools/releases/download/upscaler-v1/upscaler-win-x64.zip',
+        downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/upscaler-v1/upscaler-win-x64.zip',
     },
     {
         id: 'ocr',
         default: false,
         deps: [{ label: 'EasyOCR + language models', sizeBytes: 278_000_000 }],
         totalSizeBytes: 278_000_000,
-        downloadUrl: 'https://github.com/AnasDragin/flow-tools/releases/download/ocr-v1/ocr-win-x64.zip',
+        downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/ocr-v1/ocr-win-x64.zip',
     },
     {
         id: 'converter',
         default: false,
         deps: [{ label: 'FFmpeg', sizeBytes: 63_000_000 }],
         totalSizeBytes: 63_000_000,
-        downloadUrl: 'https://github.com/AnasDragin/flow-tools/releases/download/converter-v1/converter-win-x64.zip',
+        downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/converter-v1/converter-win-x64.zip',
     },
 ];
 
