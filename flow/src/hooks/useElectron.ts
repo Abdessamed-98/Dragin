@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ActiveSession, ToolId } from '../types';
+import { ActiveSession, InstallProgress, ToolId } from '../types';
 
 // Define the shape of the state managed by Main Process
 interface AppState {
     activeToolIds: ToolId[];
+    installedToolIds: ToolId[];
+    installProgress: Record<string, InstallProgress>;
     sessions: Record<string, ActiveSession | undefined>;
     isDockEnabled: boolean;
     isGalleryOpen: boolean;
@@ -57,7 +59,9 @@ declare global {
 
 export const useElectron = () => {
     const [state, setState] = useState<AppState>({
-        activeToolIds: ['remover', 'compressor', 'shelf'], // Default fallback
+        activeToolIds: ['compressor', 'shelf', 'palette'], // Default fallback
+        installedToolIds: ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadata', 'watermark', 'palette', 'shelf'],
+        installProgress: {},
         sessions: {},
         isDockEnabled: true,
         isGalleryOpen: false,

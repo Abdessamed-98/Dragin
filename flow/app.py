@@ -2,13 +2,25 @@ import os, sys, io, base64, subprocess, threading, uuid, tempfile, shutil, json,
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from PIL import Image, ImageOps, ImageEnhance, ImageFilter
-from rembg import remove, new_session
 import vtracer
 import fitz  # PyMuPDF
 import numpy as np
 
 app = Flask(__name__)
 CORS(app)
+
+# ── Lazy rembg import ──────────────────────────────────────────────
+# rembg is an on-demand dependency — only imported when the remover tool is used.
+_rembg_remove = None
+_rembg_new_session = None
+
+def _ensure_rembg():
+    """Lazy-import rembg. Raises ImportError if not installed."""
+    global _rembg_remove, _rembg_new_session
+    if _rembg_remove is None:
+        from rembg import remove, new_session
+        _rembg_remove = remove
+        _rembg_new_session = new_session
 
 # ── Execution provider ──────────────────────────────────────────────
 _providers = ['CPUExecutionProvider']
@@ -30,11 +42,12 @@ _MODEL_IDLE_TIMEOUT = 300       # 5 minutes
 
 def get_model(name):
     global _model_last_used
+    _ensure_rembg()
     with _model_lock:
         _model_last_used = time.time()
         if name not in _model_cache:
             print(f"[Remover] Loading model: {name} ...")
-            _model_cache[name] = new_session(name, providers=_providers)
+            _model_cache[name] = _rembg_new_session(name, providers=_providers)
             print(f"[Remover] Model {name} ready.")
         return _model_cache[name]
 
@@ -66,6 +79,11 @@ threading.Thread(target=_model_idle_watcher, daemon=True).start()
 
 @app.route('/process', methods=['POST'])
 def process():
+    try:
+        _ensure_rembg()
+    except ImportError:
+        return jsonify({"error": "rembg not installed. Install from Store."}), 503
+
     if 'images' not in request.files:
         return jsonify({"error": "No images"}), 400
 
@@ -88,7 +106,7 @@ def process():
         t_load = time.perf_counter() - t0
 
         t1 = time.perf_counter()
-        output_image = remove(input_image, session=sess)
+        output_image = _rembg_remove(input_image, session=sess)
         t_infer = time.perf_counter() - t1
 
         t2 = time.perf_counter()
@@ -311,6 +329,11 @@ def get_ocr_reader():
 
 @app.route('/ocr', methods=['POST'])
 def ocr():
+    try:
+        get_ocr_reader()
+    except ImportError:
+        return jsonify({"error": "easyocr not installed. Install from Store."}), 503
+
     if 'file' not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
@@ -1527,6 +1550,41 @@ def watermark():
     except Exception as e:
         print(f"[Watermark] Error: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/tools/status', methods=['GET'])
+def tools_status():
+    """Report which tool backends have their deps satisfied."""
+    status = {}
+
+    # Remover: check if rembg is importable
+    try:
+        _ensure_rembg()
+        status['remover'] = True
+    except ImportError:
+        status['remover'] = False
+
+    # OCR: check if easyocr is importable
+    try:
+        import easyocr
+        status['ocr'] = True
+    except ImportError:
+        status['ocr'] = False
+
+    # Upscaler: check if binary exists
+    status['upscaler'] = find_realesrgan() is not None
+
+    # Converter: check if ffmpeg exists
+    status['converter'] = find_ffmpeg() is not None
+
+    # Default tools (Pillow, PyMuPDF, vtracer ship with app)
+    for tid in ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadata', 'watermark', 'palette']:
+        status[tid] = True
+
+    # Shelf is pure Electron
+    status['shelf'] = True
+
+    return jsonify(status)
 
 
 if __name__ == '__main__':

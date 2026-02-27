@@ -1,17 +1,22 @@
 
 import React, { DragEvent, useState, useEffect } from 'react';
-import { LayoutGrid, Settings, Info, Eraser, Plus, Power, Trash2, Minus, Store } from 'lucide-react';
+import { LayoutGrid, Settings, Info, Eraser, Plus, Power, Trash2, Minus, Store, Download, Loader2, AlertCircle, HardDrive, X } from 'lucide-react';
 import { ALL_TOOLS } from '../data/tools';
-import { ToolId } from '../types';
+import { REGISTRY_MAP, formatSize, ON_DEMAND_TOOL_IDS } from '../data/toolRegistry';
+import { ToolId, InstallProgress } from '../types';
 
 interface ToolsGalleryProps {
     activeToolIds: ToolId[];
+    installedToolIds: ToolId[];
+    installProgress: Record<string, InstallProgress>;
     onClose?: () => void;
     onDragStart: (toolId: ToolId) => void;
     onDragEnd?: () => void;
     onToolUninstall?: (toolId: ToolId) => void;
     onClearData?: () => void;
     onAddTool: (toolId: ToolId) => void;
+    onInstallTool: (toolId: ToolId) => void;
+    onUninstallTool: (toolId: ToolId) => void;
     isDockEnabled: boolean;
     onToggleDock: () => void;
     // Dock → Gallery removal overlay
@@ -23,10 +28,14 @@ type Tab = 'tools' | 'library' | 'settings' | 'about';
 
 export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
     activeToolIds,
+    installedToolIds,
+    installProgress,
     onDragStart,
     onDragEnd,
     onClearData,
     onAddTool,
+    onInstallTool,
+    onUninstallTool,
     onToolUninstall,
     isDockEnabled,
     onToggleDock,
@@ -200,38 +209,91 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
                                     <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4">
                                         {availableTools.map((tool) => {
                                             const Icon = tool.icon;
+                                            const isInstalled = installedToolIds.includes(tool.id);
+                                            const manifest = REGISTRY_MAP[tool.id];
+                                            const progress = installProgress[tool.id];
+                                            const isInstalling = progress?.status === 'installing';
+                                            const isError = progress?.status === 'error';
+
                                             return (
                                                 <div
                                                     key={tool.id}
-                                                    draggable
-                                                    onDragStart={(e) => handleDragStart(e, tool.id)}
-                                                    onDragEnd={handleDragEnd}
+                                                    draggable={isInstalled}
+                                                    onDragStart={isInstalled ? (e) => handleDragStart(e, tool.id) : undefined}
+                                                    onDragEnd={isInstalled ? handleDragEnd : undefined}
                                                     className={`
                                                         group relative flex flex-col items-center justify-center gap-3 p-4 rounded-xl
-                                                        bg-slate-800/40 border border-white/5 hover:bg-slate-700/50 hover:border-white/10
-                                                        transition-all cursor-grab active:cursor-grabbing
+                                                        transition-all
+                                                        ${isInstalled
+                                                            ? 'bg-slate-800/40 border border-white/5 hover:bg-slate-700/50 hover:border-white/10 cursor-grab active:cursor-grabbing'
+                                                            : 'bg-slate-800/20 border border-white/5 cursor-default'
+                                                        }
                                                     `}
                                                     title={tool.description}
                                                 >
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            onAddTool(tool.id);
-                                                        }}
-                                                        className="absolute top-2 left-2 p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500 text-indigo-300 hover:text-white transition-all hover:scale-110 border border-indigo-500/20 hover:border-transparent z-10"
-                                                        title="إضافة للشريط"
-                                                    >
-                                                        <Plus className="w-4 h-4" />
-                                                    </button>
+                                                    {/* Action button: (+) for installed, download for not installed */}
+                                                    {isInstalled ? (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onAddTool(tool.id);
+                                                            }}
+                                                            className="absolute top-2 left-2 p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500 text-indigo-300 hover:text-white transition-all hover:scale-110 border border-indigo-500/20 hover:border-transparent z-10"
+                                                            title="إضافة للشريط"
+                                                        >
+                                                            <Plus className="w-4 h-4" />
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (!isInstalling) onInstallTool(tool.id);
+                                                            }}
+                                                            disabled={isInstalling}
+                                                            className={`absolute top-2 left-2 p-1.5 rounded-lg transition-all border z-10 ${
+                                                                isInstalling
+                                                                    ? 'bg-slate-700/50 text-slate-500 border-slate-600 cursor-wait'
+                                                                    : isError
+                                                                        ? 'bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white border-red-500/20 hover:border-transparent hover:scale-110'
+                                                                        : 'bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-white border-emerald-500/20 hover:border-transparent hover:scale-110'
+                                                            }`}
+                                                            title={isError ? 'إعادة المحاولة' : `تحميل (${formatSize(manifest?.totalSizeBytes || 0)})`}
+                                                        >
+                                                            {isInstalling ? (
+                                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                            ) : isError ? (
+                                                                <AlertCircle className="w-4 h-4" />
+                                                            ) : (
+                                                                <Download className="w-4 h-4" />
+                                                            )}
+                                                        </button>
+                                                    )}
 
                                                     <div className={`
                                                         w-10 h-10 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center
-                                                        shadow-inner group-hover:scale-110 transition-transform duration-200
+                                                        shadow-inner transition-transform duration-200
+                                                        ${isInstalled ? 'group-hover:scale-110' : ''}
                                                     `}>
-                                                        <Icon className={`w-5 h-5 text-${tool.colorClass}-400`} />
+                                                        <Icon className={`w-5 h-5 text-${tool.colorClass}-400 ${!isInstalled && !isInstalling ? 'opacity-50' : ''}`} />
                                                     </div>
                                                     <div className="text-center">
-                                                        <div className="text-xs font-bold text-slate-300 group-hover:text-white">{tool.title}</div>
+                                                        <div className={`text-xs font-bold ${isInstalled ? 'text-slate-300 group-hover:text-white' : 'text-slate-500'}`}>{tool.title}</div>
+                                                        {/* Size label for not-installed tools */}
+                                                        {!isInstalled && !isInstalling && manifest && manifest.totalSizeBytes > 0 && (
+                                                            <div className="text-[10px] text-slate-600 mt-0.5">{formatSize(manifest.totalSizeBytes)}</div>
+                                                        )}
+                                                        {/* Progress bar when installing */}
+                                                        {isInstalling && progress && (
+                                                            <div className="w-full mt-1.5">
+                                                                <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+                                                                    <div className="h-full bg-emerald-500 transition-all duration-300 rounded-full" style={{ width: `${progress.progress}%` }} />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {/* Error message */}
+                                                        {isError && progress?.error && (
+                                                            <div className="text-[10px] text-red-400 mt-0.5 truncate max-w-[120px]">{progress.error}</div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             );
@@ -287,6 +349,55 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
                             </div>
 
 
+
+                            {/* Storage — On-demand tools only (default tools ship with app, can't be removed) */}
+                            {(() => {
+                                const installedTools = ALL_TOOLS.filter(t => installedToolIds.includes(t.id) && ON_DEMAND_TOOL_IDS.includes(t.id));
+                                const totalSize = installedTools.reduce((sum, t) => sum + (REGISTRY_MAP[t.id]?.totalSizeBytes || 0), 0);
+                                return installedTools.length > 0 ? (
+                                    <div className="bg-slate-800/30 border border-white/5 rounded-xl p-4">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-3 rounded-full bg-indigo-500/10 text-indigo-400">
+                                                <HardDrive className="w-5 h-5" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <h3 className="text-sm font-bold text-slate-200">الأدوات المثبتة</h3>
+                                                    {totalSize > 0 && <span className="text-[10px] text-slate-500">{formatSize(totalSize)} مستخدم</span>}
+                                                </div>
+                                                <p className="text-xs text-slate-400 mb-3">
+                                                    إزالة أداة سيحذف ملفاتها ويوفر مساحة تخزين.
+                                                </p>
+                                                <div className="space-y-2">
+                                                    {installedTools.map(tool => {
+                                                        const Icon = tool.icon;
+                                                        const manifest = REGISTRY_MAP[tool.id];
+                                                        const size = manifest?.totalSizeBytes || 0;
+                                                        return (
+                                                            <div key={tool.id} className="flex items-center gap-3 px-3 py-2 bg-slate-900/40 border border-white/5 rounded-lg">
+                                                                <Icon className={`w-4 h-4 text-${tool.colorClass}-400 shrink-0`} />
+                                                                <span className="text-xs font-medium text-slate-300 flex-1">{tool.title}</span>
+                                                                {size > 0 && <span className="text-[10px] text-slate-500 shrink-0">{formatSize(size)}</span>}
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (confirm(`هل تريد إزالة "${tool.title}"؟`)) {
+                                                                            onUninstallTool(tool.id);
+                                                                        }
+                                                                    }}
+                                                                    className="p-1 rounded-md bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white transition-all border border-red-500/20 hover:border-transparent shrink-0"
+                                                                    title="إزالة الأداة"
+                                                                >
+                                                                    <X className="w-3 h-3" />
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : null;
+                            })()}
 
                             {/* Clear Data */}
                             <div className="bg-slate-800/30 border border-white/5 rounded-xl p-4">

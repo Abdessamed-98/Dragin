@@ -4,7 +4,7 @@ import { useElectron } from '../hooks/useElectron';
 import { ToolId } from '../types';
 
 export const GalleryApp: React.FC = () => {
-    const { activeToolIds, isDockEnabled, dispatch, closeGallery, startToolDrag, endToolDrag, onDockToolDragActive, onDockToolDragEnd } = useElectron();
+    const { activeToolIds, installedToolIds, installProgress, isDockEnabled, dispatch, closeGallery, startToolDrag, endToolDrag, onDockToolDragActive, onDockToolDragEnd } = useElectron();
 
     const handleAddTool = (toolId: ToolId) => {
         dispatch('ADD_TOOL', toolId);
@@ -21,17 +21,19 @@ export const GalleryApp: React.FC = () => {
     return (
         <ToolsGallery
             activeToolIds={activeToolIds}
+            installedToolIds={installedToolIds}
+            installProgress={installProgress}
             onClose={closeGallery}
             onDragStart={(toolId) => {
-                // Send IPC to main process for cross-window drag coordination
                 startToolDrag(toolId);
             }}
             onDragEnd={() => {
-                // Notify main that gallery drag ended
                 endToolDrag();
             }}
             onToolUninstall={handleRemoveTool}
             onAddTool={handleAddTool}
+            onInstallTool={(toolId) => dispatch('INSTALL_TOOL', toolId)}
+            onUninstallTool={(toolId) => dispatch('UNINSTALL_TOOL', toolId)}
             isDockEnabled={isDockEnabled}
             onToggleDock={handleToggleDock}
             onClearData={() => dispatch('CLEAR_SESSIONS')}

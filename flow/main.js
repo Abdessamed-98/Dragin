@@ -222,13 +222,88 @@ ipcMain.on('native-drag-start', (event, { items }) => {
 
 // --- STATE MANAGEMENT ---
 const savedSettings = loadSettings();
+
+// Default tool IDs (lightweight, ship with app)
+const DEFAULT_TOOL_IDS = ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadata', 'watermark', 'palette', 'shelf'];
+// All known tool IDs (for migration)
+const ALL_TOOL_IDS = ['remover', 'compressor', 'shelf', 'converter', 'vectorizer', 'ocr', 'palette', 'cropper', 'upscaler', 'pdf', 'metadata', 'watermark'];
+
+// Determine installedToolIds with migration logic
+let initialInstalledToolIds;
+if (savedSettings && savedSettings.installedToolIds) {
+    // Returning user with installedToolIds already saved
+    initialInstalledToolIds = savedSettings.installedToolIds;
+} else if (savedSettings && savedSettings.activeToolIds) {
+    // Existing user upgrading — all tools were available before, mark all as installed
+    initialInstalledToolIds = ALL_TOOL_IDS;
+} else {
+    // Brand new user — only default tools
+    initialInstalledToolIds = [...DEFAULT_TOOL_IDS];
+}
+
+// Default tools ALWAYS count as installed (they ship with the app, no data to remove)
+for (const id of DEFAULT_TOOL_IDS) {
+    if (!initialInstalledToolIds.includes(id)) {
+        initialInstalledToolIds.push(id);
+    }
+}
+
 let state = {
-    activeToolIds: (savedSettings && savedSettings.activeToolIds) || ['remover', 'compressor', 'shelf'],
+    activeToolIds: (savedSettings && savedSettings.activeToolIds) || ['compressor', 'shelf', 'palette'],
+    installedToolIds: initialInstalledToolIds,
+    installProgress: {}, // { [toolId]: { toolId, status, progress, step, error } } — transient, not persisted
     sessions: {}, // { toolId: { id, items: [], status } }
     isDockEnabled: true,
     isGalleryOpen: false,
     isDockPinned: false
 };
+
+// --- TOOL INSTALLATION (mock for now) ---
+let activeInstalls = {};
+
+async function handleToolInstall(toolId) {
+    if (state.installedToolIds.includes(toolId)) return;
+    if (activeInstalls[toolId]) return;
+
+    activeInstalls[toolId] = true;
+    state.installProgress[toolId] = { toolId, status: 'installing', progress: 0, step: 'جاري التحضير...' };
+    broadcastState();
+
+    try {
+        // Mock: simulate download progress
+        const steps = [
+            { pct: 20, step: 'جاري التحميل...' },
+            { pct: 50, step: 'جاري التحميل...' },
+            { pct: 80, step: 'جاري التثبيت...' },
+            { pct: 100, step: 'اكتمل التثبيت' },
+        ];
+        for (const s of steps) {
+            await new Promise(r => setTimeout(r, 600));
+            state.installProgress[toolId] = { toolId, status: 'installing', progress: s.pct, step: s.step };
+            broadcastState();
+        }
+
+        // Mark as installed
+        state.installedToolIds.push(toolId);
+        state.installProgress[toolId] = { toolId, status: 'installed', progress: 100 };
+        persistSettings();
+        broadcastState();
+
+        // Clear progress after short delay
+        setTimeout(() => {
+            delete state.installProgress[toolId];
+            broadcastState();
+        }, 2000);
+    } catch (err) {
+        state.installProgress[toolId] = {
+            toolId, status: 'error', progress: 0,
+            error: err.message || 'فشل التثبيت'
+        };
+        broadcastState();
+    } finally {
+        delete activeInstalls[toolId];
+    }
+}
 
 // --- CROSS-WINDOW TOOL DRAG STATE ---
 let galleryDraggedToolId = null;  // Tool being dragged FROM gallery TO dock
@@ -242,9 +317,17 @@ function broadcastState() {
     });
 }
 
-// Save activeToolIds whenever they change
+// Persist tool state
+function persistSettings() {
+    saveSettings({
+        activeToolIds: state.activeToolIds,
+        installedToolIds: state.installedToolIds,
+    });
+}
+
+// Legacy alias
 function persistToolOrder() {
-    saveSettings({ activeToolIds: state.activeToolIds });
+    persistSettings();
 }
 
 // --- WINDOW MANAGEMENT ---
@@ -640,7 +723,8 @@ ipcMain.on('dispatch-action', (event, action) => {
     // Redux-like handler in Main
     switch (action.type) {
         case 'ADD_TOOL':
-            if (!state.activeToolIds.includes(action.payload)) {
+            // Only allow adding tools that are installed
+            if (state.installedToolIds.includes(action.payload) && !state.activeToolIds.includes(action.payload)) {
                 state.activeToolIds.push(action.payload);
                 broadcastState();
                 persistToolOrder();
@@ -650,6 +734,18 @@ ipcMain.on('dispatch-action', (event, action) => {
             state.activeToolIds = state.activeToolIds.filter(id => id !== action.payload);
             broadcastState();
             persistToolOrder();
+            break;
+        case 'INSTALL_TOOL':
+            handleToolInstall(action.payload);
+            break;
+        case 'UNINSTALL_TOOL':
+            // Only on-demand tools can be uninstalled (default tools ship with the app)
+            if (DEFAULT_TOOL_IDS.includes(action.payload)) break;
+            state.installedToolIds = state.installedToolIds.filter(id => id !== action.payload);
+            state.activeToolIds = state.activeToolIds.filter(id => id !== action.payload);
+            delete state.installProgress[action.payload];
+            broadcastState();
+            persistSettings();
             break;
         case 'REORDER_TOOLS':
             // Filter to only keep IDs that currently exist — prevents the race where

@@ -53,3 +53,15 @@ export interface DragState {
   isDragging: boolean;
   isNearRightEdge: boolean;
 }
+
+export type InstallStatus = 'not_installed' | 'installing' | 'installed' | 'error';
+
+export interface InstallProgress {
+  toolId: ToolId;
+  status: InstallStatus;
+  /** 0-100 */
+  progress: number;
+  /** Current step description */
+  step?: string;
+  error?: string;
+}
