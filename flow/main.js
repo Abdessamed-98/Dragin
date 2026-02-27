@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, ipcMain, shell, Menu, Tray, nativeImage, clipboard } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, shell, Menu, Tray, nativeImage, clipboard, powerMonitor } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -226,7 +226,8 @@ let state = {
     activeToolIds: (savedSettings && savedSettings.activeToolIds) || ['remover', 'compressor', 'shelf'],
     sessions: {}, // { toolId: { id, items: [], status } }
     isDockEnabled: true,
-    isGalleryOpen: false
+    isGalleryOpen: false,
+    isDockPinned: false
 };
 
 // --- CROSS-WINDOW TOOL DRAG STATE ---
@@ -405,49 +406,73 @@ app.whenReady().then(() => {
     const trayIcon = nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
     tray = new Tray(trayIcon.resize({ width: 16, height: 16 }));
     tray.setToolTip('Antigravity');
-    const trayMenu = Menu.buildFromTemplate([
-        {
-            label: 'الإعدادات',
-            click: () => createGalleryWindow()
-        },
-        { type: 'separator' },
-        {
-            label: 'إعادة تشغيل الشريط',
-            click: () => {
-                if (dockWindow && !dockWindow.isDestroyed()) {
-                    dockWindow.webContents.reload();
+
+    function buildTrayMenu() {
+        const menu = Menu.buildFromTemplate([
+            {
+                label: state.isDockPinned ? 'إخفاء الشريط' : 'إظهار الشريط',
+                click: () => {
+                    state.isDockPinned = !state.isDockPinned;
+                    broadcastState();
+                    buildTrayMenu();
                 }
-            }
-        },
-        {
-            label: 'DevTools',
-            click: () => {
-                if (dockWindow && !dockWindow.isDestroyed()) {
-                    // Force dock visible + interactive so devTools panel is usable
-                    dockWindow.setBounds({
-                        x: dockWindow.getBounds().x,
-                        y: 0,
-                        width: 600,
-                        height: dockWindow.getBounds().height
-                    }, false);
-                    dockWindow.setIgnoreMouseEvents(false);
-                    dockWindow.webContents.openDevTools({ mode: 'detach' });
+            },
+            {
+                label: 'الإعدادات',
+                click: () => createGalleryWindow()
+            },
+            { type: 'separator' },
+            {
+                label: 'إعادة تشغيل الشريط',
+                click: () => {
+                    if (dockWindow && !dockWindow.isDestroyed()) {
+                        dockWindow.webContents.reload();
+                    }
                 }
+            },
+            {
+                label: 'DevTools',
+                click: () => {
+                    if (dockWindow && !dockWindow.isDestroyed()) {
+                        // Force dock visible + interactive so devTools panel is usable
+                        dockWindow.setBounds({
+                            x: dockWindow.getBounds().x,
+                            y: 0,
+                            width: 600,
+                            height: dockWindow.getBounds().height
+                        }, false);
+                        dockWindow.setIgnoreMouseEvents(false);
+                        dockWindow.webContents.openDevTools({ mode: 'detach' });
+                    }
+                }
+            },
+            { type: 'separator' },
+            {
+                label: 'إنهاء',
+                click: () => app.quit()
             }
-        },
-        { type: 'separator' },
-        {
-            label: 'إنهاء',
-            click: () => app.quit()
-        }
-    ]);
-    tray.setContextMenu(trayMenu);
+        ]);
+        tray.setContextMenu(menu);
+    }
+
+    buildTrayMenu();
     tray.on('click', () => {
         createGalleryWindow();
     });
 
     // Start Mouse Hook
     uIOhook.start();
+
+    // Restart uIOhook after system sleep/wake — Windows drops native hooks on resume
+    powerMonitor.on('resume', () => {
+        isMouseDown = false; // missed the mouseup during sleep
+        dockMode = 'idle';
+        if (dockWindow && !dockWindow.isDestroyed()) {
+            dockWindow.setIgnoreMouseEvents(true, { forward: true });
+        }
+        try { uIOhook.stop(); } catch {}
+        uIOhook.start();
+    });
 
     // Start Python backend
     startPythonServer();

@@ -624,7 +624,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
             {/* ── Header ──────────────────────────────────────────── */}
             <div className="flex items-center px-4 py-3 border-b border-white/5 shrink-0">
                 <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-teal-400" />
+                    <FileText className="w-4 h-4 text-red-400" />
                     <span className="text-sm font-bold text-white">أدوات PDF</span>
                     {hasFiles && (
                         <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full text-slate-300">
@@ -665,14 +665,14 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                 flex-1 flex flex-col items-center justify-center gap-4 rounded-xl
                                 border-2 border-dashed transition-all duration-200 cursor-pointer
                                 ${isDragOver
-                                    ? 'border-teal-400 bg-teal-500/10 scale-[0.99]'
+                                    ? 'border-red-400 bg-red-500/10 scale-[0.99]'
                                     : 'border-slate-700 bg-slate-800/30 hover:border-slate-500 hover:bg-slate-800/50'
                                 }
                             `}
                         >
-                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-teal-500/20' : 'bg-slate-800'}`}>
+                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-red-500/20' : 'bg-slate-800'}`}>
                                 {isDragOver
-                                    ? <Upload className="w-8 h-8 text-teal-400" />
+                                    ? <Upload className="w-8 h-8 text-red-400" />
                                     : <FileText className="w-8 h-8 text-slate-500" />
                                 }
                             </div>
@@ -705,7 +705,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                             exit={{ opacity: 0 }}
                             className="flex-1 flex flex-col items-center justify-center gap-3"
                         >
-                            <Loader2 className="w-8 h-8 text-teal-400 animate-spin" />
+                            <Loader2 className="w-8 h-8 text-red-400 animate-spin" />
                             <p className="text-xs text-slate-400">جاري تحميل الملفات...</p>
                         </motion.div>
                     )}
@@ -732,7 +732,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                         onClick={() => { setActiveSubtool(s.id); setShowDownload(false); }}
                                         className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
                                             activeSubtool === s.id
-                                                ? 'bg-teal-600/20 text-teal-300 border-teal-500/30'
+                                                ? 'bg-red-600/20 text-red-300 border-red-500/30'
                                                 : 'bg-slate-800/60 text-slate-400 hover:text-white border-white/5 hover:border-white/10'
                                         }`}
                                     >
@@ -753,7 +753,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                                 onClick={() => setCompressPreset(preset)}
                                                 className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${
                                                     compressPreset === preset
-                                                        ? 'bg-teal-600 border-teal-500 text-white'
+                                                        ? 'bg-red-600 border-red-500 text-white'
                                                         : 'bg-slate-800 border-white/5 text-slate-400 hover:bg-slate-700 hover:text-white'
                                                 }`}
                                             >
@@ -775,7 +775,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                                 onClick={() => setConvertFormat(fmt)}
                                                 className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${
                                                     convertFormat === fmt
-                                                        ? 'bg-teal-600 border-teal-500 text-white'
+                                                        ? 'bg-red-600 border-red-500 text-white'
                                                         : 'bg-slate-800 border-white/5 text-slate-400 hover:bg-slate-700 hover:text-white'
                                                 }`}
                                             >
@@ -797,8 +797,8 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                         onClick={() => toggleFileSelection(pf.id)}
                                         className={`flex items-center gap-2 px-2 py-2 bg-slate-800/60 rounded-lg border transition-colors cursor-pointer group ${
                                             selectedFileIds.has(pf.id)
-                                                ? 'border-teal-400 ring-1 ring-teal-400/30'
-                                                : 'border-white/5 hover:border-teal-500/20'
+                                                ? 'border-red-400 ring-1 ring-red-400/30'
+                                                : 'border-white/5 hover:border-red-500/20'
                                         }`}
                                     >
                                         <GripVertical className="w-3.5 h-3.5 text-slate-600 cursor-grab shrink-0" />
@@ -806,10 +806,10 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                             {pf.thumbnailUrl ? (
                                                 <img src={pf.thumbnailUrl} className="w-full h-full object-contain" alt="" draggable={false} />
                                             ) : (
-                                                <FileText className="w-4 h-4 text-teal-400" />
+                                                <FileText className="w-4 h-4 text-red-400" />
                                             )}
                                             {selectedFileIds.has(pf.id) && (
-                                                <div className="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-teal-500 rounded-full flex items-center justify-center">
+                                                <div className="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-red-500 rounded-full flex items-center justify-center">
                                                     <Check className="w-2 h-2 text-white" />
                                                 </div>
                                             )}
@@ -841,7 +841,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                 className={`
                                     flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed cursor-pointer transition-all shrink-0
                                     ${isDragOver
-                                        ? 'border-teal-400 bg-teal-500/10'
+                                        ? 'border-red-400 bg-red-500/10'
                                         : 'border-slate-700 hover:border-slate-500 bg-slate-800/20 hover:bg-slate-800/40'
                                     }
                                 `}
@@ -874,9 +874,9 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                             className="flex-1 flex flex-col items-center justify-center gap-4"
                         >
                             <div className="relative">
-                                <div className="absolute inset-0 bg-teal-500 blur-2xl opacity-20 animate-pulse rounded-full" />
-                                <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-teal-500/20 flex items-center justify-center relative">
-                                    <Loader2 className="w-8 h-8 text-teal-400 animate-spin" />
+                                <div className="absolute inset-0 bg-red-500 blur-2xl opacity-20 animate-pulse rounded-full" />
+                                <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-red-500/20 flex items-center justify-center relative">
+                                    <Loader2 className="w-8 h-8 text-red-400 animate-spin" />
                                 </div>
                             </div>
                             <p className="text-sm font-semibold text-slate-200">{processingLabel}</p>
@@ -898,7 +898,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                             className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${
                                 cancelHover
                                     ? 'bg-red-600 hover:bg-red-500 text-white cursor-pointer'
-                                    : 'bg-teal-600/50 text-white/60'
+                                    : 'bg-red-600/50 text-white/60'
                             }`}
                         >
                             {cancelHover ? <><Ban className="w-4 h-4" />إلغاء</> : <><Loader2 className="w-4 h-4 animate-spin" />جاري المعالجة...</>}
@@ -915,7 +915,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                         <button
                             onClick={handleMerge}
                             disabled={pdfFiles.length < 2}
-                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-teal-600 hover:bg-teal-500 disabled:opacity-40 disabled:hover:bg-teal-600 text-white"
+                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:hover:bg-red-600 text-white"
                         >
                             <Layers className="w-4 h-4" />
                             دمج
@@ -923,7 +923,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                     ) : hasFiles && activeSubtool === 'organize' ? (
                         <button
                             onClick={handleOpenOrganize}
-                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-teal-600 hover:bg-teal-500 text-white"
+                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-red-600 hover:bg-red-500 text-white"
                         >
                             <LayoutGrid className="w-4 h-4" />
                             تنظيم
@@ -931,7 +931,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                     ) : hasFiles && activeSubtool === 'compress' ? (
                         <button
                             onClick={handleCompress}
-                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-teal-600 hover:bg-teal-500 text-white"
+                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-red-600 hover:bg-red-500 text-white"
                         >
                             <Minimize2 className="w-4 h-4" />
                             ضغط الملفات
@@ -939,7 +939,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                     ) : hasFiles && activeSubtool === 'convert' ? (
                         <button
                             onClick={handleConvert}
-                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-teal-600 hover:bg-teal-500 text-white"
+                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-red-600 hover:bg-red-500 text-white"
                         >
                             <FileOutput className="w-4 h-4" />
                             تحويل الملفات
@@ -1021,7 +1021,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                     {/* Organize header */}
                     <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 shrink-0">
                         <div className="flex items-center gap-2">
-                            <LayoutGrid className="w-4 h-4 text-teal-400" />
+                            <LayoutGrid className="w-4 h-4 text-red-400" />
                             <span className="text-sm font-bold text-white">تنظيم الصفحات</span>
                             <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full text-slate-300">
                                 {organizePages.length} صفحة
@@ -1040,7 +1040,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                             <button
                                 onClick={handleOrganizeSave}
                                 disabled={organizePages.length === 0 || isProcessing}
-                                className="px-3 py-1 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition-colors"
+                                className="px-3 py-1 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition-colors"
                             >
                                 حفظ
                             </button>
@@ -1062,7 +1062,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                     <div className="flex-1 overflow-y-auto p-3 min-h-0">
                         {isLoadingThumbnails && organizePages.length === 0 ? (
                             <div className="flex flex-col items-center justify-center gap-3 h-full">
-                                <Loader2 className="w-8 h-8 text-teal-400 animate-spin" />
+                                <Loader2 className="w-8 h-8 text-red-400 animate-spin" />
                                 <p className="text-xs text-slate-400">جاري تحميل الصفحات...</p>
                             </div>
                         ) : (
@@ -1079,8 +1079,8 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                             transition-all duration-150
                                             ${draggingPageId === page.id ? 'opacity-30' : ''}
                                             ${selectedPageIds.has(page.id)
-                                                ? 'border-teal-400 ring-1 ring-teal-400/50 bg-teal-500/10'
-                                                : 'border-white/10 bg-slate-800/50 hover:border-teal-500/30'
+                                                ? 'border-red-400 ring-1 ring-red-400/50 bg-red-500/10'
+                                                : 'border-white/10 bg-slate-800/50 hover:border-red-500/30'
                                             }
                                         `}
                                     >
@@ -1095,7 +1095,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                         </div>
                                         {/* Selection indicator */}
                                         {selectedPageIds.has(page.id) && (
-                                            <div className="absolute top-1 left-1 w-4 h-4 bg-teal-500 rounded-full flex items-center justify-center">
+                                            <div className="absolute top-1 left-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
                                                 <Check className="w-2.5 h-2.5 text-white" />
                                             </div>
                                         )}
@@ -1111,7 +1111,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                         onDrop={handleOrganizeFileDrop}
                     >
-                        <div className="h-12 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center hover:border-teal-500/30 transition-colors">
+                        <div className="h-12 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center hover:border-red-500/30 transition-colors">
                             <span className="text-[11px] text-slate-500">اسحب ملف PDF لإضافة صفحاته</span>
                         </div>
                     </div>
@@ -1120,7 +1120,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                     {pendingAddFile && (
                         <div className="absolute inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center">
                             <div className="bg-slate-800 rounded-xl p-5 max-w-[260px] text-center border border-white/10 shadow-2xl">
-                                <FileText className="w-8 h-8 text-teal-400 mx-auto mb-3" />
+                                <FileText className="w-8 h-8 text-red-400 mx-auto mb-3" />
                                 <p className="text-sm text-white font-semibold mb-1">إضافة صفحات</p>
                                 <p className="text-xs text-slate-400 mb-4 break-all">
                                     هل تريد إضافة صفحات من "{pendingAddFile.name}"؟
@@ -1128,7 +1128,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                 <div className="flex gap-2">
                                     <button
                                         onClick={handleConfirmAddFile}
-                                        className="flex-1 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-lg transition-colors"
+                                        className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg transition-colors"
                                     >
                                         إضافة
                                     </button>
@@ -1146,7 +1146,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                     {/* Processing overlay within organize */}
                     {isProcessing && (
                         <div className="absolute inset-0 z-[150] bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
-                            <Loader2 className="w-10 h-10 text-teal-400 animate-spin" />
+                            <Loader2 className="w-10 h-10 text-red-400 animate-spin" />
                             <p className="text-sm font-semibold text-slate-200">{processingLabel}</p>
                         </div>
                     )}
@@ -1178,7 +1178,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                         setShowServicePicker(false);
                                         if (s.id === 'organize') handleOpenOrganize();
                                     }}
-                                    className="flex flex-col items-center gap-2 p-3 rounded-xl bg-slate-700/50 hover:bg-teal-600/20 border border-white/5 hover:border-teal-500/30 text-slate-300 hover:text-teal-300 transition-all"
+                                    className="flex flex-col items-center gap-2 p-3 rounded-xl bg-slate-700/50 hover:bg-red-600/20 border border-white/5 hover:border-red-500/30 text-slate-300 hover:text-red-300 transition-all"
                                 >
                                     <s.Icon className="w-5 h-5" />
                                     <span className="text-xs font-bold">{s.label}</span>

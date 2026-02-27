@@ -1,7 +1,7 @@
 import os, sys, io, base64, subprocess, threading, uuid, tempfile, shutil, json, zipfile, time
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from PIL import Image
+from PIL import Image, ImageOps, ImageEnhance, ImageFilter
 from rembg import remove, new_session
 import vtracer
 import fitz  # PyMuPDF
@@ -191,6 +191,45 @@ def compress():
         print(f"Compression error: {e}")
         return jsonify({"error": str(e)}), 500
 
+def _preprocess_binary(img):
+    """
+    Flatten transparency → RGB distance-from-white threshold.
+    Uses Euclidean distance from pure white in RGB space so bright-coloured pixels
+    (yellow, light orange, cyan, etc.) are correctly kept as foreground — unlike
+    grayscale luminance which misclassifies them as near-white background.
+    """
+    # Composite transparent areas onto white background
+    white = Image.new('RGBA', img.size, (255, 255, 255, 255))
+    white.paste(img, mask=img.split()[3])
+    rgb = white.convert('RGB')
+
+    # Light blur to suppress JPEG/anti-aliasing noise before thresholding
+    rgb = rgb.filter(ImageFilter.GaussianBlur(radius=0.8))
+
+    arr = np.array(rgb, dtype=np.float32)
+    # Distance from pure white in RGB space — yellow (255,255,0) → dist≈255, white → 0
+    dist = np.sqrt(
+        (255 - arr[:, :, 0]) ** 2 +
+        (255 - arr[:, :, 1]) ** 2 +
+        (255 - arr[:, :, 2]) ** 2
+    )
+    # Pixels with distance > threshold are foreground (black), rest are background (white)
+    binary = np.where(dist > 50, 0, 255).astype(np.uint8)
+
+    result = Image.fromarray(binary, 'L').convert('RGBA')
+    return result
+
+def _preprocess_color(img):
+    """
+    Flatten transparency → slight saturation boost so vtracer's color
+    quantisation separates colours more cleanly.
+    """
+    white = Image.new('RGBA', img.size, (255, 255, 255, 255))
+    white.paste(img, mask=img.split()[3])
+    rgb = white.convert('RGB')
+    rgb = ImageEnhance.Color(rgb).enhance(1.4)   # boost saturation 40%
+    return rgb.convert('RGBA')
+
 @app.route('/vectorize', methods=['POST'])
 def vectorize():
     if 'image' not in request.files:
@@ -218,6 +257,12 @@ def vectorize():
 
         # Cap large images for performance (2000px max side)
         img.thumbnail((2000, 2000), Image.LANCZOS)
+
+        # Preprocess before vectorisation
+        if colormode == 'binary':
+            img = _preprocess_binary(img)
+        else:
+            img = _preprocess_color(img)
 
         png_buffer = io.BytesIO()
         img.save(png_buffer, format='PNG')

@@ -62,6 +62,9 @@ interface ToolWidgetProps {
     /** Palette tool: files forwarded from DockApp drop handler */
     paletteDroppedFiles?: File[];
     paletteDropGen?: number;
+    /** Vectorizer tool: files forwarded from DockApp drop handler */
+    vectorizerDroppedFiles?: File[];
+    vectorizerDropGen?: number;
     /** Clear signal — incremented when user confirms "clear all data" */
     clearGen?: number;
     /** Remover tool: processing options */
@@ -71,6 +74,8 @@ interface ToolWidgetProps {
     emptyHint?: string;
     emptySubHint?: string;
     formatLines?: string[];
+    /** Called when the self-contained tool's file count changes — lets DockApp keep the dock visible */
+    onSelfItemCountChange?: (count: number) => void;
 }
 
 // Extract a still frame from a video URL as a data-URL thumbnail
@@ -193,6 +198,8 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     watermarkDropGen,
     paletteDroppedFiles,
     paletteDropGen,
+    vectorizerDroppedFiles,
+    vectorizerDropGen,
     clearGen,
     removerOptions,
     onRemoverModeChange,
@@ -200,12 +207,16 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     emptyHint,
     emptySubHint,
     formatLines,
+    onSelfItemCountChange,
 }) => {
     const [isDragHover, setIsDragHover] = useState(false);
     const [cancelHover, setCancelHover] = useState(false);
     const [showOriginal, setShowOriginal] = useState(false);
     const [, forceUpdate] = useState(0);
     const [selfItemCount, setSelfItemCount] = useState(0); // count from self-contained tools (always mounted)
+
+    // Propagate self-contained item count up to DockApp for dock visibility
+    useEffect(() => { onSelfItemCountChange?.(selfItemCount); }, [selfItemCount, onSelfItemCountChange]);
 
     // Keep dimensions fresh when the Electron window is resized
     useEffect(() => {
@@ -220,8 +231,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     const [isPasting, setIsPasting] = useState(false);
     const [showPasteSuccess, setShowPasteSuccess] = useState(false);
     const [isCropping, setIsCropping] = useState(false); // Cropper specific state
-    const [isVectorizing, setIsVectorizing] = useState(false); // Vectorizer specific state
-    const [vectorSvgString, setVectorSvgString] = useState<string | null>(null);
     const [isCompressing, setIsCompressing] = useState(false); // Compressor specific state
     const [isBrushing, setIsBrushing] = useState(false); // Magic brush overlay for remover
 
@@ -243,7 +252,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     // Footer main-button state
     const anyProcessing = items.some(i => i.status === 'processing' || i.status === 'pending');
     const hasCompleted = items.some(i => i.status === 'completed');
-    const hasOverlay = id === 'cropper' || id === 'vectorizer' || id === 'compressor';
+    const hasOverlay = id === 'cropper' || id === 'compressor';
     const showSplit = isSingleCompleted && !isMultiple && hasOverlay;
 
     // Auto-enter crop mode if it's the cropper tool and we haven't processed yet (or just force it initially)
@@ -269,12 +278,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
             setIsCropping(true);
         } else {
             setIsCropping(false);
-        }
-        if (id === 'vectorizer' && activeSession?.items.length === 1) {
-            setIsVectorizing(true);
-            setVectorSvgString(null);
-        } else {
-            setIsVectorizing(false);
         }
         if (id === 'compressor' && activeSession?.items.length === 1) {
             setIsCompressing(true);
@@ -634,21 +637,10 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
         if (itemsToDownload.length === 1) {
             const item = itemsToDownload[0];
             if (item.processedUrl) {
-                // For vectorizer with SVG string, download the raw SVG
-                if (id === 'vectorizer' && vectorSvgString) {
-                    const svgBlob = new Blob([vectorSvgString], { type: 'image/svg+xml' });
-                    const svgUrl = URL.createObjectURL(svgBlob);
-                    const link = document.createElement('a');
-                    link.href = svgUrl;
-                    link.download = getOutputFileName(item.file.name, id);
-                    link.click();
-                    setTimeout(() => URL.revokeObjectURL(svgUrl), 1000);
-                } else {
-                    const link = document.createElement('a');
-                    link.href = item.processedUrl;
-                    link.download = getOutputFileName(item.file.name, id);
-                    link.click();
-                }
+                const link = document.createElement('a');
+                link.href = item.processedUrl;
+                link.download = getOutputFileName(item.file.name, id);
+                link.click();
             }
             return;
         }
@@ -792,22 +784,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         </div>
                     )}
 
-                    {/* Vectorizer overlay */}
-                    {id === 'vectorizer' && isVectorizing && singleItem && (
-                        <div className="absolute inset-0 z-50 rounded-2xl overflow-hidden">
-                            <VectorizerTool
-                                file={singleItem.file}
-                                originalUrl={singleItem.originalUrl}
-                                onSave={(svgDataUrl, svgStr) => {
-                                    if (onUpdateItem) onUpdateItem(singleItem.id, { processedUrl: svgDataUrl });
-                                    setVectorSvgString(svgStr);
-                                    setIsVectorizing(false);
-                                }}
-                                onCancel={() => setIsVectorizing(false)}
-                            />
-                        </div>
-                    )}
-
                     {/* Compressor overlay */}
                     {id === 'compressor' && isCompressing && singleItem?.status === 'completed' && singleItem.metadata && (
                         <div className="absolute inset-0 z-50 rounded-2xl overflow-hidden">
@@ -854,9 +830,8 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     )}
 
                     {/* Hide ToolWidget content when an overlay tool covers it */}
-                    {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark'].includes(id)
+                    {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark', 'vectorizer'].includes(id)
                         || (id === 'cropper' && isCropping)
-                        || (id === 'vectorizer' && isVectorizing)
                         || (id === 'compressor' && isCompressing)
                         || (id === 'remover' && isBrushing)) && (<>
                     <div className="flex items-center pb-3 border-b border-white/5 mb-3 shrink-0">
@@ -1107,15 +1082,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                         قص
                                     </button>
                                 )}
-                                {id === 'vectorizer' && (
-                                    <button
-                                        onClick={() => { setIsVectorizing(true); setVectorSvgString(null); }}
-                                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-rose-600 hover:bg-rose-500 text-white"
-                                    >
-                                        <PenTool className="w-4 h-4" />
-                                        Vector
-                                    </button>
-                                )}
                                 {id === 'compressor' && (
                                     <button
                                         onClick={() => setIsCompressing(true)}
@@ -1301,6 +1267,22 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         onClose={onClose}
                         droppedFiles={paletteDroppedFiles || []}
                         dropGeneration={paletteDropGen || 0}
+                        onItemCountChange={setSelfItemCount}
+                        clearGen={clearGen || 0}
+                    />
+                </motion.div>
+            )}
+            {id === 'vectorizer' && (
+                <motion.div
+                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
+                    animate={{ opacity: isActive ? 1 : 0 }}
+                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
+                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
+                >
+                    <VectorizerTool
+                        onClose={onClose}
+                        droppedFiles={vectorizerDroppedFiles || []}
+                        dropGeneration={vectorizerDropGen || 0}
                         onItemCountChange={setSelfItemCount}
                         clearGen={clearGen || 0}
                     />

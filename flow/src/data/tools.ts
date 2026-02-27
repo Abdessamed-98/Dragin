@@ -1,5 +1,5 @@
 
-import { Wand2, Minimize2, Archive, ArrowRightLeft, PenTool, ScanText, Palette, Crop, ImagePlus, FileText, ShieldAlert, Stamp } from 'lucide-react';
+import { Wand2, Minimize2, Archive, ArrowRightLeft, PenTool, ScanText, Palette, Crop, ImagePlus, FileText, ShieldAlert, Stamp, Layers } from 'lucide-react';
 import { ToolDefinition } from '../types';
 
 export const ALL_TOOLS: ToolDefinition[] = [
@@ -51,7 +51,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
     title: 'أدوات PDF',
     description: 'دمج وتنظيم وضغط ملفات PDF',
     icon: FileText,
-    colorClass: 'teal',
+    colorClass: 'red',
     emptyHint: 'اسحب ملفات PDF هنا',
     emptySubHint: 'دمج وتنظيم وضغط ملفات PDF',
     formatLines: ['مستندات: PDF'],
@@ -73,7 +73,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
     title: 'حذف البيانات',
     description: 'إزالة بيانات الموقع والخصوصية',
     icon: ShieldAlert,
-    colorClass: 'red',
+    colorClass: 'orange',
     emptyHint: 'اسحب ملفات هنا لحذف البيانات',
     emptySubHint: 'إزالة EXIF ومعلومات الكاميرا والموقع',
     formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF · GIF', 'مستندات: PDF'],

@@ -98,9 +98,12 @@ interface SideDockProps {
   watermarkDropGen?: number;
   paletteDroppedFiles?: File[];
   paletteDropGen?: number;
+  vectorizerDroppedFiles?: File[];
+  vectorizerDropGen?: number;
   clearGen?: number;
   removerOptions?: import('../services/api').RemoverOptions;
   onRemoverModeChange?: (mode: import('../services/api').RemoverMode) => void;
+  onSelfItemCountChange?: (toolId: ToolId, count: number) => void;
 }
 
 export const SideDock: React.FC<SideDockProps> = ({
@@ -139,9 +142,12 @@ export const SideDock: React.FC<SideDockProps> = ({
   watermarkDropGen,
   paletteDroppedFiles,
   paletteDropGen,
+  vectorizerDroppedFiles,
+  vectorizerDropGen,
   clearGen,
   removerOptions,
   onRemoverModeChange,
+  onSelfItemCountChange,
 }) => {
 
   // --- REORDER STATE ---
@@ -438,9 +444,12 @@ export const SideDock: React.FC<SideDockProps> = ({
                   watermarkDropGen={tool.id === 'watermark' ? watermarkDropGen : undefined}
                   paletteDroppedFiles={tool.id === 'palette' ? paletteDroppedFiles : undefined}
                   paletteDropGen={tool.id === 'palette' ? paletteDropGen : undefined}
+                  vectorizerDroppedFiles={tool.id === 'vectorizer' ? vectorizerDroppedFiles : undefined}
+                  vectorizerDropGen={tool.id === 'vectorizer' ? vectorizerDropGen : undefined}
                   clearGen={clearGen}
                   removerOptions={tool.id === 'remover' ? removerOptions : undefined}
                   onRemoverModeChange={tool.id === 'remover' ? onRemoverModeChange : undefined}
+                  onSelfItemCountChange={(count) => onSelfItemCountChange?.(tool.id, count)}
                 />
                 </ToolErrorBoundary>
 

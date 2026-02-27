@@ -7,6 +7,7 @@ interface AppState {
     sessions: Record<string, ActiveSession | undefined>;
     isDockEnabled: boolean;
     isGalleryOpen: boolean;
+    isDockPinned: boolean;
 }
 
 // Define the Electron Bridge interface (must match preload.js)
@@ -59,7 +60,8 @@ export const useElectron = () => {
         activeToolIds: ['remover', 'compressor', 'shelf'], // Default fallback
         sessions: {},
         isDockEnabled: true,
-        isGalleryOpen: false
+        isGalleryOpen: false,
+        isDockPinned: false
     });
 
     const [isHovered, setIsHovered] = useState(false);

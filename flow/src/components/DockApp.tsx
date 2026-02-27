@@ -70,7 +70,7 @@ class DockErrorBoundary extends Component<
 }
 
 const DockAppInner: React.FC = () => {
-    const { activeToolIds, isDockEnabled, isGalleryOpen, dispatch, setIgnoreMouseEvents, openGallery, resizeDock, sendDockMode, onExternalToolDrag, onExternalToolDragMove, onExternalToolDragEnd, startDockToolDrag, endDockToolDrag, shelfSave, shelfLoad, shelfDelete } = useElectron();
+    const { activeToolIds, isDockEnabled, isGalleryOpen, isDockPinned, dispatch, setIgnoreMouseEvents, openGallery, resizeDock, sendDockMode, onExternalToolDrag, onExternalToolDragMove, onExternalToolDragEnd, startDockToolDrag, endDockToolDrag, shelfSave, shelfLoad, shelfDelete } = useElectron();
 
     const [isDragging, setIsDragging] = useState(false);
     const [isToolDragging] = useState(false); // For internal reorder or from gallery (if across windows, tricky)
@@ -103,6 +103,10 @@ const DockAppInner: React.FC = () => {
     // Palette tool: forward dropped files via props (PaletteTool is self-contained)
     const [paletteDroppedFiles, setPaletteDroppedFiles] = useState<File[]>([]);
     const [paletteDropGen, setPaletteDropGen] = useState(0);
+
+    // Vectorizer tool: forward dropped files via props (VectorizerTool is self-contained)
+    const [vectorizerDroppedFiles, setVectorizerDroppedFiles] = useState<File[]>([]);
+    const [vectorizerDropGen, setVectorizerDropGen] = useState(0);
 
     // Remover tool: processing mode + per-mode result cache
     const [removerOptions, setRemoverOptions] = useState<RemoverOptions>({
@@ -182,7 +186,9 @@ const DockAppInner: React.FC = () => {
     const hasAnyFiles = Object.values(sessions).some(
         session => session != null && session.items.length > 0
     );
-    const isInteractionActive = expandedToolId !== null || isDragging || hasAnyFiles || isGalleryOpen || externalDragId !== null;
+    const [selfItemCounts, setSelfItemCounts] = useState<Partial<Record<string, number>>>({});
+    const anySelfHasFiles = Object.values(selfItemCounts).some(c => (c ?? 0) > 0);
+    const isInteractionActive = expandedToolId !== null || isDragging || hasAnyFiles || isGalleryOpen || isDockPinned || externalDragId !== null || anySelfHasFiles;
     const isVisible = isDockEnabled && isInteractionActive;
 
     // --- Dock diagnostics ---
@@ -332,7 +338,7 @@ const DockAppInner: React.FC = () => {
     }, [handleWindowDragOver, handleWindowDragLeave, handleWindowDrop, handleWindowDragEnd]);
 
     // Tools that only make sense with a single file (they open a full overlay UI)
-    const SINGLE_FILE_TOOLS = new Set<ToolId>(['compressor', 'cropper', 'vectorizer']);
+    const SINGLE_FILE_TOOLS = new Set<ToolId>(['compressor', 'cropper']);
 
     // --- Processing Logic ---
     const handleToolDrop = async (files: File[], toolId: ToolId) => {
@@ -382,6 +388,13 @@ const DockAppInner: React.FC = () => {
         if (toolId === 'palette') {
             setPaletteDroppedFiles(Array.from(files));
             setPaletteDropGen(g => g + 1);
+            return;
+        }
+
+        // Vectorizer tool is self-contained. Forward files via state props.
+        if (toolId === 'vectorizer') {
+            setVectorizerDroppedFiles(Array.from(files));
+            setVectorizerDropGen(g => g + 1);
             return;
         }
 
@@ -468,11 +481,6 @@ const DockAppInner: React.FC = () => {
                 case 'cropper': updates.processedUrl = await cropImage(file); break;
                 case 'metadata':
                 case 'watermark':
-                    updates.processedUrl = URL.createObjectURL(file);
-                    break;
-                case 'vectorizer':
-                    // Initial processing just returns original; actual vectorization
-                    // happens interactively in the VectorizerTool overlay
                     updates.processedUrl = URL.createObjectURL(file);
                     break;
                 default:
@@ -729,10 +737,12 @@ const DockAppInner: React.FC = () => {
                 watermarkDropGen={watermarkDropGen}
                 paletteDroppedFiles={paletteDroppedFiles}
                 paletteDropGen={paletteDropGen}
+                vectorizerDroppedFiles={vectorizerDroppedFiles}
+                vectorizerDropGen={vectorizerDropGen}
                 clearGen={clearGen}
                 removerOptions={removerOptions}
                 onRemoverModeChange={handleRemoverModeChange}
-                onCancelProcessing={() => handleCancelProcessing(tool.id)}
+                onSelfItemCountChange={(toolId, count) => setSelfItemCounts(prev => ({ ...prev, [toolId]: count }))}
             />
         </div>
     );
