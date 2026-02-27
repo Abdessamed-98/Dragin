@@ -226,7 +226,7 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
                                                         transition-all
                                                         ${isInstalled
                                                             ? 'bg-slate-800/40 border border-white/5 hover:bg-slate-700/50 hover:border-white/10 cursor-grab active:cursor-grabbing'
-                                                            : 'bg-slate-800/20 border border-white/5 cursor-default'
+                                                            : 'bg-slate-800/30 border border-white/5 hover:bg-slate-800/50 cursor-default'
                                                         }
                                                     `}
                                                     title={tool.description}
@@ -274,10 +274,10 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
                                                         shadow-inner transition-transform duration-200
                                                         ${isInstalled ? 'group-hover:scale-110' : ''}
                                                     `}>
-                                                        <Icon className={`w-5 h-5 text-${tool.colorClass}-400 ${!isInstalled && !isInstalling ? 'opacity-50' : ''}`} />
+                                                        <Icon className={`w-5 h-5 text-${tool.colorClass}-400 ${!isInstalled && !isInstalling ? 'opacity-75' : ''}`} />
                                                     </div>
                                                     <div className="text-center">
-                                                        <div className={`text-xs font-bold ${isInstalled ? 'text-slate-300 group-hover:text-white' : 'text-slate-500'}`}>{tool.title}</div>
+                                                        <div className={`text-xs font-bold ${isInstalled ? 'text-slate-300 group-hover:text-white' : 'text-slate-400'}`}>{tool.title}</div>
                                                         {/* Size label for not-installed tools */}
                                                         {!isInstalled && !isInstalling && manifest && manifest.totalSizeBytes > 0 && (
                                                             <div className="text-[10px] text-slate-600 mt-0.5">{formatSize(manifest.totalSizeBytes)}</div>

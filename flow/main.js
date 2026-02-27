@@ -1,7 +1,9 @@
 const { app, BrowserWindow, screen, ipcMain, shell, Menu, Tray, nativeImage, clipboard, powerMonitor } = require('electron');
 const { spawn } = require('child_process');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const JSZip = require('jszip');
 const uIOhook = require('uiohook-napi').uIOhook;
 
 let pyServer = null;
@@ -228,6 +230,15 @@ const DEFAULT_TOOL_IDS = ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadat
 // All known tool IDs (for migration)
 const ALL_TOOL_IDS = ['remover', 'compressor', 'shelf', 'converter', 'vectorizer', 'ocr', 'palette', 'cropper', 'upscaler', 'pdf', 'metadata', 'watermark'];
 
+// Download URLs for on-demand tools (mirrors toolRegistry.ts for main process)
+const TOOL_DOWNLOAD_URLS = {
+    remover:   'https://github.com/AnasDragin/flow-tools/releases/download/remover-v1/remover-win-x64.zip',
+    upscaler:  'https://github.com/AnasDragin/flow-tools/releases/download/upscaler-v1/upscaler-win-x64.zip',
+    ocr:       'https://github.com/AnasDragin/flow-tools/releases/download/ocr-v1/ocr-win-x64.zip',
+    converter: 'https://github.com/AnasDragin/flow-tools/releases/download/converter-v1/converter-win-x64.zip',
+};
+const ON_DEMAND_TOOL_IDS = Object.keys(TOOL_DOWNLOAD_URLS);
+
 // Determine installedToolIds with migration logic
 let initialInstalledToolIds;
 if (savedSettings && savedSettings.installedToolIds) {
@@ -258,34 +269,191 @@ let state = {
     isDockPinned: false
 };
 
-// --- TOOL INSTALLATION (mock for now) ---
-let activeInstalls = {};
+// --- TOOL INSTALLATION PATHS ---
+function getToolsDir() {
+    const dir = path.join(app.getPath('userData'), 'tools');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return dir;
+}
+
+function getToolDir(toolId) {
+    return path.join(getToolsDir(), toolId);
+}
+
+function getTempDir() {
+    const dir = path.join(getToolsDir(), '.tmp');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return dir;
+}
+
+function isToolDownloaded(toolId) {
+    return fs.existsSync(path.join(getToolDir(toolId), 'version.json'));
+}
+
+// --- DOWNLOAD HELPER ---
+/**
+ * Download a file from URL with redirect following and progress tracking.
+ * Streams to disk — safe for large files (100MB+).
+ */
+function downloadFile(url, destPath, onProgress, options = {}) {
+    return new Promise((resolve, reject) => {
+        const parsedUrl = new URL(url);
+        const reqOptions = {
+            hostname: parsedUrl.hostname,
+            path: parsedUrl.pathname + parsedUrl.search,
+            headers: { 'User-Agent': 'DraginFlow/1.0' },
+        };
+
+        const req = https.get(reqOptions, (res) => {
+            // Follow redirects (GitHub 302 → CDN)
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                res.resume();
+                downloadFile(res.headers.location, destPath, onProgress, options)
+                    .then(resolve).catch(reject);
+                return;
+            }
+
+            if (res.statusCode !== 200) {
+                res.resume();
+                reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+                return;
+            }
+
+            const totalBytes = parseInt(res.headers['content-length'], 10) || 0;
+            let downloadedBytes = 0;
+            const fileStream = fs.createWriteStream(destPath);
+
+            res.on('data', (chunk) => {
+                downloadedBytes += chunk.length;
+                if (totalBytes > 0) onProgress(downloadedBytes, totalBytes);
+            });
+
+            res.pipe(fileStream);
+
+            fileStream.on('finish', () => { fileStream.close(); resolve(); });
+            fileStream.on('error', (err) => {
+                try { fs.unlinkSync(destPath); } catch {}
+                reject(err);
+            });
+            res.on('error', (err) => {
+                fileStream.destroy();
+                try { fs.unlinkSync(destPath); } catch {}
+                reject(err);
+            });
+        });
+
+        req.on('error', (err) => {
+            try { fs.unlinkSync(destPath); } catch {}
+            reject(err);
+        });
+
+        // Cancellation support
+        if (options.signal) {
+            options.signal.addEventListener('abort', () => {
+                req.destroy();
+                try { fs.unlinkSync(destPath); } catch {}
+                reject(new Error('Download cancelled'));
+            }, { once: true });
+        }
+    });
+}
+
+// --- ZIP EXTRACTION HELPER ---
+async function extractZip(zipPath, targetDir, onProgress) {
+    const data = fs.readFileSync(zipPath);
+    const zip = await JSZip.loadAsync(data);
+
+    const entries = Object.keys(zip.files);
+    const fileEntries = entries.filter(name => !zip.files[name].dir);
+    let extracted = 0;
+
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    for (const entryName of entries) {
+        const entry = zip.files[entryName];
+        const entryPath = path.join(targetDir, entryName);
+
+        // Zip-slip protection
+        if (!path.resolve(entryPath).startsWith(path.resolve(targetDir))) {
+            console.warn(`[Install] Skipping suspicious zip entry: ${entryName}`);
+            continue;
+        }
+
+        if (entry.dir) {
+            fs.mkdirSync(entryPath, { recursive: true });
+        } else {
+            fs.mkdirSync(path.dirname(entryPath), { recursive: true });
+            const content = await entry.async('nodebuffer');
+            fs.writeFileSync(entryPath, content);
+            extracted++;
+            onProgress(extracted, fileEntries.length);
+        }
+    }
+}
+
+// --- TOOL INSTALLATION (real download + extract) ---
+let activeInstalls = {}; // { [toolId]: AbortController }
 
 async function handleToolInstall(toolId) {
     if (state.installedToolIds.includes(toolId)) return;
     if (activeInstalls[toolId]) return;
 
-    activeInstalls[toolId] = true;
+    const downloadUrl = TOOL_DOWNLOAD_URLS[toolId];
+    if (!downloadUrl) {
+        console.error(`[Install] No download URL for tool: ${toolId}`);
+        return;
+    }
+
+    const abortController = new AbortController();
+    activeInstalls[toolId] = abortController;
+
+    const toolDir = getToolDir(toolId);
+    const tempPath = path.join(getTempDir(), `${toolId}-${Date.now()}.zip`);
+
     state.installProgress[toolId] = { toolId, status: 'installing', progress: 0, step: 'جاري التحضير...' };
     broadcastState();
 
     try {
-        // Mock: simulate download progress
-        const steps = [
-            { pct: 20, step: 'جاري التحميل...' },
-            { pct: 50, step: 'جاري التحميل...' },
-            { pct: 80, step: 'جاري التثبيت...' },
-            { pct: 100, step: 'اكتمل التثبيت' },
-        ];
-        for (const s of steps) {
-            await new Promise(r => setTimeout(r, 600));
-            state.installProgress[toolId] = { toolId, status: 'installing', progress: s.pct, step: s.step };
+        // --- Phase 1: Download (0% → 70%) ---
+        let lastBroadcast = 0;
+        await downloadFile(downloadUrl, tempPath, (downloaded, total) => {
+            const now = Date.now();
+            if (now - lastBroadcast < 100) return; // Throttle: max 10 updates/sec
+            lastBroadcast = now;
+            const pct = Math.round((downloaded / total) * 70);
+            state.installProgress[toolId] = { toolId, status: 'installing', progress: pct, step: 'جاري التحميل...' };
             broadcastState();
-        }
+        }, { signal: abortController.signal });
+
+        // --- Phase 2: Extract (70% → 95%) ---
+        state.installProgress[toolId] = { toolId, status: 'installing', progress: 70, step: 'جاري التثبيت...' };
+        broadcastState();
+
+        // Clean previous partial extraction
+        if (fs.existsSync(toolDir)) fs.rmSync(toolDir, { recursive: true, force: true });
+
+        await extractZip(tempPath, toolDir, (extracted, total) => {
+            const pct = 70 + Math.round((extracted / total) * 25);
+            state.installProgress[toolId] = { toolId, status: 'installing', progress: pct, step: 'جاري التثبيت...' };
+            broadcastState();
+        });
+
+        // --- Phase 3: Finalize (95% → 100%) ---
+        fs.writeFileSync(path.join(toolDir, 'version.json'), JSON.stringify({
+            toolId,
+            version: downloadUrl.match(/download\/([^/]+)\//)?.[1] || 'unknown',
+            downloadUrl,
+            installedAt: new Date().toISOString(),
+            platform: process.platform,
+            arch: process.arch,
+        }, null, 2), 'utf-8');
+
+        // Cleanup temp
+        try { fs.unlinkSync(tempPath); } catch {}
 
         // Mark as installed
         state.installedToolIds.push(toolId);
-        state.installProgress[toolId] = { toolId, status: 'installed', progress: 100 };
+        state.installProgress[toolId] = { toolId, status: 'installed', progress: 100, step: 'اكتمل التثبيت' };
         persistSettings();
         broadcastState();
 
@@ -294,12 +462,30 @@ async function handleToolInstall(toolId) {
             delete state.installProgress[toolId];
             broadcastState();
         }, 2000);
+
     } catch (err) {
+        console.error(`[Install] Failed for ${toolId}:`, err.message);
+
+        // Cleanup partial downloads and extractions
+        try { fs.unlinkSync(tempPath); } catch {}
+        if (fs.existsSync(toolDir)) {
+            try { fs.rmSync(toolDir, { recursive: true, force: true }); } catch {}
+        }
+
+        const isCancelled = err.message === 'Download cancelled';
         state.installProgress[toolId] = {
             toolId, status: 'error', progress: 0,
-            error: err.message || 'فشل التثبيت'
+            step: isCancelled ? 'تم الإلغاء' : undefined,
+            error: isCancelled ? 'تم إلغاء التحميل' : (err.message || 'فشل التثبيت'),
         };
         broadcastState();
+
+        if (isCancelled) {
+            setTimeout(() => {
+                delete state.installProgress[toolId];
+                broadcastState();
+            }, 2000);
+        }
     } finally {
         delete activeInstalls[toolId];
     }
@@ -478,6 +664,20 @@ const createGalleryWindow = () => {
 
 // --- APP LIFECYCLE ---
 app.whenReady().then(() => {
+    // --- Startup: verify on-demand tools exist on disk ---
+    state.installedToolIds = state.installedToolIds.filter(id => {
+        if (DEFAULT_TOOL_IDS.includes(id)) return true;           // default: always keep
+        if (!ON_DEMAND_TOOL_IDS.includes(id)) return true;        // unknown: keep (forward compat)
+        return isToolDownloaded(id);                               // on-demand: verify version.json exists
+    });
+    persistSettings();
+
+    // Clean up stale temp files from crashed installs
+    try {
+        const tmpDir = path.join(app.getPath('userData'), 'tools', '.tmp');
+        if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+
     createMenu();
     createDockWindow();
 
@@ -738,14 +938,39 @@ ipcMain.on('dispatch-action', (event, action) => {
         case 'INSTALL_TOOL':
             handleToolInstall(action.payload);
             break;
-        case 'UNINSTALL_TOOL':
+        case 'UNINSTALL_TOOL': {
             // Only on-demand tools can be uninstalled (default tools ship with the app)
             if (DEFAULT_TOOL_IDS.includes(action.payload)) break;
+
+            // Cancel active download if in progress
+            if (activeInstalls[action.payload]) {
+                activeInstalls[action.payload].abort();
+            }
+
+            // Remove from state
             state.installedToolIds = state.installedToolIds.filter(id => id !== action.payload);
             state.activeToolIds = state.activeToolIds.filter(id => id !== action.payload);
             delete state.installProgress[action.payload];
+
+            // Delete extracted tool directory
+            const toolDir = getToolDir(action.payload);
+            if (fs.existsSync(toolDir)) {
+                try {
+                    fs.rmSync(toolDir, { recursive: true, force: true });
+                    console.log(`[Install] Uninstalled ${action.payload}: deleted ${toolDir}`);
+                } catch (err) {
+                    console.error(`[Install] Failed to delete ${toolDir}:`, err);
+                }
+            }
+
             broadcastState();
             persistSettings();
+            break;
+        }
+        case 'CANCEL_INSTALL':
+            if (activeInstalls[action.payload]) {
+                activeInstalls[action.payload].abort();
+            }
             break;
         case 'REORDER_TOOLS':
             // Filter to only keep IDs that currently exist — prevents the race where
