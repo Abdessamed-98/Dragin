@@ -3,7 +3,6 @@ const { spawn } = require('child_process');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const JSZip = require('jszip');
 const uIOhook = require('uiohook-napi').uIOhook;
 
 let pyServer = null;
@@ -360,37 +359,27 @@ function downloadFile(url, destPath, onProgress, options = {}) {
     });
 }
 
-// --- ZIP EXTRACTION HELPER ---
-async function extractZip(zipPath, targetDir, onProgress) {
-    const data = fs.readFileSync(zipPath);
-    const zip = await JSZip.loadAsync(data);
+// --- ZIP EXTRACTION HELPER (streams via PowerShell — no memory bloat) ---
+function extractZip(zipPath, targetDir, onProgress) {
+    return new Promise((resolve, reject) => {
+        fs.mkdirSync(targetDir, { recursive: true });
+        onProgress(0, 1);
 
-    const entries = Object.keys(zip.files);
-    const fileEntries = entries.filter(name => !zip.files[name].dir);
-    let extracted = 0;
+        const ps = spawn('powershell', [
+            '-NoProfile', '-Command',
+            `Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${targetDir.replace(/'/g, "''")}' -Force`
+        ]);
 
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    for (const entryName of entries) {
-        const entry = zip.files[entryName];
-        const entryPath = path.join(targetDir, entryName);
-
-        // Zip-slip protection
-        if (!path.resolve(entryPath).startsWith(path.resolve(targetDir))) {
-            console.warn(`[Install] Skipping suspicious zip entry: ${entryName}`);
-            continue;
-        }
-
-        if (entry.dir) {
-            fs.mkdirSync(entryPath, { recursive: true });
-        } else {
-            fs.mkdirSync(path.dirname(entryPath), { recursive: true });
-            const content = await entry.async('nodebuffer');
-            fs.writeFileSync(entryPath, content);
-            extracted++;
-            onProgress(extracted, fileEntries.length);
-        }
-    }
+        ps.on('error', reject);
+        ps.on('close', (code) => {
+            if (code === 0) {
+                onProgress(1, 1);
+                resolve();
+            } else {
+                reject(new Error(`Expand-Archive exited with code ${code}`));
+            }
+        });
+    });
 }
 
 // --- TOOL INSTALLATION (real download + extract) ---

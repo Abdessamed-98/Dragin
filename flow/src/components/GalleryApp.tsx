@@ -33,6 +33,7 @@ export const GalleryApp: React.FC = () => {
             onToolUninstall={handleRemoveTool}
             onAddTool={handleAddTool}
             onInstallTool={(toolId) => dispatch('INSTALL_TOOL', toolId)}
+            onCancelInstall={(toolId) => dispatch('CANCEL_INSTALL', toolId)}
             onUninstallTool={(toolId) => dispatch('UNINSTALL_TOOL', toolId)}
             isDockEnabled={isDockEnabled}
             onToggleDock={handleToggleDock}
