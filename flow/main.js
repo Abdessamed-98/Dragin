@@ -79,7 +79,11 @@ function startPythonServer() {
     console.log(`[Python] Starting backend from: ${executablePath}`);
 
     pyServer = spawn(executablePath, args, {
-        env: { ...process.env, DRAGIN_TOOLS_DIR: getToolsDir() },
+        env: {
+            ...process.env,
+            DRAGIN_TOOLS_DIR: getToolsDir(),
+            ...(app.isPackaged ? {} : { DRAGIN_DEV_MEMORY_LOG: '1' }),
+        },
     });
 
     pyServer.stdout.on('data', (data) => console.log(`[Python] ${data}`));
@@ -668,6 +672,14 @@ app.whenReady().then(() => {
         const tmpDir = path.join(app.getPath('userData'), 'tools', '.tmp');
         if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch {}
+
+    // --- Dev-only memory logger (stripped in production) ---
+    if (!app.isPackaged) {
+        setInterval(() => {
+            const mem = process.memoryUsage();
+            console.log(`[Memory:Main] RSS: ${(mem.rss / 1024 / 1024).toFixed(0)}MB | Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(0)}/${(mem.heapTotal / 1024 / 1024).toFixed(0)}MB | External: ${(mem.external / 1024 / 1024).toFixed(0)}MB`);
+        }, 30000);
+    }
 
     createMenu();
     createDockWindow();

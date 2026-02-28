@@ -187,6 +187,12 @@ const DockAppInner: React.FC = () => {
         session => session != null && session.items.length > 0
     );
     const [selfItemCounts, setSelfItemCounts] = useState<Partial<Record<string, number>>>({});
+    const handleSelfItemCountChange = useCallback((toolId: string, count: number) => {
+        setSelfItemCounts(prev => {
+            if (prev[toolId] === count) return prev; // no-op: skip re-render if unchanged
+            return { ...prev, [toolId]: count };
+        });
+    }, []);
     const anySelfHasFiles = Object.values(selfItemCounts).some(c => (c ?? 0) > 0);
     const isInteractionActive = expandedToolId !== null || isDragging || hasAnyFiles || isGalleryOpen || isDockPinned || externalDragId !== null || anySelfHasFiles;
     const isVisible = isDockEnabled && isInteractionActive;
@@ -742,7 +748,7 @@ const DockAppInner: React.FC = () => {
                 clearGen={clearGen}
                 removerOptions={removerOptions}
                 onRemoverModeChange={handleRemoverModeChange}
-                onSelfItemCountChange={(toolId, count) => setSelfItemCounts(prev => ({ ...prev, [toolId]: count }))}
+                onSelfItemCountChange={handleSelfItemCountChange}
             />
         </div>
     );

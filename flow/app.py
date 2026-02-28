@@ -1622,4 +1622,14 @@ def tools_status():
 
 
 if __name__ == '__main__':
+    # Dev-only memory logger
+    if os.environ.get('DRAGIN_DEV_MEMORY_LOG'):
+        import psutil
+        def _mem_log():
+            p = psutil.Process()
+            while True:
+                m = p.memory_info()
+                print(f"[Memory:Python] RSS: {m.rss // 1024 // 1024}MB | VMS: {m.vms // 1024 // 1024}MB", flush=True)
+                threading.Event().wait(30)
+        threading.Thread(target=_mem_log, daemon=True).start()
     app.run(port=5000)
