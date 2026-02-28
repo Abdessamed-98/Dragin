@@ -42,4 +42,7 @@ contextBridge.exposeInMainWorld('electron', {
     clipboardWrite: (items) => ipcRenderer.invoke('clipboard:write', items),
     // Read clipboard — returns image data or Explorer-copied files
     clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
+
+    // --- LOGS ---
+    openLogsFolder: () => ipcRenderer.invoke('OPEN_LOGS_FOLDER'),
 });

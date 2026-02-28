@@ -1,6 +1,6 @@
 
-import React, { DragEvent, useState, useEffect } from 'react';
-import { LayoutGrid, Settings, Info, Eraser, Plus, Power, Trash2, Minus, Store, Download, Loader2, AlertCircle, HardDrive, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { LayoutGrid, Settings, Info, Eraser, Plus, Power, Trash2, Minus, Store, Download, Loader2, AlertCircle, HardDrive, X, FolderOpen } from 'lucide-react';
 import { ALL_TOOLS } from '../data/tools';
 import { REGISTRY_MAP, formatSize, ON_DEMAND_TOOL_IDS } from '../data/toolRegistry';
 import { ToolId, InstallProgress } from '../types';
@@ -10,10 +10,9 @@ interface ToolsGalleryProps {
     installedToolIds: ToolId[];
     installProgress: Record<string, InstallProgress>;
     onClose?: () => void;
-    onDragStart: (toolId: ToolId) => void;
-    onDragEnd?: () => void;
     onToolUninstall?: (toolId: ToolId) => void;
     onClearData?: () => void;
+    onOpenLogs?: () => void;
     onAddTool: (toolId: ToolId) => void;
     onInstallTool: (toolId: ToolId) => void;
     onCancelInstall: (toolId: ToolId) => void;
@@ -31,9 +30,8 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
     activeToolIds,
     installedToolIds,
     installProgress,
-    onDragStart,
-    onDragEnd,
     onClearData,
+    onOpenLogs,
     onAddTool,
     onInstallTool,
     onCancelInstall,
@@ -67,18 +65,6 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
 
     // Find the tool being dragged from dock for display
     const draggedTool = dockDragToolId ? ALL_TOOLS.find(t => t.id === dockDragToolId) : null;
-
-    const handleDragStart = (e: DragEvent, toolId: ToolId) => {
-        e.dataTransfer.setData('application/x-smart-tool-install', toolId);
-        e.dataTransfer.effectAllowed = 'copy';
-
-        // Notify main process for cross-window drag coordination
-        onDragStart(toolId);
-    };
-
-    const handleDragEnd = () => {
-        onDragEnd?.();
-    };
 
     return (
         <div className="w-full h-screen bg-slate-900 text-slate-200 overflow-hidden flex flex-col relative">
@@ -220,14 +206,11 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
                                             return (
                                                 <div
                                                     key={tool.id}
-                                                    draggable={isInstalled}
-                                                    onDragStart={isInstalled ? (e) => handleDragStart(e, tool.id) : undefined}
-                                                    onDragEnd={isInstalled ? handleDragEnd : undefined}
                                                     className={`
                                                         group relative flex flex-col items-center justify-center gap-3 p-4 rounded-xl h-[120px]
                                                         transition-all
                                                         ${isInstalled
-                                                            ? 'bg-slate-800/40 border border-white/5 hover:bg-slate-700/50 hover:border-white/10 cursor-grab active:cursor-grabbing'
+                                                            ? 'bg-slate-800/40 border border-white/5 hover:bg-slate-700/50 hover:border-white/10 cursor-default'
                                                             : 'bg-slate-800/30 border border-white/5 hover:bg-slate-800/50 cursor-default'
                                                         }
                                                     `}
@@ -416,6 +399,27 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Open Logs */}
+                            <div className="bg-slate-800/30 border border-white/5 rounded-xl p-4">
+                                <div className="flex items-start gap-4">
+                                    <div className="p-3 rounded-full bg-slate-500/10 text-slate-400">
+                                        <FolderOpen className="w-5 h-5" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h3 className="text-sm font-bold text-slate-200">سجل التطبيق</h3>
+                                        <p className="text-xs text-slate-400 mt-1 mb-3">
+                                            افتح مجلد السجلات لمشاركتها عند الإبلاغ عن مشكلة.
+                                        </p>
+                                        <button
+                                            onClick={() => onOpenLogs?.()}
+                                            className="px-4 py-2 bg-slate-700/40 hover:bg-slate-700/60 text-slate-200 text-xs font-bold rounded-lg border border-slate-500/20 transition-colors"
+                                        >
+                                            فتح سجل التطبيق
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -426,44 +430,27 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
                             {/* App info */}
                             <div className="flex flex-col items-center text-center">
                                 <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-2xl shadow-indigo-500/20 mb-6">
-                                    <span className="text-3xl font-bold text-white">OS</span>
+                                    <span className="text-3xl font-bold text-white">DF</span>
                                 </div>
-                                <h2 className="text-2xl font-bold text-white">Mock OS Utilities</h2>
+                                <h2 className="text-2xl font-bold text-white">Dragin Flow</h2>
                                 <p className="text-slate-400 text-sm mt-2 max-w-xs mx-auto">
-                                    مجموعة أدوات ذكية تعمل محلياً لتحسين الإنتاجية.
+                                    شريط أدوات ذكي لمعالجة الملفات بالسحب والإفلات.
                                 </p>
-                                <div className="mt-4 flex flex-col gap-2 items-center">
-                                    <span className="text-xs text-slate-500 bg-slate-900/50 px-3 py-1 rounded-full border border-white/5">Version 1.0.0 (Beta)</span>
-                                    <span className="text-xs text-slate-600">Built with React & Tailwind</span>
-                                </div>
+                                <span className="mt-4 text-xs text-slate-500 bg-slate-900/50 px-3 py-1 rounded-full border border-white/5">1.0.0 Beta</span>
                             </div>
 
                             {/* Divider */}
                             <div className="border-t border-white/5" />
 
-                            {/* Open source licenses */}
-                            <div>
-                                <h3 className="text-sm font-bold text-slate-300 mb-3">مكتبات مفتوحة المصدر</h3>
-                                <div className="space-y-2">
+                            {/* Open source acknowledgements — compact inline list */}
+                            <div className="text-center">
+                                <h3 className="text-xs font-medium text-slate-500 mb-2">مكتبات مفتوحة المصدر</h3>
+                                <p className="text-[11px] text-slate-600 leading-relaxed">
                                     {[
-                                        { name: 'rembg (BiRefNet / ISNet)', purpose: 'حذف الخلفية', license: 'Apache 2.0 / MIT', url: 'https://github.com/danielgatis/rembg' },
-                                        { name: 'EasyOCR', purpose: 'استخراج النص', license: 'Apache 2.0', url: 'https://github.com/JaidedAI/EasyOCR' },
-                                        { name: 'vtracer', purpose: 'تحويل لـ Vector', license: 'MIT', url: 'https://github.com/visioncortex/vtracer' },
-                                        { name: 'PyMuPDF (fitz)', purpose: 'أدوات PDF', license: 'AGPL-3.0', url: 'https://github.com/pymupdf/PyMuPDF' },
-                                        { name: 'FFmpeg', purpose: 'تحويل الفيديو والصوت', license: 'LGPL-2.1+', url: 'https://ffmpeg.org' },
-                                        { name: 'Real-ESRGAN (ncnn-vulkan)', purpose: 'رفع دقة الصور', license: 'BSD-3-Clause', url: 'https://github.com/xinntao/Real-ESRGAN' },
-                                        { name: 'pdf2docx', purpose: 'تحويل PDF إلى Word', license: 'GPL-3.0', url: 'https://github.com/ArtifexSoftware/pdf2docx' },
-                                        { name: 'python-pptx', purpose: 'تحويل PDF إلى PowerPoint', license: 'MIT', url: 'https://github.com/scanny/python-pptx' },
-                                    ].map((lib) => (
-                                        <div key={lib.name} className="flex items-center justify-between px-4 py-3 bg-slate-800/30 border border-white/5 rounded-xl">
-                                            <div>
-                                                <div className="text-xs font-bold text-slate-300">{lib.name}</div>
-                                                <div className="text-xs text-slate-500 mt-0.5">{lib.purpose}</div>
-                                            </div>
-                                            <span className="text-xs text-slate-400 bg-slate-900/60 px-2 py-1 rounded-md border border-white/5 shrink-0">{lib.license}</span>
-                                        </div>
-                                    ))}
-                                </div>
+                                        'rembg', 'BiRefNet', 'ISNet', 'EasyOCR', 'vtracer',
+                                        'PyMuPDF', 'FFmpeg', 'Real-ESRGAN', 'pdf2docx', 'python-pptx',
+                                    ].join(' \u00B7 ')}
+                                </p>
                             </div>
 
                         </div>

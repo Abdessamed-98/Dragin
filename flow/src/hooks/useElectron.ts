@@ -49,6 +49,9 @@ interface ElectronBridge {
     // System clipboard — CF_HDROP based (works like Windows Explorer)
     clipboardWrite: (items: Array<{ dataUrl: string; name: string }>) => Promise<boolean>;
     clipboardRead: () => Promise<Array<{ dataUrl: string; name: string }>>;
+
+    // Logs
+    openLogsFolder: () => Promise<void>;
 }
 
 declare global {
@@ -174,6 +177,10 @@ export const useElectron = () => {
         return Promise.resolve();
     }, []);
 
+    const openLogsFolder = useCallback(() => {
+        window.electron?.openLogsFolder();
+    }, []);
+
     return {
         ...state,
         isHovered, // From Main Process uIOhook
@@ -199,5 +206,7 @@ export const useElectron = () => {
         shelfSave,
         shelfLoad,
         shelfDelete,
+        // Logs
+        openLogsFolder,
     };
 };

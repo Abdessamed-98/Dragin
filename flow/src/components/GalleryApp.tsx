@@ -1,10 +1,19 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ToolsGallery } from './ToolsGallery';
 import { useElectron } from '../hooks/useElectron';
 import { ToolId } from '../types';
 
 export const GalleryApp: React.FC = () => {
-    const { activeToolIds, installedToolIds, installProgress, isDockEnabled, dispatch, closeGallery, startToolDrag, endToolDrag, onDockToolDragActive, onDockToolDragEnd } = useElectron();
+    const { activeToolIds, installedToolIds, installProgress, isDockEnabled, dispatch, closeGallery, onDockToolDragActive, onDockToolDragEnd, openLogsFolder } = useElectron();
+
+    // Hide splash screen once React has rendered
+    useEffect(() => {
+        const splash = document.getElementById('splash');
+        if (splash) {
+            splash.classList.add('hide');
+            setTimeout(() => splash.remove(), 300);
+        }
+    }, []);
 
     const handleAddTool = (toolId: ToolId) => {
         dispatch('ADD_TOOL', toolId);
@@ -24,12 +33,6 @@ export const GalleryApp: React.FC = () => {
             installedToolIds={installedToolIds}
             installProgress={installProgress}
             onClose={closeGallery}
-            onDragStart={(toolId) => {
-                startToolDrag(toolId);
-            }}
-            onDragEnd={() => {
-                endToolDrag();
-            }}
             onToolUninstall={handleRemoveTool}
             onAddTool={handleAddTool}
             onInstallTool={(toolId) => dispatch('INSTALL_TOOL', toolId)}
@@ -38,6 +41,7 @@ export const GalleryApp: React.FC = () => {
             isDockEnabled={isDockEnabled}
             onToggleDock={handleToggleDock}
             onClearData={() => dispatch('CLEAR_SESSIONS')}
+            onOpenLogs={openLogsFolder}
             onDockToolDragActive={onDockToolDragActive}
             onDockToolDragEnd={onDockToolDragEnd}
         />

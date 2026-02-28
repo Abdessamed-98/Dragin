@@ -4,6 +4,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const uIOhook = require('uiohook-napi').uIOhook;
+const log = require('electron-log');
 
 let pyServer = null;
 let tray = null;
@@ -18,7 +19,7 @@ function loadSettings() {
             return JSON.parse(data);
         }
     } catch (err) {
-        console.error('[Settings] Failed to load settings:', err);
+        log.error('[Settings] Failed to load settings:', err);
     }
     return null;
 }
@@ -27,7 +28,7 @@ function saveSettings(settings) {
     try {
         fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
     } catch (err) {
-        console.error('[Settings] Failed to save settings:', err);
+        log.error('[Settings] Failed to save settings:', err);
     }
 }
 
@@ -53,6 +54,18 @@ const createMenu = () => {
                 { role: 'forceReload' },
                 { role: 'toggleDevTools' }
             ]
+        },
+        {
+            label: 'Help',
+            submenu: [
+                {
+                    label: 'Open Logs Folder',
+                    click: () => {
+                        const logPath = log.transports.file.getFile().path;
+                        shell.openPath(path.dirname(logPath));
+                    }
+                }
+            ]
         }
     ];
     const menu = Menu.buildFromTemplate(template);
@@ -76,7 +89,7 @@ function startPythonServer() {
         executablePath = path.join(process.resourcesPath, 'app.exe');
     }
 
-    console.log(`[Python] Starting backend from: ${executablePath}`);
+    log.info(`[Python] Starting backend from: ${executablePath}`);
 
     pyServer = spawn(executablePath, args, {
         env: {
@@ -86,19 +99,19 @@ function startPythonServer() {
         },
     });
 
-    pyServer.stdout.on('data', (data) => console.log(`[Python] ${data}`));
+    pyServer.stdout.on('data', (data) => log.info(`[Python] ${data}`));
     pyServer.stderr.on('data', (data) => {
         const msg = data.toString();
         // Flask logs to stderr by default, so not all stderr is errors
         if (msg.includes('Error') || msg.includes('Traceback')) {
-            console.error(`[Python Error] ${msg}`);
+            log.error(`[Python Error] ${msg}`);
         } else {
-            console.log(`[Python] ${msg}`);
+            log.info(`[Python] ${msg}`);
         }
     });
 
     pyServer.on('close', (code) => {
-        console.log(`[Python] Backend exited with code ${code}`);
+        log.info(`[Python] Backend exited with code ${code}`);
     });
 }
 
@@ -220,7 +233,7 @@ ipcMain.on('native-drag-start', (event, { items }) => {
             event.sender.startDrag({ files: filePaths, icon: DRAG_ICON });
         }
     } catch (err) {
-        console.error('[NativeDrag] Failed:', err);
+        log.error('[NativeDrag] Failed:', err);
     } finally {
         // Required for sendSync — without this the renderer hangs indefinitely
         event.returnValue = null;
@@ -395,7 +408,7 @@ async function handleToolInstall(toolId) {
 
     const downloadUrl = TOOL_DOWNLOAD_URLS[toolId];
     if (!downloadUrl) {
-        console.error(`[Install] No download URL for tool: ${toolId}`);
+        log.error(`[Install] No download URL for tool: ${toolId}`);
         return;
     }
 
@@ -459,7 +472,7 @@ async function handleToolInstall(toolId) {
         }, 2000);
 
     } catch (err) {
-        console.error(`[Install] Failed for ${toolId}:`, err.message);
+        log.error(`[Install] Failed for ${toolId}:`, err.message);
 
         // Cleanup partial downloads and extractions
         try { fs.unlinkSync(tempPath); } catch {}
@@ -541,7 +554,7 @@ const createDockWindow = () => {
     const prodUrl = `file://${prodPath}?window=dock`;
 
     const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
-    console.log(`[Main] Window: Dock | Dev: ${isDev} | isPackaged: ${app.isPackaged}`);
+    log.info(`[Main] Window: Dock | Dev: ${isDev} | isPackaged: ${app.isPackaged}`);
 
     if (isDev) {
         dockWindow.loadURL(devUrl);
@@ -624,17 +637,22 @@ const createGalleryWindow = () => {
     galleryWindow = new BrowserWindow({
         width: 700,
         height: 500,
-        frame: true, // Native window frame
+        frame: true,
         transparent: false,
         backgroundColor: '#0f172a', // slate-900
         autoHideMenuBar: true,
+        show: false, // Don't show until ready
         icon: path.join(__dirname, 'icon.png'),
-        title: 'Antigravity - Settings',
+        title: 'Dragin Flow',
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.js')
         }
+    });
+
+    galleryWindow.once('ready-to-show', () => {
+        galleryWindow.show();
     });
 
     const devUrl = 'http://localhost:5173?window=gallery';
@@ -677,7 +695,7 @@ app.whenReady().then(() => {
     if (!app.isPackaged) {
         setInterval(() => {
             const mem = process.memoryUsage();
-            console.log(`[Memory:Main] RSS: ${(mem.rss / 1024 / 1024).toFixed(0)}MB | Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(0)}/${(mem.heapTotal / 1024 / 1024).toFixed(0)}MB | External: ${(mem.external / 1024 / 1024).toFixed(0)}MB`);
+            log.info(`[Memory:Main] RSS: ${(mem.rss / 1024 / 1024).toFixed(0)}MB | Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(0)}/${(mem.heapTotal / 1024 / 1024).toFixed(0)}MB | External: ${(mem.external / 1024 / 1024).toFixed(0)}MB`);
         }, 30000);
     }
 
@@ -960,9 +978,9 @@ ipcMain.on('dispatch-action', (event, action) => {
             if (fs.existsSync(toolDir)) {
                 try {
                     fs.rmSync(toolDir, { recursive: true, force: true });
-                    console.log(`[Install] Uninstalled ${action.payload}: deleted ${toolDir}`);
+                    log.info(`[Install] Uninstalled ${action.payload}: deleted ${toolDir}`);
                 } catch (err) {
-                    console.error(`[Install] Failed to delete ${toolDir}:`, err);
+                    log.error(`[Install] Failed to delete ${toolDir}:`, err);
                 }
             }
 
@@ -1152,7 +1170,7 @@ ipcMain.handle('clipboard:write', async (_event, items) => {
 
         return true;
     } catch (err) {
-        console.error('[Clipboard] write failed:', err);
+        log.error('[Clipboard] write failed:', err);
         return false;
     }
 });
@@ -1181,7 +1199,13 @@ ipcMain.handle('clipboard:read', () => {
 
         return [];
     } catch (err) {
-        console.error('[Clipboard] read failed:', err);
+        log.error('[Clipboard] read failed:', err);
         return [];
     }
+});
+
+// --- LOGS FOLDER ---
+ipcMain.handle('OPEN_LOGS_FOLDER', () => {
+    const logPath = log.transports.file.getFile().path;
+    shell.openPath(path.dirname(logPath));
 });
