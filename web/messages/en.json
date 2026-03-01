@@ -1,0 +1,196 @@
+{
+  "meta": {
+    "title": "Dragin — The Edge of Your Screen, Evolved",
+    "description": "Zero cloud. Infinite power. A suite of premium desktop tools that intelligently process files directly on your machine."
+  },
+  "nav": {
+    "home": "Home",
+    "flow": "Flow",
+    "shelf": "Shelf",
+    "glimpse": "Glimpse",
+    "download": "Download"
+  },
+  "hero": {
+    "badge": "Desktop, redefined.",
+    "title": "Zero cloud.\nInfinite power.",
+    "subtitle": "Meet Dragin. A suite of beautiful, localized tools that live at the edge of your screen. No internet required. Drag, drop, done.",
+    "cta": "Explore the Suite",
+    "ctaSecondary": "Watch the Film"
+  },
+  "valueProp": {
+    "title": "Why Dragin.",
+    "local": {
+      "title": "Absolute Privacy.",
+      "desc": "Everything happens on-device. No uploads. No servers. Your data never leaves your machine."
+    },
+    "instant": {
+      "title": "Infinite Speed.",
+      "desc": "No waiting for uploads. Tools materialize at the edge of your screen and process instantly."
+    },
+    "smart": {
+      "title": "Neural Engines.",
+      "desc": "Powered by advanced local AI. Upscale, remove backgrounds, and extract text without an internet connection."
+    }
+  },
+  "apps": {
+    "title": "The Suite.",
+    "flow": {
+      "name": "Dragin Flow",
+      "tagline": "The creativity dock.",
+      "description": "A dynamic side-dock packed with 12 intelligent file processing tools. Hover to reveal, drag to transform. It's that simple."
+    },
+    "shelf": {
+      "name": "Dragin Shelf",
+      "tagline": "Teleport files instantly.",
+      "description": "Zero-configuration file sharing across your LAN. Drop a file, and it instantly shatters the boundary between your devices."
+    },
+    "glimpse": {
+      "name": "Dragin Glimpse",
+      "tagline": "The intelligent asset manager.",
+      "description": "Browse, filter, and organize visual assets from linked folders without moving a single file. An explorer built for creatives."
+    },
+    "learnMore": "Discover more"
+  },
+  "cta": {
+    "title": "Ready to evolve?",
+    "subtitle": "Experience the next generation of desktop tools. Free and local forever.",
+    "button": "Download for Windows"
+  },
+  "footer": {
+    "copyright": "© 2026 Dragin. Designed with purpose. Runs entirely on your machine.",
+    "privacy": "Privacy",
+    "github": "GitHub"
+  },
+  "flowPage": {
+    "hero": {
+      "title": "Dragin Flow. Magic at the edge.",
+      "subtitle": "An intelligent suite of 12 powerful tools embedded seamlessly into your workflow. Drag any file, watch the magic unfold.",
+      "cta": "Get Flow"
+    },
+    "tools": {
+      "title": "Pro tools. Zero friction.",
+      "remover": {
+        "title": "Background Remover",
+        "desc": "Surgical AI subject isolation."
+      },
+      "compressor": {
+        "title": "Image Compressor",
+        "desc": "Massive reduction. Perfect quality."
+      },
+      "shelf": {
+        "title": "Quick Shelf",
+        "desc": "Instant, ephemeral file storage."
+      },
+      "upscaler": {
+        "title": "Image Upscaler",
+        "desc": "4X resolution via neural enhancement."
+      },
+      "pdf": {
+        "title": "PDF Tools",
+        "desc": "Merge, crush, and command PDFs."
+      },
+      "converter": {
+        "title": "Format Converter",
+        "desc": "Fluid multi-format transposition."
+      },
+      "metadata": {
+        "title": "Metadata Remover",
+        "desc": "Annihilate tracking and location data."
+      },
+      "watermark": {
+        "title": "Watermark",
+        "desc": "Seamless intellectual property stamping."
+      },
+      "vectorizer": {
+        "title": "Vectorizer",
+        "desc": "Flawless raster to SVG tracing."
+      },
+      "ocr": {
+        "title": "Neural OCR",
+        "desc": "Instant visual text extraction."
+      },
+      "scanner": {
+        "title": "Smart Scanner",
+        "desc": "Automated file intelligence."
+      },
+      "cropper": {
+        "title": "Image Cropper",
+        "desc": "Pixel-perfect compositional control."
+      }
+    },
+    "features": {
+      "title": "Engineered for speed.",
+      "dragDrop": {
+        "title": "Intuitive Flow",
+        "desc": "Bypass menus entirely. Drag a file onto the dock and the result is immediate."
+      },
+      "alwaysOn": {
+        "title": "Always Ready",
+        "desc": "Invisible until you need it. Hover at the screen edge to summon unparalleled power."
+      },
+      "localAI": {
+        "title": "Unleashed AI",
+        "desc": "Harness the raw computational power of your own silicon. No servers. No limits."
+      }
+    }
+  },
+  "shelfPage": {
+    "hero": {
+      "title": "Dragin Shelf. Teleportation, real.",
+      "subtitle": "The ultimate LAN sharing experience. Forget accounts, pairing, and the internet. Just drop and share.",
+      "cta": "Get Shelf"
+    },
+    "howItWorks": {
+      "title": "Seamlessly simple.",
+      "step1": {
+        "title": "Launch",
+        "desc": "Open Shelf on the devices you wish to bridge."
+      },
+      "step2": {
+        "title": "Drop",
+        "desc": "Drag any file onto the window. Size doesn't matter."
+      },
+      "step3": {
+        "title": "Materialize",
+        "desc": "Files instantly appear across your entire local network."
+      }
+    },
+    "features": {
+      "title": "Pure connectivity.",
+      "zeroConfig": {
+        "title": "Zero Friction",
+        "desc": "No pairing codes. No accounts. Total device discovery autonomy."
+      },
+      "lanOnly": {
+        "title": "Airtight Network",
+        "desc": "100% peer-to-peer over your local network. True privacy."
+      },
+      "crossPlatform": {
+        "title": "Universal Bridge",
+        "desc": "Windows available now. The rest of your ecosystem is coming."
+      }
+    }
+  },
+  "glimpsePage": {
+    "hero": {
+      "title": "Dragin Glimpse. Total asset clarity.",
+      "subtitle": "A remarkably intelligent file explorer that unifies your scattered assets without moving them. Absolute clarity for creatives.",
+      "cta": "Get Glimpse"
+    },
+    "features": {
+      "title": "Intelligently organized.",
+      "linked": {
+        "title": "Linked Folders",
+        "desc": "Track assets across your entire disk seamlessly."
+      },
+      "filters": {
+        "title": "Cascade Filters",
+        "desc": "Instantly drill down by type, color, dimensions, and more."
+      },
+      "thumbnails": {
+        "title": "Universal Parsing",
+        "desc": "Native previews for PSD, AI, and raw documents."
+      }
+    }
+  }
+}
