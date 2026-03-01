@@ -143,6 +143,17 @@ def list_modes():
     """Return available bg-removal modes."""
     return jsonify({"modes": list(MODE_TO_MODEL.keys()), "default": DEFAULT_MODE})
 
+@app.route('/process/model-status', methods=['GET'])
+def model_status():
+    """Check whether the bg-removal model for a given mode is already loaded."""
+    mode = request.args.get('mode', DEFAULT_MODE)
+    if mode not in MODE_TO_MODEL:
+        mode = DEFAULT_MODE
+    model_name = MODE_TO_MODEL[mode]
+    with _model_lock:
+        loaded = model_name in _model_cache
+    return jsonify({"loaded": loaded, "model": model_name})
+
 @app.route('/process/unload', methods=['POST'])
 def unload_models():
     """Explicitly free cached bg-removal models to reclaim RAM."""

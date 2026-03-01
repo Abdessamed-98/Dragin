@@ -8,6 +8,7 @@ import {
     compressImage,
     cropImage,
     unloadRemoverModels,
+    checkRemoverModelLoaded,
     RemoverOptions,
     RemoverMode,
 } from '../services/api';
@@ -114,6 +115,8 @@ const DockAppInner: React.FC = () => {
     });
     // Cache: itemId → { mode → processedUrl }
     const removerCacheRef = useRef<Record<string, Partial<Record<RemoverMode, string>>>>({});
+    // Whether the remover model is currently being loaded (first inference)
+    const [removerModelLoading, setRemoverModelLoading] = useState(false);
 
     // Clear signal for self-contained tools
     const [clearGen, setClearGen] = useState(0);
@@ -450,13 +453,20 @@ const DockAppInner: React.FC = () => {
      *  Sequential is faster per-image (full CPU) and gives clear progressive UX. */
     const processRemoverBatch = async (sessionId: string, items: SessionItem[], opts: RemoverOptions) => {
         const mode = opts.mode || 'speed';
-        for (const item of items) {
+        // Check if model needs loading — show "Loading model..." label
+        const modelReady = await checkRemoverModelLoaded(mode);
+        if (!modelReady) setRemoverModelLoading(true);
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
             try {
                 const url = await removeBackground(item.file, opts);
+                // After first result, model is loaded — switch label
+                if (i === 0 && !modelReady) setRemoverModelLoading(false);
                 if (!removerCacheRef.current[item.id]) removerCacheRef.current[item.id] = {};
                 removerCacheRef.current[item.id][mode] = url;
                 updateItemStatus('remover', sessionId, item.id, { processedUrl: url, status: 'completed' });
             } catch {
+                if (i === 0 && !modelReady) setRemoverModelLoading(false);
                 updateItemStatus('remover', sessionId, item.id, { status: 'error' });
             }
         }
@@ -747,6 +757,7 @@ const DockAppInner: React.FC = () => {
                 vectorizerDropGen={vectorizerDropGen}
                 clearGen={clearGen}
                 removerOptions={removerOptions}
+                removerModelLoading={removerModelLoading}
                 onRemoverModeChange={handleRemoverModeChange}
                 onSelfItemCountChange={handleSelfItemCountChange}
             />

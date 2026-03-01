@@ -69,6 +69,8 @@ interface ToolWidgetProps {
     clearGen?: number;
     /** Remover tool: processing options */
     removerOptions?: import('../services/api').RemoverOptions;
+    /** Whether the remover model is currently being loaded into memory */
+    isModelLoading?: boolean;
     onRemoverModeChange?: (mode: import('../services/api').RemoverMode) => void;
     onCancelProcessing?: () => void;
     emptyHint?: string;
@@ -202,6 +204,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     vectorizerDropGen,
     clearGen,
     removerOptions,
+    isModelLoading,
     onRemoverModeChange,
     onCancelProcessing,
     emptyHint,
@@ -938,7 +941,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                         {isSingleProcessing && (
                                             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center">
                                                 <Loader2 className={`w-8 h-8 text-${colorClass}-400 animate-spin mb-2`} />
-                                                <span className="text-xs text-slate-300">جاري المعالجة...</span>
+                                                <span className="text-xs text-slate-300">{isModelLoading ? 'تحميل النموذج...' : 'جاري المعالجة...'}</span>
                                             </div>
                                         )}
 
@@ -1110,7 +1113,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                 >
                                     {cancelHover && onCancelProcessing
                                         ? <><Ban className="w-4 h-4" />إلغاء</>
-                                        : <><Loader2 className="w-4 h-4 animate-spin" />جاري المعالجة...</>
+                                        : <><Loader2 className="w-4 h-4 animate-spin" />{isModelLoading ? 'تحميل النموذج...' : 'جاري المعالجة...'}</>
                                     }
                                 </button>
                             ) : hasCompleted ? (

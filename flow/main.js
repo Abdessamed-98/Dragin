@@ -9,6 +9,27 @@ const log = require('electron-log');
 let pyServer = null;
 let tray = null;
 
+// --- MIGRATE userData from old "demo" name to "dragin-flow" ---
+(function migrateUserData() {
+    const newDir = app.getPath('userData'); // %APPDATA%/dragin-flow
+    const oldDir = path.join(path.dirname(newDir), 'demo');
+    if (fs.existsSync(oldDir) && !fs.existsSync(path.join(newDir, 'settings.json'))) {
+        try {
+            fs.mkdirSync(newDir, { recursive: true });
+            for (const item of fs.readdirSync(oldDir)) {
+                const src = path.join(oldDir, item);
+                const dest = path.join(newDir, item);
+                if (!fs.existsSync(dest)) {
+                    fs.cpSync(src, dest, { recursive: true });
+                }
+            }
+            log.info('[Migration] Copied user data from', oldDir, 'to', newDir);
+        } catch (err) {
+            log.error('[Migration] Failed to migrate user data:', err);
+        }
+    }
+})();
+
 // --- PERSISTENCE ---
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 
@@ -86,7 +107,7 @@ function startPythonServer() {
         args = [path.join(__dirname, 'app.py')];
     } else {
         // Production: use bundled executable
-        executablePath = path.join(process.resourcesPath, 'app.exe');
+        executablePath = path.join(process.resourcesPath, 'app', 'app.exe');
     }
 
     log.info(`[Python] Starting backend from: ${executablePath}`);
@@ -545,6 +566,7 @@ const createDockWindow = () => {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            webSecurity: !app.isPackaged ? true : false,
             preload: path.join(__dirname, 'preload.js')
         }
     });
@@ -647,6 +669,7 @@ const createGalleryWindow = () => {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            webSecurity: !app.isPackaged ? true : false,
             preload: path.join(__dirname, 'preload.js')
         }
     });

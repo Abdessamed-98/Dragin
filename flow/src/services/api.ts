@@ -57,6 +57,18 @@ export const removeBackgroundBatch = async (files: File[], options?: RemoverOpti
   }
 };
 
+/** Check whether the remover model for a given mode is already loaded in memory. */
+export const checkRemoverModelLoaded = async (mode: RemoverMode = 'speed'): Promise<boolean> => {
+  try {
+    const res = await fetch(`${BASE_URL}/process/model-status?mode=${mode}`);
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.loaded === true;
+  } catch {
+    return false;
+  }
+};
+
 /** Tell the backend to free cached bg-removal models (reclaims ~7 GB RAM). */
 export const unloadRemoverModels = async (): Promise<void> => {
   await fetch(`${BASE_URL}/process/unload`, { method: 'POST' }).catch(() => {});

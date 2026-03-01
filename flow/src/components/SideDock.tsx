@@ -102,6 +102,7 @@ interface SideDockProps {
   vectorizerDropGen?: number;
   clearGen?: number;
   removerOptions?: import('../services/api').RemoverOptions;
+  removerModelLoading?: boolean;
   onRemoverModeChange?: (mode: import('../services/api').RemoverMode) => void;
   onSelfItemCountChange?: (toolId: ToolId, count: number) => void;
 }
@@ -146,6 +147,7 @@ export const SideDock: React.FC<SideDockProps> = ({
   vectorizerDropGen,
   clearGen,
   removerOptions,
+  removerModelLoading,
   onRemoverModeChange,
   onSelfItemCountChange,
 }) => {
@@ -448,6 +450,7 @@ export const SideDock: React.FC<SideDockProps> = ({
                   vectorizerDropGen={tool.id === 'vectorizer' ? vectorizerDropGen : undefined}
                   clearGen={clearGen}
                   removerOptions={tool.id === 'remover' ? removerOptions : undefined}
+                  isModelLoading={tool.id === 'remover' ? removerModelLoading : undefined}
                   onRemoverModeChange={tool.id === 'remover' ? onRemoverModeChange : undefined}
                   onSelfItemCountChange={(count) => onSelfItemCountChange?.(tool.id, count)}
                 />

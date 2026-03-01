@@ -39,6 +39,10 @@ npm-debug.log*
 # Electron
 release/
 
+# PyInstaller
+pyinstaller_dist/
+pyinstaller_build/
+
 # Misc
 *.db
 *.sqlite
