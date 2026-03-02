@@ -73,7 +73,8 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: List release artifacts
-        run: ls -la release/ || dir release
+        shell: bash
+        run: ls -la release/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
