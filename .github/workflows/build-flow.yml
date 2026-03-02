@@ -88,3 +88,42 @@ jobs:
             flow/release/*.blockmap
           if-no-files-found: warn
           retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded files
+        run: find artifacts -type f | head -30
+
+      - name: Generate tag
+        id: tag
+        run: echo "tag=flow-$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Dragin Flow — ${{ steps.tag.outputs.tag }}"
+          body: |
+            Automated build from `main` branch.
+
+            **Downloads:**
+            - **Windows**: `.exe` installer or portable
+            - **macOS (Apple Silicon)**: `.dmg` or `.zip`
+
+            > macOS: Right-click → Open on first launch (unsigned build).
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+          draft: false
+          prerelease: false
