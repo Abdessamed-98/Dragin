@@ -1,13 +1,13 @@
 
 import React, { DragEvent, useState, useEffect, useRef, MouseEvent } from 'react';
 import { motion } from 'framer-motion';
-import { LucideIcon, X, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, PenTool, Minimize2, Settings, File as FileIcon, ClipboardPaste, Paintbrush, Zap, Crosshair, Ban } from 'lucide-react';
+import { LucideIcon, X, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, PenTool, Settings, File as FileIcon, ClipboardPaste, Paintbrush, Zap, Crosshair, Ban } from 'lucide-react';
 import { ActiveSession, ToolId, SessionItem } from '../types';
 import JSZip from 'jszip';
 import { CropperTool } from './tools/CropperTool';
 import { VectorizerTool } from './tools/VectorizerTool';
 import { OcrTool } from './tools/OcrTool';
-import { CompressorTool } from './tools/CompressorTool';
+// CompressorTool overlay removed — quality slider is now inline
 import { PdfTool } from './tools/PdfTool';
 import { ConverterTool } from './tools/ConverterTool';
 import { UpscalerTool } from './tools/UpscalerTool';
@@ -70,6 +70,10 @@ interface ToolWidgetProps {
     ocrDropGen?: number;
     /** Clear signal — incremented when user confirms "clear all data" */
     clearGen?: number;
+    /** Compressor tool: quality level (0-100) */
+    compressorQuality?: number;
+    /** Compressor tool: re-compress all items at new quality */
+    onRecompress?: (quality: number) => void;
     /** Remover tool: processing options */
     removerOptions?: import('../services/api').RemoverOptions;
     /** Whether the remover model is currently being loaded into memory */
@@ -208,6 +212,8 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     ocrDroppedFiles,
     ocrDropGen,
     clearGen,
+    compressorQuality,
+    onRecompress,
     removerOptions,
     isModelLoading,
     onRemoverModeChange,
@@ -239,7 +245,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     const [isPasting, setIsPasting] = useState(false);
     const [showPasteSuccess, setShowPasteSuccess] = useState(false);
     const [isCropping, setIsCropping] = useState(false); // Cropper specific state
-    const [isCompressing, setIsCompressing] = useState(false); // Compressor specific state
+    // isCompressing removed — compressor now uses inline quality slider
     const [isBrushing, setIsBrushing] = useState(false); // Magic brush overlay for remover
 
     const isActive = isExpanded;
@@ -260,7 +266,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     // Footer main-button state
     const anyProcessing = items.some(i => i.status === 'processing' || i.status === 'pending');
     const hasCompleted = items.some(i => i.status === 'completed');
-    const hasOverlay = id === 'cropper' || id === 'compressor';
+    const hasOverlay = id === 'cropper';
     const showSplit = isSingleCompleted && !isMultiple && hasOverlay;
 
     // Auto-enter crop mode if it's the cropper tool and we haven't processed yet (or just force it initially)
@@ -286,11 +292,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
             setIsCropping(true);
         } else {
             setIsCropping(false);
-        }
-        if (id === 'compressor' && activeSession?.items.length === 1) {
-            setIsCompressing(true);
-        } else {
-            setIsCompressing(false);
         }
     }, [activeSession?.id, id]); // Reset when session changes
 
@@ -792,29 +793,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         </div>
                     )}
 
-                    {/* Compressor overlay */}
-                    {id === 'compressor' && isCompressing && singleItem?.status === 'completed' && singleItem.metadata && (
-                        <div className="absolute inset-0 z-50 rounded-2xl overflow-hidden">
-                            <CompressorTool
-                                file={singleItem.file}
-                                initialResult={{
-                                    url: singleItem.processedUrl || singleItem.originalUrl,
-                                    originalSize: singleItem.metadata.originalSize || '',
-                                    newSize: singleItem.metadata.newSize || '',
-                                    saved: singleItem.metadata.savedPercentage || '0%',
-                                }}
-                                onSave={(url, meta) => {
-                                    if (onUpdateItem) onUpdateItem(singleItem.id, {
-                                        processedUrl: url,
-                                        metadata: meta,
-                                    });
-                                    setIsCompressing(false);
-                                }}
-                                onCancel={() => setIsCompressing(false)}
-                            />
-                        </div>
-                    )}
-
                     {/* Magic Brush overlay — remover-specific */}
                     {id === 'remover' && isBrushing && focusedItem?.status === 'completed' && focusedItem.processedUrl && (
                         <div className="absolute inset-0 z-50 rounded-2xl overflow-hidden">
@@ -849,7 +827,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     {/* Hide ToolWidget content when an overlay tool covers it */}
                     {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark', 'vectorizer', 'palette'].includes(id)
                         || (id === 'cropper' && isCropping)
-                        || (id === 'compressor' && isCompressing)
                         || (id === 'remover' && isBrushing)) && (<>
                     <div className="flex items-center pb-3 border-b border-white/5 mb-3 shrink-0">
                         {/* Left: Title + count */}
@@ -1099,15 +1076,25 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                         قص
                                     </button>
                                 )}
-                                {id === 'compressor' && (
-                                    <button
-                                        onClick={() => setIsCompressing(true)}
-                                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-emerald-600 hover:bg-emerald-500 text-white"
-                                    >
-                                        <Minimize2 className="w-4 h-4" />
-                                        ضغط
-                                    </button>
-                                )}
+                            </div>
+                        )}
+                        {/* Compressor: quality slider + re-compress */}
+                        {id === 'compressor' && items.length > 0 && (
+                            <div className="flex items-center gap-2 w-full">
+                                <span className="text-[10px] text-slate-500 shrink-0 w-8 text-center">{compressorQuality ?? 70}%</span>
+                                <input
+                                    type="range"
+                                    min={10}
+                                    max={95}
+                                    step={5}
+                                    value={compressorQuality ?? 70}
+                                    onChange={e => onRecompress?.(Number(e.target.value))}
+                                    className="flex-1 accent-emerald-500 cursor-pointer h-1"
+                                    disabled={anyProcessing}
+                                />
+                                <span className="text-[10px] text-slate-500 shrink-0">
+                                    {(compressorQuality ?? 70) >= 85 ? 'عالية' : (compressorQuality ?? 70) >= 65 ? 'متوسطة' : (compressorQuality ?? 70) >= 40 ? 'منخفضة' : 'منخفضة جداً'}
+                                </span>
                             </div>
                         )}
 

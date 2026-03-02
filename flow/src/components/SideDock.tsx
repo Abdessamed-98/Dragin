@@ -103,6 +103,8 @@ interface SideDockProps {
   ocrDroppedFiles?: File[];
   ocrDropGen?: number;
   clearGen?: number;
+  compressorQuality?: number;
+  onRecompress?: (quality: number) => void;
   removerOptions?: import('../services/api').RemoverOptions;
   removerModelLoading?: boolean;
   onRemoverModeChange?: (mode: import('../services/api').RemoverMode) => void;
@@ -150,6 +152,8 @@ export const SideDock: React.FC<SideDockProps> = ({
   ocrDroppedFiles,
   ocrDropGen,
   clearGen,
+  compressorQuality,
+  onRecompress,
   removerOptions,
   removerModelLoading,
   onRemoverModeChange,
@@ -455,6 +459,8 @@ export const SideDock: React.FC<SideDockProps> = ({
                   ocrDroppedFiles={tool.id === 'ocr' ? ocrDroppedFiles : undefined}
                   ocrDropGen={tool.id === 'ocr' ? ocrDropGen : undefined}
                   clearGen={clearGen}
+                  compressorQuality={tool.id === 'compressor' ? compressorQuality : undefined}
+                  onRecompress={tool.id === 'compressor' ? onRecompress : undefined}
                   removerOptions={tool.id === 'remover' ? removerOptions : undefined}
                   isModelLoading={tool.id === 'remover' ? removerModelLoading : undefined}
                   onRemoverModeChange={tool.id === 'remover' ? onRemoverModeChange : undefined}

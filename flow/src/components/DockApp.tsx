@@ -351,7 +351,10 @@ const DockAppInner: React.FC = () => {
     }, [handleWindowDragOver, handleWindowDragLeave, handleWindowDrop, handleWindowDragEnd]);
 
     // Tools that only make sense with a single file (they open a full overlay UI)
-    const SINGLE_FILE_TOOLS = new Set<ToolId>(['compressor', 'cropper']);
+    const SINGLE_FILE_TOOLS = new Set<ToolId>(['cropper']);
+
+    // Compressor quality (shared across all compressor items)
+    const [compressorQuality, setCompressorQuality] = useState(70);
 
     // --- Processing Logic ---
     const handleToolDrop = async (files: File[], toolId: ToolId) => {
@@ -480,7 +483,7 @@ const DockAppInner: React.FC = () => {
         checkSessionCompletion('remover', sessionId);
     };
 
-    const processItem = async (sessionId: string, itemId: string, file: File, toolId: ToolId) => {
+    const processItem = async (sessionId: string, itemId: string, file: File, toolId: ToolId, quality?: number) => {
         updateItemStatus(toolId, sessionId, itemId, { status: 'processing' });
 
         try {
@@ -488,7 +491,7 @@ const DockAppInner: React.FC = () => {
 
             switch (toolId) {
                 case 'compressor':
-                    const compResult = await compressImage(file);
+                    const compResult = await compressImage(file, quality ?? compressorQuality);
                     updates.processedUrl = compResult.url;
                     updates.metadata = {
                         originalSize: compResult.originalSize,
@@ -609,6 +612,18 @@ const DockAppInner: React.FC = () => {
                         ? 'idle' as const : session.status,
                 },
             };
+        });
+    };
+
+    const handleRecompress = (newQuality: number) => {
+        setCompressorQuality(newQuality);
+        const session = sessions['compressor'];
+        if (!session) return;
+        // Re-compress all completed/error items at the new quality
+        session.items.forEach(item => {
+            if (item.status !== 'completed' && item.status !== 'error') return;
+            updateItemStatus('compressor', session.id, item.id, { status: 'processing', processedUrl: undefined });
+            processItem(session.id, item.id, item.file, 'compressor', newQuality);
         });
     };
 
@@ -765,6 +780,8 @@ const DockAppInner: React.FC = () => {
                 ocrDroppedFiles={ocrDroppedFiles}
                 ocrDropGen={ocrDropGen}
                 clearGen={clearGen}
+                compressorQuality={compressorQuality}
+                onRecompress={handleRecompress}
                 removerOptions={removerOptions}
                 removerModelLoading={removerModelLoading}
                 onRemoverModeChange={handleRemoverModeChange}
