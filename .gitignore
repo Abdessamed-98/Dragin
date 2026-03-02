@@ -43,6 +43,11 @@ release/
 pyinstaller_dist/
 pyinstaller_build/
 
+# Large binaries (downloaded on demand, not source code)
+flow/bin/
+flow/models/model.onnx
+
 # Misc
 *.db
 *.sqlite
+pip_out.txt
