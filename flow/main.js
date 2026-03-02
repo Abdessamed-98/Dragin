@@ -100,14 +100,17 @@ function startPythonServer() {
 
     if (!app.isPackaged) {
         // Dev mode: use venv python
-        executablePath = path.join(__dirname, 'venv', 'Scripts', 'python.exe');
+        executablePath = process.platform === 'win32'
+            ? path.join(__dirname, 'venv', 'Scripts', 'python.exe')
+            : path.join(__dirname, 'venv', 'bin', 'python');
         if (!fs.existsSync(executablePath)) {
-            executablePath = 'python.exe';
+            executablePath = process.platform === 'win32' ? 'python.exe' : 'python';
         }
         args = [path.join(__dirname, 'app.py')];
     } else {
         // Production: use bundled executable
-        executablePath = path.join(process.resourcesPath, 'app', 'app.exe');
+        const binaryName = process.platform === 'win32' ? 'app.exe' : 'app';
+        executablePath = path.join(process.resourcesPath, 'app', binaryName);
     }
 
     log.info(`[Python] Starting backend from: ${executablePath}`);
@@ -397,24 +400,30 @@ function downloadFile(url, destPath, onProgress, options = {}) {
     });
 }
 
-// --- ZIP EXTRACTION HELPER (streams via PowerShell — no memory bloat) ---
+// --- ZIP EXTRACTION HELPER ---
 function extractZip(zipPath, targetDir, onProgress) {
     return new Promise((resolve, reject) => {
         fs.mkdirSync(targetDir, { recursive: true });
         onProgress(0, 1);
 
-        const ps = spawn('powershell', [
-            '-NoProfile', '-Command',
-            `Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${targetDir.replace(/'/g, "''")}' -Force`
-        ]);
+        let child;
+        if (process.platform === 'win32') {
+            // PowerShell streaming extraction (no memory bloat)
+            child = spawn('powershell', [
+                '-NoProfile', '-Command',
+                `Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${targetDir.replace(/'/g, "''")}' -Force`
+            ]);
+        } else {
+            child = spawn('unzip', ['-o', zipPath, '-d', targetDir]);
+        }
 
-        ps.on('error', reject);
-        ps.on('close', (code) => {
+        child.on('error', reject);
+        child.on('close', (code) => {
             if (code === 0) {
                 onProgress(1, 1);
                 resolve();
             } else {
-                reject(new Error(`Expand-Archive exited with code ${code}`));
+                reject(new Error(`Zip extraction exited with code ${code}`));
             }
         });
     });
@@ -808,7 +817,11 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
     // Kill Python server cleanly
     if (pyServer) {
-        spawn('taskkill', ['/pid', pyServer.pid, '/f', '/t']);
+        if (process.platform === 'win32') {
+            spawn('taskkill', ['/pid', String(pyServer.pid), '/f', '/t']);
+        } else {
+            pyServer.kill('SIGTERM');
+        }
     }
     if (process.platform !== 'darwin') app.quit();
 });

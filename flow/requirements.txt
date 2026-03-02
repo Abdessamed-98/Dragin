@@ -1,0 +1,21 @@
+# Dragin Flow — Python backend dependencies
+# Used by CI (GitHub Actions) to install deps for PyInstaller build.
+# Excludes torch/easyocr/paddlepaddle — these are in the venv but explicitly
+# excluded in app.spec to keep bundle size down.
+
+Flask==3.1.2
+flask-cors==6.0.2
+Pillow>=12.0
+numpy>=2.0
+opencv-python-headless>=4.10
+PyMuPDF>=1.27
+pdf2docx==0.5.9
+python-pptx>=1.0
+vtracer>=0.6
+rembg>=2.0
+onnxruntime>=1.24
+scipy>=1.17
+pymatting>=1.1
+pooch>=1.9
+rapidocr-onnxruntime>=1.4
+PyInstaller>=6.19

@@ -4,6 +4,7 @@
 # Bundles default tools + remover (rembg/onnxruntime/cv2) + OCR (RapidOCR via onnxruntime).
 
 import os
+import platform
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_all, copy_metadata
 
 block_cipher = None
@@ -85,7 +86,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=True,
-    icon='icon.ico',
+    icon='icon.ico' if platform.system() == 'Windows' else ('icon.icns' if platform.system() == 'Darwin' else None),
 )
 
 coll = COLLECT(

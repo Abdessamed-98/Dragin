@@ -1,0 +1,92 @@
+name: Build Dragin Flow
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'flow/**'
+      - '.github/workflows/build-flow.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: flow
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: win-x64
+            python: '3.12'
+          - os: macos-13
+            label: mac-x64
+            python: '3.12'
+          - os: macos-14
+            label: mac-arm64
+            python: '3.12'
+
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: flow/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: 'pip'
+          cache-dependency-path: flow/requirements.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate macOS icon (.icns)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p icon.iconset
+          for size in 16 32 64 128 256 512 1024; do
+            sips -z $size $size icon.png --out icon.iconset/icon_${size}x${size}.png
+          done
+          for size in 16 32 64 128 256 512; do
+            double=$((size * 2))
+            cp icon.iconset/icon_${double}x${double}.png \
+               icon.iconset/icon_${size}x${size}@2x.png 2>/dev/null || true
+          done
+          iconutil -c icns icon.iconset -o icon.icns
+          rm -rf icon.iconset
+
+      - name: Build (Vite + PyInstaller + electron-builder)
+        run: node scripts/build.js
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: List release artifacts
+        run: ls -la release/ || dir release
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dragin-flow-${{ matrix.label }}
+          path: |
+            flow/release/*.exe
+            flow/release/*.dmg
+            flow/release/*.zip
+            flow/release/*.yml
+            flow/release/*.blockmap
+          if-no-files-found: warn
+          retention-days: 30
