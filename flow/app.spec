@@ -1,8 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec for Dragin Flow Python backend
 # Uses --onedir mode to avoid zlib conflicts with Pillow.
-# Bundles default tools + remover (rembg/onnxruntime/cv2).
-# Only OCR (easyocr/torch ~2GB) is excluded — too heavy to bundle.
+# Bundles default tools + remover (rembg/onnxruntime/cv2) + OCR (RapidOCR via onnxruntime).
 
 import os
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_all, copy_metadata
@@ -13,13 +12,17 @@ base_path = os.path.abspath('.')
 # Collect everything rembg needs (submodules, data, metadata)
 rembg_datas, rembg_binaries, rembg_hiddenimports = collect_all('rembg')
 
+# Collect RapidOCR data files (bundled ONNX models for det/rec/cls)
+rapidocr_datas, rapidocr_binaries, rapidocr_hiddenimports = collect_all('rapidocr_onnxruntime')
+
 # Collect template/data files for other packages
 pptx_datas = collect_data_files('pptx')
 pdf2docx_datas = collect_data_files('pdf2docx')
 
-# Copy metadata for packages that rembg checks via importlib.metadata
+# Copy metadata for packages that check via importlib.metadata
 extra_metadata = []
-for pkg in ['pymatting', 'rembg', 'onnxruntime', 'scipy', 'pooch', 'jsonschema']:
+for pkg in ['pymatting', 'rembg', 'onnxruntime', 'scipy', 'pooch', 'jsonschema',
+            'rapidocr_onnxruntime']:
     try:
         extra_metadata += copy_metadata(pkg)
     except Exception:
@@ -28,8 +31,11 @@ for pkg in ['pymatting', 'rembg', 'onnxruntime', 'scipy', 'pooch', 'jsonschema']
 a = Analysis(
     ['app.py'],
     pathex=[base_path],
-    binaries=rembg_binaries,
-    datas=pptx_datas + pdf2docx_datas + rembg_datas + extra_metadata,
+    binaries=rembg_binaries + rapidocr_binaries,
+    datas=pptx_datas + pdf2docx_datas + rembg_datas + rapidocr_datas + extra_metadata + [
+        ('models/ocr/arabic_rec.onnx', 'models/ocr'),
+        ('models/ocr/arabic_dict.txt', 'models/ocr'),
+    ],
     hiddenimports=[
         # Flask
         'flask', 'flask_cors', 'werkzeug', 'werkzeug.serving',
@@ -52,10 +58,12 @@ a = Analysis(
         'pptx', 'pptx.util',
         # Background removal (rembg + deps)
         'onnxruntime', 'scipy', 'pymatting', 'pooch',
-    ] + rembg_hiddenimports,
+        # OCR (RapidOCR — reuses onnxruntime already bundled above)
+        'rapidocr_onnxruntime',
+    ] + rembg_hiddenimports + rapidocr_hiddenimports,
     excludes=[
-        # OCR — too heavy (torch ~2GB)
-        'easyocr', 'torch', 'torchvision',
+        # Not needed — keep these out
+        'easyocr', 'torch', 'torchvision', 'paddlepaddle', 'paddleocr', 'paddle',
         # Dev-only
         'psutil',
         # Unnecessary large packages

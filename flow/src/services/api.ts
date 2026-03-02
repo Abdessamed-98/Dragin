@@ -510,7 +510,7 @@ export const convertPdfToPptx = async (file: File): Promise<{ dataUrl: string; s
   };
 };
 
-// 10. OCR - PP-OCRv5 text extraction
+// 10. OCR - RapidOCR text extraction
 export const extractText = async (file: File): Promise<{ text: string; pages: number }> => {
   const formData = new FormData();
   formData.append('file', file);

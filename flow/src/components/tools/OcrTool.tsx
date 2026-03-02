@@ -1,16 +1,18 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ScanText, FileText, Upload, Loader2, Download, Trash2, AlertCircle, File as FileIcon, Copy, Check, X } from 'lucide-react';
+import { ScanText, FileText, Upload, Loader2, Download, Trash2, AlertCircle, File as FileIcon, Copy, Check, X, Ban, ClipboardPaste } from 'lucide-react';
 import { extractText } from '../../services/api';
 
 type OcrState = 'idle' | 'processing' | 'done' | 'error';
 
 interface OcrToolProps {
     onClose: () => void;
+    droppedFiles?: File[];
+    dropGeneration?: number;
 }
 
-export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
+export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dropGeneration = 0 }) => {
     const [state, setState] = useState<OcrState>('idle');
     const [extractedText, setExtractedText] = useState('');
     const [pages, setPages] = useState(1);
@@ -18,6 +20,8 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
     const [errorMsg, setErrorMsg] = useState('');
     const [isDragOver, setIsDragOver] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [cancelHover, setCancelHover] = useState(false);
+    const lastDropGen = useRef(0);
 
     const processFile = useCallback(async (file: File) => {
         const isImage = file.type.startsWith('image/');
@@ -44,14 +48,22 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
         }
     }, []);
 
+    // Handle files forwarded from DockApp drop handler
+    useEffect(() => {
+        if (dropGeneration > 0 && dropGeneration !== lastDropGen.current && droppedFiles.length > 0) {
+            lastDropGen.current = dropGeneration;
+            processFile(droppedFiles[0]);
+        }
+    }, [dropGeneration, droppedFiles, processFile]);
+
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
-        if (state === 'processing') return; // reject while processing
+        if (state === 'processing') return;
         const files = Array.from(e.dataTransfer.files);
         if (files.length === 0) return;
-        processFile(files[0]); // only first file
+        processFile(files[0]);
     }, [state, processFile]);
 
     const handleDragOver = (e: React.DragEvent) => {
@@ -68,7 +80,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
     const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
         if (files && files.length > 0) processFile(files[0]);
-        e.target.value = ''; // reset so same file can be re-selected
+        e.target.value = '';
     };
 
     const handleDownload = () => {
@@ -91,6 +103,35 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
         });
     };
 
+    const handlePaste = async () => {
+        if (state === 'processing') return;
+        try {
+            if ((window as any).electron?.clipboardRead) {
+                const clipItems = await (window as any).electron.clipboardRead();
+                if (clipItems.length > 0) {
+                    const { dataUrl, name } = clipItems[0];
+                    const res = await fetch(dataUrl);
+                    const blob = await res.blob();
+                    processFile(new File([blob], name, { type: blob.type || 'image/png' }));
+                    return;
+                }
+            } else {
+                const clipItems = await navigator.clipboard.read();
+                for (const clipItem of clipItems) {
+                    const imageType = clipItem.types.find((t: string) => t.startsWith('image/'));
+                    if (imageType) {
+                        const blob = await clipItem.getType(imageType);
+                        const ext = imageType.split('/')[1] || 'png';
+                        processFile(new File([blob], `pasted.${ext}`, { type: imageType }));
+                        return;
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('Clipboard read failed:', err);
+        }
+    };
+
     const handleClear = () => {
         setState('idle');
         setExtractedText('');
@@ -98,6 +139,8 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
         setErrorMsg('');
         onClose();
     };
+
+    const hasResult = state === 'done' && extractedText.trim();
 
     return (
         <div
@@ -185,7 +228,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
                                 <p className="text-xs text-slate-500 mt-1 max-w-[180px] mx-auto truncate" title={fileName}>
                                     {fileName}
                                 </p>
-                                <p className="text-[10px] text-slate-600 mt-1">EasyOCR · يستغرق بضع ثوانٍ</p>
+                                <p className="text-[10px] text-slate-600 mt-1">يستغرق بضع ثوانٍ</p>
                             </div>
                         </motion.div>
                     )}
@@ -212,6 +255,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
                                         value={extractedText}
                                         onChange={e => setExtractedText(e.target.value)}
                                         className="absolute inset-0 w-full h-full bg-transparent text-slate-200 text-xs leading-relaxed resize-none p-3 focus:outline-none font-mono"
+                                        dir="auto"
                                         spellCheck={false}
                                     />
                                 ) : (
@@ -241,7 +285,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
                                 <p className="text-xs text-slate-500 mt-1 max-w-[200px]">{errorMsg}</p>
                             </div>
                             <button
-                                onClick={handleClear}
+                                onClick={() => { setState('idle'); setErrorMsg(''); }}
                                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors border border-white/5"
                             >
                                 حاول مجددًا
@@ -252,42 +296,46 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
                 </AnimatePresence>
             </div>
 
-            {/* Footer: [Main button] | [Copy][Clear] */}
+            {/* Footer */}
             <div className="flex items-center gap-1.5 px-3 pb-3 shrink-0">
-                {/* Left half: Main action / download */}
+                {/* Primary action button */}
                 {state === 'processing' ? (
                     <button
-                        disabled
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-fuchsia-600/50 text-white/60 cursor-not-allowed"
+                        onMouseEnter={() => setCancelHover(true)}
+                        onMouseLeave={() => setCancelHover(false)}
+                        className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${
+                            cancelHover
+                                ? 'bg-red-600 hover:bg-red-500 text-white cursor-pointer'
+                                : 'bg-fuchsia-600/50 text-white/60'
+                        }`}
                     >
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري الاستخراج...
+                        {cancelHover
+                            ? <><Ban className="w-4 h-4" />إلغاء</>
+                            : <><Loader2 className="w-4 h-4 animate-spin" />جاري الاستخراج...</>
+                        }
                     </button>
-                ) : state === 'done' && extractedText.trim() ? (
+                ) : (
                     <button
                         onClick={handleDownload}
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-emerald-600 hover:bg-emerald-500 text-white"
+                        disabled={!hasResult}
+                        className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${
+                            !hasResult
+                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
+                                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                        }`}
                     >
                         <Download className="w-4 h-4" />
                         تحميل
                     </button>
-                ) : (
-                    <button
-                        disabled
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-slate-800/50 text-slate-600 cursor-not-allowed"
-                    >
-                        <ScanText className="w-4 h-4" />
-                        استخراج النص
-                    </button>
                 )}
 
-                {/* Right half: Copy | Clear */}
+                {/* Secondary buttons: Copy | Paste | Clear */}
                 <div className="flex-1 flex items-center gap-1">
                     <button
                         onClick={handleCopy}
-                        disabled={state !== 'done' || !extractedText.trim()}
+                        disabled={!hasResult}
                         className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            state !== 'done' || !extractedText.trim()
+                            !hasResult
                                 ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
                                 : 'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
                         }`}
@@ -296,10 +344,17 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose }) => {
                         {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
                     </button>
                     <button
+                        onClick={handlePaste}
+                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white"
+                        title="لصق"
+                    >
+                        <ClipboardPaste className="w-4 h-4" />
+                    </button>
+                    <button
                         onClick={handleClear}
-                        disabled={state !== 'done'}
+                        disabled={state === 'idle' || state === 'processing'}
                         className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            state !== 'done'
+                            state === 'idle' || state === 'processing'
                                 ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
                                 : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'
                         }`}

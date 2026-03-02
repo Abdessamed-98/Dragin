@@ -194,7 +194,7 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
 
     return (
         <div
-            className="absolute inset-0 flex flex-col rounded-2xl overflow-hidden bg-slate-950"
+            className="absolute inset-0 flex flex-col rounded-2xl overflow-hidden"
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}

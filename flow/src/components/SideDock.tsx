@@ -100,6 +100,8 @@ interface SideDockProps {
   paletteDropGen?: number;
   vectorizerDroppedFiles?: File[];
   vectorizerDropGen?: number;
+  ocrDroppedFiles?: File[];
+  ocrDropGen?: number;
   clearGen?: number;
   removerOptions?: import('../services/api').RemoverOptions;
   removerModelLoading?: boolean;
@@ -145,6 +147,8 @@ export const SideDock: React.FC<SideDockProps> = ({
   paletteDropGen,
   vectorizerDroppedFiles,
   vectorizerDropGen,
+  ocrDroppedFiles,
+  ocrDropGen,
   clearGen,
   removerOptions,
   removerModelLoading,
@@ -448,6 +452,8 @@ export const SideDock: React.FC<SideDockProps> = ({
                   paletteDropGen={tool.id === 'palette' ? paletteDropGen : undefined}
                   vectorizerDroppedFiles={tool.id === 'vectorizer' ? vectorizerDroppedFiles : undefined}
                   vectorizerDropGen={tool.id === 'vectorizer' ? vectorizerDropGen : undefined}
+                  ocrDroppedFiles={tool.id === 'ocr' ? ocrDroppedFiles : undefined}
+                  ocrDropGen={tool.id === 'ocr' ? ocrDropGen : undefined}
                   clearGen={clearGen}
                   removerOptions={tool.id === 'remover' ? removerOptions : undefined}
                   isModelLoading={tool.id === 'remover' ? removerModelLoading : undefined}

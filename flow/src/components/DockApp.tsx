@@ -109,6 +109,10 @@ const DockAppInner: React.FC = () => {
     const [vectorizerDroppedFiles, setVectorizerDroppedFiles] = useState<File[]>([]);
     const [vectorizerDropGen, setVectorizerDropGen] = useState(0);
 
+    // OCR tool: forward dropped files via props (OcrTool is self-contained)
+    const [ocrDroppedFiles, setOcrDroppedFiles] = useState<File[]>([]);
+    const [ocrDropGen, setOcrDropGen] = useState(0);
+
     // Remover tool: processing mode + per-mode result cache
     const [removerOptions, setRemoverOptions] = useState<RemoverOptions>({
         mode: 'speed',
@@ -354,9 +358,12 @@ const DockAppInner: React.FC = () => {
         dlog('drop', { toolId, fileCount: files.length, names: files.map(f => f.name) });
         setExpandedToolId(toolId);
 
-        // OCR tool manages its own file-drop & processing internally via OcrTool.tsx.
-        // We just expand the widget — no session pipeline needed.
-        if (toolId === 'ocr') return;
+        // OCR tool is self-contained. Forward files via state props.
+        if (toolId === 'ocr') {
+            setOcrDroppedFiles(Array.from(files));
+            setOcrDropGen(g => g + 1);
+            return;
+        }
 
         // PDF tool is self-contained (like OCR). Forward files via state props.
         if (toolId === 'pdf') {
@@ -755,6 +762,8 @@ const DockAppInner: React.FC = () => {
                 paletteDropGen={paletteDropGen}
                 vectorizerDroppedFiles={vectorizerDroppedFiles}
                 vectorizerDropGen={vectorizerDropGen}
+                ocrDroppedFiles={ocrDroppedFiles}
+                ocrDropGen={ocrDropGen}
                 clearGen={clearGen}
                 removerOptions={removerOptions}
                 removerModelLoading={removerModelLoading}

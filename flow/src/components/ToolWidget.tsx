@@ -65,6 +65,9 @@ interface ToolWidgetProps {
     /** Vectorizer tool: files forwarded from DockApp drop handler */
     vectorizerDroppedFiles?: File[];
     vectorizerDropGen?: number;
+    /** OCR tool: files forwarded from DockApp drop handler */
+    ocrDroppedFiles?: File[];
+    ocrDropGen?: number;
     /** Clear signal — incremented when user confirms "clear all data" */
     clearGen?: number;
     /** Remover tool: processing options */
@@ -202,6 +205,8 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     paletteDropGen,
     vectorizerDroppedFiles,
     vectorizerDropGen,
+    ocrDroppedFiles,
+    ocrDropGen,
     clearGen,
     removerOptions,
     isModelLoading,
@@ -827,13 +832,22 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
 
                     {/* OCR overlay — manages its own file-drop, no image preview */}
                     {id === 'ocr' && (
-                        <div className="absolute inset-0 z-50 rounded-2xl overflow-hidden">
-                            <OcrTool onClose={onClose} />
-                        </div>
+                        <motion.div
+                            className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
+                            animate={{ opacity: isActive ? 1 : 0 }}
+                            transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
+                            style={{ pointerEvents: isActive ? 'auto' : 'none' }}
+                        >
+                            <OcrTool
+                                onClose={onClose}
+                                droppedFiles={ocrDroppedFiles || []}
+                                dropGeneration={ocrDropGen || 0}
+                            />
+                        </motion.div>
                     )}
 
                     {/* Hide ToolWidget content when an overlay tool covers it */}
-                    {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark', 'vectorizer'].includes(id)
+                    {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark', 'vectorizer', 'palette'].includes(id)
                         || (id === 'cropper' && isCropping)
                         || (id === 'compressor' && isCompressing)
                         || (id === 'remover' && isBrushing)) && (<>

@@ -49,13 +49,7 @@ export const TOOL_REGISTRY: ToolManifest[] = [
         totalSizeBytes: 42_000_000,
         downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/upscaler-v1/upscaler-win-x64.zip',
     },
-    {
-        id: 'ocr',
-        default: false,
-        deps: [{ label: 'EasyOCR + language models', sizeBytes: 278_000_000 }],
-        totalSizeBytes: 278_000_000,
-        downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/ocr-v1/ocr-win-x64.zip',
-    },
+    { id: 'ocr',        default: true, deps: [], totalSizeBytes: 0 },
     {
         id: 'converter',
         default: false,

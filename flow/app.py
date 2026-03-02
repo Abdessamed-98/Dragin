@@ -334,34 +334,57 @@ def vectorize():
         print(f"Vectorization error: {e}")
         return jsonify({"error": str(e)}), 500
 
-# --- OCR Engine (EasyOCR, lazy init) ---
-ocr_reader = None
+# --- OCR Engine (RapidOCR via ONNX Runtime, lazy init) ---
+_ocr_engine = None
 
 def get_ocr_reader():
-    global ocr_reader
-    if ocr_reader is None:
-        print("[OCR] Loading EasyOCR reader (first call)...")
-        import easyocr
-        kwargs = {'gpu': False, 'verbose': False}
-        if TOOLS_DIR:
-            ocr_dir = os.path.join(TOOLS_DIR, 'ocr')
-            # EasyOCR expects {storage_dir}/model/ — our zip extracts to models/
-            models_dir = os.path.join(ocr_dir, 'models')
-            model_dir = os.path.join(ocr_dir, 'model')
-            if os.path.isdir(models_dir) and not os.path.isdir(model_dir):
-                os.rename(models_dir, model_dir)
-            if os.path.isdir(model_dir):
-                kwargs['model_storage_directory'] = ocr_dir
-        ocr_reader = easyocr.Reader(['en', 'ar'], **kwargs)
-        print("[OCR] Reader ready.")
-    return ocr_reader
+    global _ocr_engine
+    if _ocr_engine is None:
+        print("[OCR] Loading RapidOCR engine (first call)...")
+        from rapidocr_onnxruntime import RapidOCR
+
+        # Use Arabic recognition model if available (bundled in models/ocr/)
+        _app_dir = os.path.dirname(os.path.abspath(__file__))
+        _ar_rec = os.path.join(_app_dir, 'models', 'ocr', 'arabic_rec.onnx')
+        _ar_dict = os.path.join(_app_dir, 'models', 'ocr', 'arabic_dict.txt')
+
+        if os.path.isfile(_ar_rec) and os.path.isfile(_ar_dict):
+            print(f"[OCR] Using Arabic rec model: {_ar_rec}")
+            _ocr_engine = RapidOCR(rec_model_path=_ar_rec, rec_keys_path=_ar_dict)
+        else:
+            print("[OCR] Arabic model not found, using default (Chinese/English)")
+            _ocr_engine = RapidOCR()
+
+        print("[OCR] Engine ready.")
+    return _ocr_engine
+
+import re as _re
+
+_ARABIC_RE = _re.compile(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]')
+_NUMBERS_RE = _re.compile(r'[\d,.]+')
+
+def _fix_arabic_line(text):
+    """Fix reversed Arabic text from OCR (visual→logical order)."""
+    if not _ARABIC_RE.search(text):
+        return text  # No Arabic chars — leave as-is
+    # Reverse the whole line (converts visual LTR → logical RTL)
+    reversed_text = text[::-1]
+    # Numbers got reversed too — flip them back
+    reversed_text = _NUMBERS_RE.sub(lambda m: m.group(0)[::-1], reversed_text)
+    return reversed_text
+
+def _extract_text(result):
+    """Extract plain text from RapidOCR result: [[bbox, text, confidence], ...]"""
+    if not result:
+        return ''
+    return '\n'.join(_fix_arabic_line(line[1]) for line in result if line)
 
 @app.route('/ocr', methods=['POST'])
 def ocr():
     try:
         get_ocr_reader()
     except ImportError:
-        return jsonify({"error": "easyocr not installed. Install from Store."}), 503
+        return jsonify({"error": "OCR engine not available."}), 503
 
     if 'file' not in request.files:
         return jsonify({"error": "No file provided"}), 400
@@ -371,7 +394,7 @@ def ocr():
     raw_bytes = file.read()
 
     try:
-        reader = get_ocr_reader()
+        engine = get_ocr_reader()
         pages_text = []
 
         if filename.endswith('.pdf'):
@@ -382,15 +405,15 @@ def ocr():
                 mat = fitz.Matrix(2.0, 2.0)  # 2x scale for better OCR accuracy
                 pix = page.get_pixmap(matrix=mat, alpha=False)
                 img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
-                result = reader.readtext(img_array, detail=0, paragraph=True)
-                page_text = '\n'.join(result)
+                result, _ = engine(img_array)
+                page_text = _extract_text(result)
                 pages_text.append(f"--- Page {page_num + 1} ---\n{page_text}")
             pdf_doc.close()
         else:
             # Image file
             img_array = np.array(Image.open(io.BytesIO(raw_bytes)).convert('RGB'))
-            result = reader.readtext(img_array, detail=0, paragraph=True)
-            pages_text.append('\n'.join(result))
+            result, _ = engine(img_array)
+            pages_text.append(_extract_text(result))
 
         full_text = '\n\n'.join(pages_text)
         return jsonify({
@@ -1609,9 +1632,9 @@ def tools_status():
     except ImportError:
         status['remover'] = False
 
-    # OCR: check if easyocr is importable
+    # OCR: check if rapidocr is importable
     try:
-        import easyocr
+        import rapidocr_onnxruntime
         status['ocr'] = True
     except ImportError:
         status['ocr'] = False
