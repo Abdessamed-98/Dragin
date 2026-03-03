@@ -1,0 +1,47 @@
+{
+  "name": "dragin-space",
+  "version": "0.1.0",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host\" \"wait-on tcp:5174 && node electron/launch.js\"",
+    "build": "tsc && vite build",
+    "start": "node electron/launch.js",
+    "dev:peer2": "node electron/launch-peer2.js",
+    "build:android": "tsc && vite build && npx cap sync android",
+    "open:android": "npx cap open android",
+    "run:android": "npx cap run android"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Zero-config LAN file sharing",
+  "devDependencies": {
+    "@capacitor/cli": "^8.1.0",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@types/ws": "^8.5.14",
+    "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.2.1",
+    "electron": "^40.6.0",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.7.2",
+    "vite": "^6.1.0",
+    "wait-on": "^9.0.4"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/filesystem": "^8.1.2",
+    "@hono/node-server": "^1.14.0",
+    "hono": "^4.7.0",
+    "html5-qrcode": "^2.3.8",
+    "lucide-react": "^0.564.0",
+    "nanoid": "^5.1.2",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "ws": "^8.18.0"
+  }
+}

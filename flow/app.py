@@ -1655,7 +1655,25 @@ def tools_status():
     return jsonify(status)
 
 
+def _preload_models():
+    """Background preload of heavy models so first use feels instant."""
+    try:
+        _ensure_rembg()
+        get_model('isnet-general-use')  # speed mode — most common
+        print("[Preload] Remover speed model ready.")
+    except Exception as e:
+        print(f"[Preload] Remover skip: {e}")
+    try:
+        get_ocr_reader()
+        print("[Preload] OCR engine ready.")
+    except Exception as e:
+        print(f"[Preload] OCR skip: {e}")
+
+
 if __name__ == '__main__':
+    # Preload models in background thread so first use is fast
+    threading.Thread(target=_preload_models, daemon=True).start()
+
     # Dev-only memory logger
     if os.environ.get('DRAGIN_DEV_MEMORY_LOG'):
         import psutil
