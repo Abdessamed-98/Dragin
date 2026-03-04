@@ -1,10 +1,11 @@
 const WebSocket = require('ws');
 
 class PeerManager {
-  constructor({ deviceId, deviceName, platform, getLocalSpaces, getLocalSpaceFiles, getSpaceInfo, getDeletedSpaceIds, onPeersChanged, onNewPeerConnected, onRemoteSpaceEvent, onRemoteSpaceFilesChanged }) {
+  constructor({ deviceId, deviceName, platform, serverPort, getLocalSpaces, getLocalSpaceFiles, getSpaceInfo, getDeletedSpaceIds, onPeersChanged, onNewPeerConnected, onRemoteSpaceEvent, onRemoteSpaceFilesChanged }) {
     this.deviceId = deviceId;
     this.deviceName = deviceName || 'Unknown Device';
     this.platform = platform || 'unknown';
+    this.serverPort = serverPort || 0;
     this.getLocalSpaces = getLocalSpaces || (() => []);
     this.getLocalSpaceFiles = getLocalSpaceFiles || (() => []);
     this.getSpaceInfo = getSpaceInfo || (() => null);
@@ -27,17 +28,21 @@ class PeerManager {
   connectToPeer(peer) {
     if (this.connections.has(peer.id)) return;
 
+    // Cooldown: skip if we recently tried the SAME port. Allow if port changed
+    // (e.g., saved peer had stale port, mDNS found correct one).
     const lastAttempt = this._connectCooldowns.get(peer.id);
-    if (lastAttempt && Date.now() - lastAttempt < 15000) return;
-    this._connectCooldowns.set(peer.id, Date.now());
+    if (lastAttempt && Date.now() - lastAttempt.time < 15000 && lastAttempt.port === peer.port) return;
+    this._connectCooldowns.set(peer.id, { time: Date.now(), port: peer.port });
 
     const url = `ws://${peer.ip}:${peer.port}`;
     console.log(`[PeerManager] Connecting to ${peer.name} at ${url}`);
 
     try {
       const ws = new WebSocket(url);
+      let opened = false;
 
       ws.on('open', () => {
+        opened = true;
         this._connectCooldowns.delete(peer.id);
 
         // If an incoming connection from this peer already registered,
@@ -52,14 +57,19 @@ class PeerManager {
         this.disconnectedFiles.delete(peer.id);
         this.connections.set(peer.id, { ws, peer, spaceFiles: new Map() });
 
-        // Handshake + space data
+        // Handshake + space data + peer list
         ws.send(JSON.stringify({
           type: 'handshake',
           deviceId: this.deviceId,
           deviceName: this.deviceName,
           platform: this.platform,
+          port: this.serverPort,
         }));
         this._sendSpaceData(ws);
+        this._sendPeerList(ws, peer.id);
+
+        // Tell existing peers about the new peer
+        this._broadcastPeerList();
 
         this._notifyPeersChanged();
         if (this.onNewPeerConnected) this.onNewPeerConnected(peer);
@@ -75,6 +85,12 @@ class PeerManager {
       });
 
       ws.on('close', () => {
+        if (!opened) {
+          // Connection failed before opening — clear cooldown so next
+          // mDNS/peer-exchange discovery can retry immediately
+          this._connectCooldowns.delete(peer.id);
+          return;
+        }
         const conn = this.connections.get(peer.id);
         if (conn && conn.ws === ws) {
           console.log(`[PeerManager] Disconnected from ${peer.name}`);
@@ -148,6 +164,7 @@ class PeerManager {
         if (remotePeerId && msg.type === 'handshake') {
           const ip = remoteAddress || '0.0.0.0';
           const isNew = !this.connections.has(remotePeerId);
+          console.log(`[PeerManager] Incoming handshake from ${msg.deviceName} (${remotePeerId.slice(0,8)}), isNew=${isNew}`);
 
           if (isNew) {
             const peer = {
@@ -160,6 +177,11 @@ class PeerManager {
             this.disconnectedFiles.delete(remotePeerId);
             this.connections.set(remotePeerId, { ws, peer, spaceFiles: new Map() });
             console.log(`[PeerManager] Incoming peer: ${peer.name} (${peer.ip})`);
+
+            // Send peer list to the new peer + broadcast to existing peers
+            this._sendPeerList(ws, remotePeerId);
+            this._broadcastPeerList();
+
             this._notifyPeersChanged();
             if (this.onNewPeerConnected) this.onNewPeerConnected(peer);
 
@@ -189,6 +211,7 @@ class PeerManager {
       deviceId: this.deviceId,
       deviceName: this.deviceName,
       platform: this.platform,
+      port: this.serverPort,
     }));
     this._sendSpaceData(ws);
   }
@@ -260,10 +283,15 @@ class PeerManager {
 
   _handlePeerMessage(peerId, msg) {
     const conn = this.connections.get(peerId);
-    if (!conn) return;
+    if (!conn) {
+      console.log(`[PeerManager] _handlePeerMessage: NO CONNECTION for ${peerId}, msg.type=${msg.type}`);
+      return;
+    }
 
     switch (msg.type) {
       case 'space-list':
+        // Store the peer's space list for spaceId resolution
+        conn.peerSpaces = msg.spaces || [];
         if (this.onRemoteSpaceEvent) {
           this.onRemoteSpaceEvent('sync', {
             spaces: msg.spaces || [],
@@ -274,33 +302,39 @@ class PeerManager {
 
       case 'space-file-list':
         if (msg.spaceId) {
+          const resolvedId = this._resolveSpaceId(conn, msg.spaceId);
           if (!conn.spaceFiles) conn.spaceFiles = new Map();
-          conn.spaceFiles.set(msg.spaceId, (msg.files || []).map(f => ({
+          conn.spaceFiles.set(resolvedId, (msg.files || []).map(f => ({
             ...f,
             available: true,
           })));
-          this._notifySpaceFilesChanged(msg.spaceId);
+          this._notifySpaceFilesChanged(resolvedId);
         }
         break;
 
       case 'space-file-added':
         if (msg.spaceId && msg.file) {
+          const resolvedId = this._resolveSpaceId(conn, msg.spaceId);
           if (!conn.spaceFiles) conn.spaceFiles = new Map();
-          const files = conn.spaceFiles.get(msg.spaceId) || [];
-          files.push({ ...msg.file, available: true });
-          conn.spaceFiles.set(msg.spaceId, files);
-          this._notifySpaceFilesChanged(msg.spaceId);
+          const files = conn.spaceFiles.get(resolvedId) || [];
+          // Dedup by file ID — dual WS paths can deliver the same event twice
+          if (!files.some(f => f.id === msg.file.id)) {
+            files.push({ ...msg.file, available: true });
+            conn.spaceFiles.set(resolvedId, files);
+            this._notifySpaceFilesChanged(resolvedId);
+          }
         }
         break;
 
       case 'space-file-removed':
         if (msg.spaceId && msg.fileId) {
+          const resolvedId = this._resolveSpaceId(conn, msg.spaceId);
           if (conn.spaceFiles) {
-            const files = conn.spaceFiles.get(msg.spaceId) || [];
-            conn.spaceFiles.set(msg.spaceId, files.filter(f => f.id !== msg.fileId));
-            this._notifySpaceFilesChanged(msg.spaceId);
+            const files = conn.spaceFiles.get(resolvedId) || [];
+            conn.spaceFiles.set(resolvedId, files.filter(f => f.id !== msg.fileId));
+            this._notifySpaceFilesChanged(resolvedId);
           }
-          this._removeDisconnectedFile(msg.deviceId || peerId, msg.spaceId, msg.fileId);
+          this._removeDisconnectedFile(msg.deviceId || peerId, resolvedId, msg.fileId);
         }
         break;
 
@@ -333,6 +367,17 @@ class PeerManager {
       case 'request-space-data':
         if (conn.ws && conn.ws.readyState === WebSocket.OPEN) {
           this._sendSpaceData(conn.ws);
+        }
+        break;
+
+      case 'peer-list':
+        if (msg.peers && Array.isArray(msg.peers)) {
+          for (const p of msg.peers) {
+            if (p.id && p.id !== this.deviceId && !this.connections.has(p.id) && p.port > 0) {
+              console.log(`[PeerManager] Peer exchange: discovered ${p.name} (${p.ip}:${p.port}) via ${peerId}`);
+              this.connectToPeer(p);
+            }
+          }
         }
         break;
 
@@ -429,6 +474,60 @@ class PeerManager {
       spaceMap.delete(spaceId);
       if (spaceMap.size === 0) this.disconnectedFiles.delete(peerId);
     }
+  }
+
+  _sendPeerList(ws, excludePeerId) {
+    const peers = [];
+    for (const [, conn] of this.connections) {
+      if (conn.peer && conn.peer.id !== excludePeerId) {
+        peers.push({
+          id: conn.peer.id,
+          name: conn.peer.name,
+          ip: conn.peer.ip,
+          port: conn.peer.port,
+          platform: conn.peer.platform,
+        });
+      }
+    }
+    if (peers.length > 0) {
+      try {
+        ws.send(JSON.stringify({
+          type: 'peer-list',
+          deviceId: this.deviceId,
+          peers,
+        }));
+      } catch {}
+    }
+  }
+
+  _broadcastPeerList() {
+    for (const [peerId, conn] of this.connections) {
+      if (conn.ws && conn.ws.readyState === WebSocket.OPEN) {
+        this._sendPeerList(conn.ws, peerId);
+      }
+    }
+  }
+
+  /**
+   * Map a remote peer's spaceId to our local spaceId.
+   * If the remote uses a different ID for the same space (matched by name),
+   * return our local ID so files are stored correctly.
+   */
+  _resolveSpaceId(conn, remoteSpaceId) {
+    // Direct match — most common case (IDs already converged)
+    if (this.getLocalSpaces().find(s => s.id === remoteSpaceId)) {
+      return remoteSpaceId;
+    }
+    // No direct match — peer has a different ID for a same-name space.
+    // Look up the space name in the peer's last-known space list.
+    const peerSpaces = conn.peerSpaces || [];
+    const remoteSpace = peerSpaces.find(s => s.id === remoteSpaceId);
+    if (remoteSpace) {
+      const localMatch = this.getLocalSpaces().find(s => s.name === remoteSpace.name);
+      if (localMatch) return localMatch.id;
+    }
+    // Fallback: store under raw remote ID (will converge after merge)
+    return remoteSpaceId;
   }
 
   _notifySpaceFilesChanged(spaceId) {

@@ -183,6 +183,7 @@ async function startNetworking() {
     deviceId: DEVICE_ID,
     deviceName: deviceName,
     platform: process.platform,
+    serverPort: port,
     getLocalSpaces: () => spaceStore.getSpaces(),
     getLocalSpaceFiles: (spaceId) => spaceStore.getFiles(spaceId),
     getSpaceInfo: (spaceId) => spaceStore.getSpace(spaceId),
@@ -210,6 +211,8 @@ async function startNetworking() {
                 spaceId: space.id,
                 files: [...localSpaceFiles, ...remoteFiles],
               });
+              // Re-broadcast our space files to all peers with corrected IDs
+              peerManager.broadcastSpaceFiles(space.id);
             }
           }
           break;

@@ -44,6 +44,7 @@
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "capacitor-space-server": "file:./plugins/capacitor-space-server"
   }
 }

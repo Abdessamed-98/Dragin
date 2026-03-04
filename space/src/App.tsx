@@ -222,13 +222,24 @@ function App() {
       setDeviceId(info.id);
     });
 
-    // Fetch connection info on desktop for image preview URLs
-    if (isElectron()) {
-      api.getConnectionInfo().then((info) => setConnectionInfo(info));
-    }
+    // Fetch connection info for image preview URLs
+    api.getConnectionInfo().then((info) => {
+      if (info) setConnectionInfo(info);
+    });
 
+    // On mobile, server may not be started yet when getConnectionInfo runs above.
+    // Retry each time peers change until we get a valid port.
+    let gotConnectionInfo = false;
     api.onPeersUpdate((updatedPeers) => {
       setPeers(updatedPeers);
+      if (!gotConnectionInfo && isCapacitor()) {
+        api.getConnectionInfo().then((info) => {
+          if (info) {
+            gotConnectionInfo = true;
+            setConnectionInfo(info);
+          }
+        });
+      }
     });
 
     // Saved peers
@@ -258,14 +269,20 @@ function App() {
         if (prev && !s.find(sh => sh.id === prev) && s.length > 0) return s[0].id;
         return prev;
       });
-      // Load files for any new spaces
+      // Only fetch files for genuinely NEW spaces (ones not yet tracked).
+      // Don't re-fetch existing spaces — push-based onSpaceFilesUpdate handles those
+      // and re-fetching can overwrite correct push data with stale pull data.
       for (const space of s) {
-        api.getSpaceFiles(space.id).then((sf) => {
-          setSpaceFilesMap(prev => {
-            const next = new Map(prev);
-            next.set(space.id, sf);
-            return next;
+        setSpaceFilesMap(prev => {
+          if (prev.has(space.id)) return prev; // Already tracked, skip
+          api.getSpaceFiles(space.id).then((sf) => {
+            setSpaceFilesMap(p => {
+              const next = new Map(p);
+              next.set(space.id, sf);
+              return next;
+            });
           });
+          return prev;
         });
       }
     });

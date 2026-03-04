@@ -1,0 +1,28 @@
+{
+  "name": "capacitor-space-server",
+  "version": "0.1.0",
+  "description": "Native HTTP+WS+mDNS server for Dragin Space Android",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  },
+  "files": [
+    "dist/",
+    "android/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.2",
+    "@capacitor/core": "^8.1.0"
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.0"
+  }
+}

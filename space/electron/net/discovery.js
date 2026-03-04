@@ -162,6 +162,14 @@ class Discovery {
         }
       }
     }
+
+    // Re-fire onPeerFound for all known peers — handles reconnection after
+    // cooldown expiry or failed initial connection at stale port
+    for (const [, peer] of this.peers) {
+      if (this.onPeerFound) {
+        this.onPeerFound({ ...peer, lastSeen: undefined });
+      }
+    }
   }
 }
 

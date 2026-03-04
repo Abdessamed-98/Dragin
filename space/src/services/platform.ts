@@ -1,5 +1,6 @@
 import type { Peer, SavedPeer, Space, SpaceFile } from '@/types';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+import { SpaceServer } from 'capacitor-space-server';
 
 export type Platform = 'electron' | 'android' | 'ios' | 'web';
 
@@ -114,37 +115,6 @@ function electronAPI() {
 // Active XHRs for abort support
 const activeXHRs = new Map<string, XMLHttpRequest>();
 
-// Pending File objects from pickFiles (keyed by "name-size")
-const pendingFileObjects = new Map<string, File>();
-
-// Generate a small JPEG thumbnail from a File object (mobile only)
-function generateThumbnail(file: File, maxDim = 200): Promise<string | undefined> {
-  if (!file.type.startsWith('image/')) return Promise.resolve(undefined);
-  return new Promise((resolve) => {
-    const img = new globalThis.Image();
-    const blobUrl = URL.createObjectURL(file);
-    img.onload = () => {
-      let w = img.width, h = img.height;
-      if (w > maxDim || h > maxDim) {
-        if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
-        else { w = Math.round(w * maxDim / h); h = maxDim; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.6));
-      } else {
-        resolve(undefined);
-      }
-      URL.revokeObjectURL(blobUrl);
-    };
-    img.onerror = () => { URL.revokeObjectURL(blobUrl); resolve(undefined); };
-    img.src = blobUrl;
-  });
-}
 
 function generateDeviceId(): string {
   const stored = localStorage.getItem('space-device-id');
@@ -167,7 +137,14 @@ function capacitorAPI() {
       ip: '0.0.0.0',
       platform: 'android',
     }),
-    getConnectionInfo: async (): Promise<ConnectionInfo | null> => null,
+    getConnectionInfo: async (): Promise<ConnectionInfo | null> => {
+      const { getServerPort } = await import('./mobileNet');
+      const port = getServerPort();
+      if (port > 0) {
+        return { ip: '0.0.0.0', port, id: deviceId, name: 'Android Device' };
+      }
+      return null;
+    },
     onPeersUpdate: (cb: PeersCallback) => {
       peersListeners.push(cb);
       cb(localPeers);
@@ -178,33 +155,20 @@ function capacitorAPI() {
     },
     getFilePath: (_file: File) => '',
     pickFiles: async (): Promise<FileEntry[]> => {
-      return new Promise((resolve) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.multiple = true;
-        input.accept = '*/*';
-        input.onchange = () => {
-          const picked = Array.from(input.files || []);
-          const entries = picked.map((f) => {
-            const blobUrl = URL.createObjectURL(f);
-            // Store File object so we can send it via WS later
-            pendingFileObjects.set(`${f.name}-${f.size}`, f);
-            return {
-              name: f.name,
-              path: blobUrl,
-              size: f.size,
-              mimeType: f.type || 'application/octet-stream',
-            };
-          });
-          resolve(entries);
-        };
-        input.oncancel = () => resolve([]);
-        input.click();
-      });
+      try {
+        const result = await SpaceServer.pickFiles();
+        return result.files.map((f) => ({
+          name: f.name,
+          path: f.uri, // content:// URI — native server can serve this
+          size: f.size,
+          mimeType: f.mimeType,
+        }));
+      } catch {
+        return [];
+      }
     },
     addFiles: async (files: FileEntry[]) => {
-      // Add to default (first) space via v2
-      const { getMobileSpaces, mobileAddFileToSpace, storeFileBlob } = await import('./mobileNet');
+      const { getMobileSpaces, mobileAddFileToSpace } = await import('./mobileNet');
       const spaces = getMobileSpaces();
       const spaceId = spaces.length > 0 ? spaces[0].id : 'general';
 
@@ -212,15 +176,6 @@ function capacitorAPI() {
         const fileId = Array.from(crypto.getRandomValues(new Uint8Array(6)))
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
-
-        const key = `${file.name}-${file.size}`;
-        const fileObj = pendingFileObjects.get(key);
-        let thumbnail: string | undefined;
-        if (fileObj) {
-          storeFileBlob(fileId, fileObj);
-          pendingFileObjects.delete(key);
-          thumbnail = await generateThumbnail(fileObj);
-        }
 
         mobileAddFileToSpace(spaceId, {
           id: fileId,
@@ -231,9 +186,8 @@ function capacitorAPI() {
           deviceName: 'Android Device',
           addedAt: Date.now(),
           spaceId,
-          thumbnail,
           available: true,
-          blobUrl: file.path.startsWith('blob:') ? file.path : undefined,
+          localPath: file.path, // content:// URI
         });
       }
     },
@@ -343,8 +297,16 @@ function capacitorAPI() {
         activeXHRs.delete(fileId);
       }
     },
-    generatePairPin: async (): Promise<string> => '',
-    clearPairPin: async (): Promise<void> => {},
+    generatePairPin: async (): Promise<string> => {
+      const pin = String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+      const { getMobileSpaces } = await import('./mobileNet');
+      await SpaceServer.setDiscoveryInfo({ spaces: getMobileSpaces(), pairPin: pin });
+      return pin;
+    },
+    clearPairPin: async (): Promise<void> => {
+      const { getMobileSpaces } = await import('./mobileNet');
+      await SpaceServer.setDiscoveryInfo({ spaces: getMobileSpaces() });
+    },
     getSavedPeers: async (): Promise<SavedPeer[]> => {
       const { getSavedPeers } = await import('./mobileNet');
       return getSavedPeers();
@@ -383,20 +345,11 @@ function capacitorAPI() {
       return getMobileSpaceFiles(spaceId);
     },
     addFilesToSpace: async (spaceId: string, files: FileEntry[]) => {
-      const { storeFileBlob, mobileAddFileToSpace } = await import('./mobileNet');
+      const { mobileAddFileToSpace } = await import('./mobileNet');
       for (const file of files) {
         const fileId = Array.from(crypto.getRandomValues(new Uint8Array(6)))
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
-
-        const key = `${file.name}-${file.size}`;
-        const fileObj = pendingFileObjects.get(key);
-        let thumbnail: string | undefined;
-        if (fileObj) {
-          storeFileBlob(fileId, fileObj);
-          pendingFileObjects.delete(key);
-          thumbnail = await generateThumbnail(fileObj);
-        }
 
         mobileAddFileToSpace(spaceId, {
           id: fileId,
@@ -407,9 +360,8 @@ function capacitorAPI() {
           deviceName: 'Android Device',
           addedAt: Date.now(),
           spaceId,
-          thumbnail,
           available: true,
-          blobUrl: file.path.startsWith('blob:') ? file.path : undefined,
+          localPath: file.path, // content:// URI
         });
       }
     },
