@@ -16,7 +16,6 @@ function App() {
   const mobile = isCapacitor();
 
   const [peers, setPeers] = useState<Peer[]>([]);
-  const [files, setFiles] = useState<SharedFile[]>([]); // v1 flat list (kept for backward compat)
   const [deviceName, setDeviceName] = useState('');
   const [deviceId, setDeviceId] = useState('');
   const [isDragging, setIsDragging] = useState(false);
@@ -173,19 +172,13 @@ function App() {
 
   const activeSpace = spaces.find(s => s.id === activeSpaceId);
 
-  // Use per-space files when available, fallback to v1 flat list
-  const activeSpaceFiles: (SharedFile & { available?: boolean; pinned?: boolean | null })[] = useMemo(() => {
-    const sf = spaceFilesMap.get(activeSpaceId);
-    if (sf && sf.length > 0) {
-      // Map SpaceFile → SharedFile-compatible shape (addedAt → uploadedAt)
-      return sf.map(f => ({
-        ...f,
-        uploadedAt: f.addedAt,
-      }));
-    }
-    // Fallback: v1 flat file list (before space-files are loaded)
-    return files;
-  }, [spaceFilesMap, activeSpaceId, files]);
+  const activeSpaceFiles = useMemo(() => {
+    const sf = spaceFilesMap.get(activeSpaceId) || [];
+    return sf.map(f => ({
+      ...f,
+      uploadedAt: f.addedAt,
+    }));
+  }, [spaceFilesMap, activeSpaceId]);
 
   const spaceFileCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -236,10 +229,6 @@ function App() {
 
     api.onPeersUpdate((updatedPeers) => {
       setPeers(updatedPeers);
-    });
-
-    api.onFilesUpdate((updatedFiles) => {
-      setFiles(updatedFiles);
     });
 
     // Saved peers

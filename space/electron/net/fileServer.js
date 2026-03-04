@@ -157,19 +157,6 @@ class FileServer {
       return;
     }
 
-    // GET /space-discover — mobile discovery endpoint
-    if (req.method === 'GET' && req.url === '/space-discover') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        space: true,
-        id: this.deviceInfo?.id || '',
-        name: this.deviceInfo?.name || '',
-        port: this.port,
-        platform: this.deviceInfo?.platform || '',
-      }));
-      return;
-    }
-
     res.writeHead(404);
     res.end('Not found');
   }

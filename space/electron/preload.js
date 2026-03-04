@@ -7,7 +7,6 @@ contextBridge.exposeInMainWorld('electron', {
 
   // --- STATE UPDATES (from main process) ---
   onPeersUpdate: (callback) => ipcRenderer.on('peers-update', (_e, peers) => callback(peers)),
-  onFilesUpdate: (callback) => ipcRenderer.on('files-update', (_e, files) => callback(files)),
   onDownloadProgress: (callback) => {
     const handler = (_e, data) => callback(data);
     ipcRenderer.on('download-progress', handler);

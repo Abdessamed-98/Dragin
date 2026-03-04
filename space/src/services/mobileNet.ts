@@ -1,16 +1,12 @@
-import type { Peer, SharedFile, Space, SpaceFile } from '@/types';
-import { notifyPeers, notifyFiles } from './platform';
+import type { Peer, Space, SpaceFile } from '@/types';
+import { notifyPeers } from './platform';
 
 const DISCOVERY_PORT = 52384;
 const SCAN_TIMEOUT = 1500;
 const RESCAN_INTERVAL = 5000;
 const SAVED_PEERS_KEY = 'space-known-peers';
 
-type RemoteFiles = Map<string, SharedFile[]>;
-
 let deviceId = '';
-let localFilesList: SharedFile[] = [];
-let remoteFiles: RemoteFiles = new Map();
 let connections: Map<string, WebSocket> = new Map();
 let scanTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -193,9 +189,7 @@ export function removeSavedPeer(peerId: string) {
   if (ws) {
     ws.close();
     connections.delete(peerId);
-    remoteFiles.delete(peerId);
     emitPeers();
-    emitFiles();
   }
 }
 
@@ -237,18 +231,6 @@ function emitSpaceFiles(spaceId: string) {
   spaceFilesListeners.forEach(cb => cb({ spaceId, files }));
 }
 
-function getAllFiles(): SharedFile[] {
-  const remote: SharedFile[] = [];
-  for (const files of remoteFiles.values()) {
-    remote.push(...files);
-  }
-  return [...localFilesList, ...remote];
-}
-
-function emitFiles() {
-  notifyFiles(getAllFiles());
-}
-
 function emitPeers() {
   const peers: Peer[] = [];
   for (const [, ws] of connections) {
@@ -276,13 +258,12 @@ function connectToPeer(peer: Peer) {
     savePeerEntry(peer);
     emitPeers();
 
-    // Send our file list + device info
+    // Send handshake + space data
     ws.send(JSON.stringify({
-      type: 'file-list',
+      type: 'handshake',
       deviceId,
       deviceName: 'Android Device',
       platform: 'android',
-      files: localFilesList,
     }));
 
     // Send our space data (including tombstones for sync)
@@ -336,11 +317,7 @@ function connectToPeer(peer: Peer) {
       if (spaceMap.size === 0) remoteSpaceFiles.delete(pid);
     }
 
-    // Clear v1 flat files (no pin concept in v1)
-    remoteFiles.clear();
-
     emitPeers();
-    emitFiles();
     for (const space of localSpaces) {
       emitSpaceFiles(space.id);
     }
@@ -353,29 +330,6 @@ function connectToPeer(peer: Peer) {
 
 function handlePeerMessage(peerId: string, msg: any) {
   switch (msg.type) {
-    case 'file-list':
-      remoteFiles.set(msg.deviceId || peerId, msg.files || []);
-      emitFiles();
-      break;
-    case 'file-added':
-      if (msg.file) {
-        const files = remoteFiles.get(msg.deviceId || peerId) || [];
-        files.push(msg.file);
-        remoteFiles.set(msg.deviceId || peerId, files);
-        emitFiles();
-      }
-      break;
-    case 'file-removed':
-      if (msg.fileId) {
-        const files = remoteFiles.get(msg.deviceId || peerId) || [];
-        remoteFiles.set(
-          msg.deviceId || peerId,
-          files.filter((f) => f.id !== msg.fileId)
-        );
-        emitFiles();
-      }
-      break;
-    // --- v2 space messages (shared state — persisted locally) ---
     case 'space-list':
       mergeRemoteSpaces(msg.spaces || [], msg.deletedSpaceIds || []);
       break;
@@ -622,32 +576,6 @@ export function initMobileNet(myDeviceId: string) {
   }, RESCAN_INTERVAL);
 }
 
-export function setLocalFiles(files: SharedFile[]) {
-  localFilesList = files;
-  emitFiles();
-}
-
-export function addLocalFile(file: SharedFile) {
-  localFilesList.push(file);
-  emitFiles();
-  broadcastMessage({
-    type: 'file-added',
-    deviceId,
-    file,
-  });
-}
-
-export function removeLocalFile(fileId: string) {
-  localFilesList = localFilesList.filter((f) => f.id !== fileId);
-  localFileBlobs.delete(fileId);
-  emitFiles();
-  broadcastMessage({
-    type: 'file-removed',
-    deviceId,
-    fileId,
-  });
-}
-
 export function getMobileSpaces(): Space[] {
   return getAllSpaces();
 }
@@ -734,6 +662,7 @@ export function mobileAddFileToSpace(spaceId: string, file: SpaceFile) {
 export function mobileRemoveFileFromSpace(spaceId: string, fileId: string) {
   const files = localSpaceFiles.get(spaceId) || [];
   localSpaceFiles.set(spaceId, files.filter(f => f.id !== fileId));
+  localFileBlobs.delete(fileId);
   persistLocalSpaceFiles();
   emitSpaceFiles(spaceId);
   broadcastMessage({ type: 'space-file-removed', deviceId, spaceId, fileId });
@@ -745,7 +674,6 @@ export function stopMobileNet() {
     ws.close();
   }
   connections.clear();
-  remoteFiles.clear();
 }
 
 // --- PIN-based peer discovery ---

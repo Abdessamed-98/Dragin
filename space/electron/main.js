@@ -15,8 +15,11 @@ let isQuitting = false;
 
 // --- TEST PEER MODE ---
 const isTestPeer = process.argv.includes('--test-peer');
+const isTestPeer2 = process.argv.includes('--test-peer2');
 if (isTestPeer) {
   app.setPath('userData', path.join(app.getPath('userData'), 'test-peer'));
+} else if (isTestPeer2) {
+  app.setPath('userData', path.join(app.getPath('userData'), 'test-peer2'));
 }
 
 // --- LATE-INIT PATHS (set in app.whenReady) ---
@@ -49,43 +52,7 @@ function initPaths() {
   spaceStore.migrateFromUploadsDir(UPLOADS_DIR);
   console.log(`[Space] Spaces: ${spaceStore.getSpaces().map(s => s.name).join(', ')}`);
 
-  // Hydrate in-memory localFiles from persisted space store
-  for (const file of spaceStore.getAllLocalFiles()) {
-    const sourcePath = file.localPath;
-    // Only load files that still exist on disk
-    if (sourcePath && fs.existsSync(sourcePath)) {
-      localFiles.set(file.id, {
-        id: file.id,
-        name: file.name,
-        size: file.size,
-        mimeType: file.mimeType,
-        deviceId: file.deviceId,
-        deviceName: file.deviceName,
-        uploadedAt: file.addedAt,
-        localPath: file.localPath,
-        thumbnail: file.thumbnail,
-      });
-    } else if (!sourcePath) {
-      // Legacy file in uploads dir — check if it exists there
-      try {
-        const uploads = fs.readdirSync(UPLOADS_DIR);
-        const match = uploads.find((f) => f.startsWith(file.id + '__'));
-        if (match) {
-          localFiles.set(file.id, {
-            id: file.id,
-            name: file.name,
-            size: file.size,
-            mimeType: file.mimeType,
-            deviceId: file.deviceId,
-            deviceName: file.deviceName,
-            uploadedAt: file.addedAt,
-            thumbnail: file.thumbnail,
-          });
-        }
-      } catch {}
-    }
-  }
-  console.log(`[Space] Local files loaded: ${localFiles.size}`);
+  console.log(`[Space] Local files: ${spaceStore.getAllLocalFiles().length}`);
 }
 
 // --- THUMBNAIL GENERATION ---
@@ -155,16 +122,9 @@ function savePeer(peer) {
   console.log(`[Space] Saved peer: ${peer.name} (${peer.ip})`);
 }
 
-// --- LOCAL FILES (in-memory tracking) ---
-const localFiles = new Map();
-
-function getLocalFilesList() {
-  return Array.from(localFiles.values());
-}
-
-function getAllFiles() {
-  const local = getLocalFilesList();
-  const remote = peerManager ? peerManager.getAllRemoteFiles() : [];
+function getAllSpaceFiles(spaceId) {
+  const local = spaceStore.getFiles(spaceId);
+  const remote = peerManager ? peerManager.getRemoteSpaceFiles(spaceId) : [];
   return [...local, ...remote];
 }
 
@@ -198,11 +158,11 @@ async function startNetworking() {
   fileServer = new FileServer({
     uploadsDir: UPLOADS_DIR,
     resolveFilePath: (fileId) => {
-      const entry = localFiles.get(fileId);
-      if (entry && entry.localPath && fs.existsSync(entry.localPath)) {
-        return { path: entry.localPath, name: entry.name };
+      const file = spaceStore.getFile(fileId);
+      if (file && file.localPath && fs.existsSync(file.localPath)) {
+        return { path: file.localPath, name: file.name };
       }
-      return null; // fallback to uploads dir scan
+      return null;
     },
     onWsConnection: (ws, req) => {
       const remoteAddress = req?.socket?.remoteAddress || '';
@@ -221,13 +181,11 @@ async function startNetworking() {
 
   peerManager = new PeerManager({
     deviceId: DEVICE_ID,
-    localFiles: getLocalFilesList,
+    deviceName: deviceName,
+    platform: process.platform,
     getLocalSpaces: () => spaceStore.getSpaces(),
     getLocalSpaceFiles: (spaceId) => spaceStore.getFiles(spaceId),
     getSpaceInfo: (spaceId) => spaceStore.getSpace(spaceId),
-    onRemoteFilesChanged: () => {
-      broadcastToRenderer('files-update', getAllFiles());
-    },
     onPeersChanged: () => {
       broadcastToRenderer('peers-update', peerManager.getConnectedPeers());
     },
@@ -344,7 +302,7 @@ function createTray() {
     },
     { type: 'separator' },
     {
-      label: `Files: ${localFiles.size}`,
+      label: `Files: ${spaceStore ? spaceStore.getAllLocalFiles().length : 0}`,
       enabled: false,
     },
     {
@@ -388,7 +346,7 @@ function updateTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: `Files: ${localFiles.size}`,
+      label: `Files: ${spaceStore ? spaceStore.getAllLocalFiles().length : 0}`,
       enabled: false,
     },
     {
@@ -417,7 +375,7 @@ function createWindow() {
     frame: true,
     backgroundColor: '#0f172a',
     autoHideMenuBar: true,
-    title: isTestPeer ? 'Dragin Space (Peer 2)' : 'Dragin Space',
+    title: isTestPeer ? 'Dragin Space (Peer 2)' : isTestPeer2 ? 'Dragin Space (Peer 3)' : 'Dragin Space',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -563,9 +521,6 @@ ipcMain.handle('add-files', async (_event, files) => {
       thumbnail: generateThumbnail(file.path),
     };
 
-    localFiles.set(fileId, entry);
-
-    // Persist in space store
     spaceStore.addFile(spaceId, {
       id: fileId,
       name: file.name,
@@ -580,11 +535,6 @@ ipcMain.handle('add-files', async (_event, files) => {
 
     if (peerManager) {
       peerManager.broadcast({
-        type: 'file-added',
-        deviceId: DEVICE_ID,
-        file: entry,
-      });
-      peerManager.broadcast({
         type: 'space-file-added',
         deviceId: DEVICE_ID,
         spaceId,
@@ -593,19 +543,16 @@ ipcMain.handle('add-files', async (_event, files) => {
     }
   }
 
-  broadcastToRenderer('files-update', getAllFiles());
-  broadcastToRenderer('space-files-update', { spaceId, files: spaceStore.getFiles(spaceId) });
+  broadcastToRenderer('space-files-update', { spaceId, files: getAllSpaceFiles(spaceId) });
   updateTrayMenu();
 });
 
 // Remove a local file (link-not-copy: do NOT delete original file)
 ipcMain.handle('remove-file', async (_event, fileId) => {
-  const entry = localFiles.get(fileId);
-  if (!entry) return;
-
-  // Get space info before removal so we can notify
   const spaceFile = spaceStore.getFile(fileId);
-  const affectedSpaceId = spaceFile ? spaceFile.spaceId : null;
+  if (!spaceFile) return;
+
+  const affectedSpaceId = spaceFile.spaceId;
 
   // Remove legacy copy from uploads dir if it exists
   try {
@@ -614,28 +561,19 @@ ipcMain.handle('remove-file', async (_event, fileId) => {
     if (match) fs.unlinkSync(path.join(UPLOADS_DIR, match));
   } catch {}
 
-  localFiles.delete(fileId);
   spaceStore.removeFile(fileId);
 
-  if (peerManager) {
+  if (peerManager && affectedSpaceId) {
     peerManager.broadcast({
-      type: 'file-removed',
+      type: 'space-file-removed',
       deviceId: DEVICE_ID,
+      spaceId: affectedSpaceId,
       fileId: fileId,
     });
-    if (affectedSpaceId) {
-      peerManager.broadcast({
-        type: 'space-file-removed',
-        deviceId: DEVICE_ID,
-        spaceId: affectedSpaceId,
-        fileId: fileId,
-      });
-    }
   }
 
-  broadcastToRenderer('files-update', getAllFiles());
   if (affectedSpaceId) {
-    broadcastToRenderer('space-files-update', { spaceId: affectedSpaceId, files: spaceStore.getFiles(affectedSpaceId) });
+    broadcastToRenderer('space-files-update', { spaceId: affectedSpaceId, files: getAllSpaceFiles(affectedSpaceId) });
   }
   updateTrayMenu();
 });
@@ -707,8 +645,6 @@ ipcMain.handle('add-files-to-space', async (_event, spaceId, files) => {
       thumbnail: generateThumbnail(file.path),
     };
 
-    localFiles.set(fileId, entry);
-
     spaceStore.addFile(spaceId, {
       id: fileId,
       name: file.name,
@@ -721,15 +657,12 @@ ipcMain.handle('add-files-to-space', async (_event, spaceId, files) => {
       thumbnail: entry.thumbnail,
     });
 
-    // Broadcast v1 + v2
     if (peerManager) {
-      peerManager.broadcast({ type: 'file-added', deviceId: DEVICE_ID, file: entry });
       peerManager.broadcast({ type: 'space-file-added', deviceId: DEVICE_ID, spaceId, file: spaceStore.getFile(fileId) });
     }
   }
 
-  broadcastToRenderer('files-update', getAllFiles());
-  broadcastToRenderer('space-files-update', { spaceId, files: spaceStore.getFiles(spaceId) });
+  broadcastToRenderer('space-files-update', { spaceId, files: getAllSpaceFiles(spaceId) });
   updateTrayMenu();
 });
 
@@ -737,7 +670,7 @@ ipcMain.handle('pin-file', async (_event, fileId) => {
   spaceStore.pinFile(fileId);
   const file = spaceStore.getFile(fileId);
   if (file) {
-    broadcastToRenderer('space-files-update', { spaceId: file.spaceId, files: spaceStore.getFiles(file.spaceId) });
+    broadcastToRenderer('space-files-update', { spaceId: file.spaceId, files: getAllSpaceFiles(file.spaceId) });
   }
 });
 
@@ -745,7 +678,7 @@ ipcMain.handle('unpin-file', async (_event, fileId) => {
   spaceStore.unpinFile(fileId);
   const file = spaceStore.getFile(fileId);
   if (file) {
-    broadcastToRenderer('space-files-update', { spaceId: file.spaceId, files: spaceStore.getFiles(file.spaceId) });
+    broadcastToRenderer('space-files-update', { spaceId: file.spaceId, files: getAllSpaceFiles(file.spaceId) });
   }
 });
 

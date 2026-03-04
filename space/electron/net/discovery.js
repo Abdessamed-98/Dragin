@@ -1,10 +1,9 @@
-const dgram = require('dgram');
-const os = require('os');
+const { Bonjour } = require('bonjour-service');
 
-const MULTICAST_ADDR = '239.255.0.1';
-const MULTICAST_PORT = 41234;
-const HEARTBEAT_INTERVAL = 3000;
-const PEER_TIMEOUT = 10000;
+const SERVICE_TYPE = 'space';
+const SERVICE_PROTOCOL = 'tcp';
+const HEALTH_INTERVAL = 5000; // 5s — check peer liveness
+const PEER_TIMEOUT = 15000; // 15s — evict if not seen in browser's service list
 
 class Discovery {
   constructor({ deviceId, deviceName, serverPort, platform, onPeerFound, onPeerLost }) {
@@ -16,141 +15,153 @@ class Discovery {
     this.onPeerLost = onPeerLost;
 
     this.peers = new Map(); // id -> { id, name, ip, port, platform, lastSeen }
-    this.socket = null;
-    this.heartbeatTimer = null;
-    this.cleanupTimer = null;
-  }
-
-  getLocalIP() {
-    const interfaces = os.networkInterfaces();
-    for (const name of Object.keys(interfaces)) {
-      for (const iface of interfaces[name]) {
-        if (iface.family === 'IPv4' && !iface.internal) {
-          return iface.address;
-        }
-      }
-    }
-    return '127.0.0.1';
+    this.bonjour = null;
+    this.service = null;
+    this.browser = null;
+    this.healthTimer = null;
   }
 
   start() {
-    this.socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-
-    this.socket.on('message', (msg, rinfo) => {
-      try {
-        const data = JSON.parse(msg.toString());
-        this._handleMessage(data, rinfo);
-      } catch {
-        // Ignore malformed messages
-      }
+    this.bonjour = new Bonjour(undefined, (err) => {
+      console.error('[Discovery] Bonjour error:', err.message);
     });
 
-    this.socket.on('error', (err) => {
-      console.error('[Discovery] Socket error:', err.message);
+    // Publish our service — name must be unique per instance
+    this.service = this.bonjour.publish({
+      name: `${this.deviceName}-${this.deviceId.slice(0, 8)}`,
+      type: SERVICE_TYPE,
+      protocol: SERVICE_PROTOCOL,
+      port: this.serverPort,
+      txt: {
+        id: this.deviceId,
+        name: this.deviceName,
+        platform: this.platform,
+      },
     });
 
-    this.socket.bind(MULTICAST_PORT, () => {
-      this.socket.addMembership(MULTICAST_ADDR);
-      this.socket.setMulticastTTL(128);
-      this.socket.setBroadcast(true);
-      console.log(`[Discovery] Listening on ${MULTICAST_ADDR}:${MULTICAST_PORT}`);
+    console.log(`[Discovery] Published _space._tcp on port ${this.serverPort}`);
 
-      // Start heartbeat
-      this._sendHello();
-      this.heartbeatTimer = setInterval(() => this._sendHello(), HEARTBEAT_INTERVAL);
-
-      // Start peer cleanup
-      this.cleanupTimer = setInterval(() => this._cleanupPeers(), HEARTBEAT_INTERVAL);
+    // Start browsing for peers
+    this.browser = this.bonjour.find({
+      type: SERVICE_TYPE,
+      protocol: SERVICE_PROTOCOL,
     });
+
+    this.browser.on('up', (service) => this._handleServiceUp(service));
+    this.browser.on('down', (service) => this._handleServiceDown(service));
+
+    // Health check: refresh lastSeen from browser's service list + timeout sweep
+    this.healthTimer = setInterval(() => this._healthCheck(), HEALTH_INTERVAL);
   }
 
   stop() {
-    // Send bye message
-    this._sendBye();
-
-    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
-
-    if (this.socket) {
-      try {
-        this.socket.dropMembership(MULTICAST_ADDR);
-        this.socket.close();
-      } catch {
-        // Socket may already be closed
-      }
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
     }
-  }
 
-  _sendHello() {
-    const msg = JSON.stringify({
-      type: 'hello',
-      id: this.deviceId,
-      name: this.deviceName,
-      ip: this.getLocalIP(),
-      port: this.serverPort,
-      platform: this.platform,
-    });
-
-    this.socket.send(msg, MULTICAST_PORT, MULTICAST_ADDR);
-  }
-
-  _sendBye() {
-    if (!this.socket) return;
-    const msg = JSON.stringify({
-      type: 'bye',
-      id: this.deviceId,
-    });
-
-    try {
-      this.socket.send(msg, MULTICAST_PORT, MULTICAST_ADDR);
-    } catch {
-      // Socket may be closed
+    if (this.browser) {
+      this.browser.stop();
+      this.browser = null;
     }
-  }
 
-  _handleMessage(data, rinfo) {
-    // Ignore our own messages
-    if (data.id === this.deviceId) return;
-
-    if (data.type === 'hello') {
-      this.peers.set(data.id, {
-        id: data.id,
-        name: data.name,
-        ip: data.ip || rinfo.address,
-        port: data.port,
-        platform: data.platform,
-        lastSeen: Date.now(),
+    if (this.bonjour) {
+      this.bonjour.unpublishAll(() => {
+        this.bonjour.destroy();
+        this.bonjour = null;
       });
+    }
 
-      // Always fire onPeerFound — peerManager handles dedup/cooldown
-      if (this.onPeerFound) {
-        this.onPeerFound(this.peers.get(data.id));
+    this.service = null;
+    this.peers.clear();
+  }
+
+  getPeers() {
+    return Array.from(this.peers.values()).map(({ lastSeen, ...rest }) => rest);
+  }
+
+  // --- Internal ---
+
+  _handleServiceUp(service) {
+    const txt = service.txt || {};
+    const peerId = txt.id;
+
+    // Ignore our own service or malformed records
+    if (!peerId || peerId === this.deviceId) return;
+
+    const ip = this._extractIPv4(service);
+    if (!ip) return;
+
+    const peer = {
+      id: peerId,
+      name: txt.name || service.name,
+      ip,
+      port: service.port,
+      platform: txt.platform || 'unknown',
+      lastSeen: Date.now(),
+    };
+
+    const isNew = !this.peers.has(peerId);
+    this.peers.set(peerId, peer);
+
+    if (isNew) {
+      console.log(`[Discovery] Peer found: ${peer.name} (${peer.ip}:${peer.port})`);
+    }
+
+    // Always fire — peerManager handles dedup/cooldown
+    if (this.onPeerFound) {
+      this.onPeerFound({ ...peer, lastSeen: undefined });
+    }
+  }
+
+  _handleServiceDown(service) {
+    const txt = service.txt || {};
+    const peerId = txt.id;
+    if (!peerId) return;
+
+    const peer = this.peers.get(peerId);
+    if (peer) {
+      this.peers.delete(peerId);
+      console.log(`[Discovery] Peer gone: ${peer.name}`);
+      if (this.onPeerLost) {
+        this.onPeerLost(peer);
       }
-    } else if (data.type === 'bye') {
-      if (this.peers.has(data.id)) {
-        const peer = this.peers.get(data.id);
-        this.peers.delete(data.id);
-        if (this.onPeerLost) {
-          this.onPeerLost(peer);
+    }
+  }
+
+  _extractIPv4(service) {
+    if (service.addresses && service.addresses.length > 0) {
+      const v4 = service.addresses.find((a) => /^\d+\.\d+\.\d+\.\d+$/.test(a));
+      if (v4) return v4;
+      return service.addresses[0];
+    }
+    return service.host || null;
+  }
+
+  _healthCheck() {
+    // Refresh lastSeen for peers still in the browser's service list
+    // (avoids recreating the browser which triggers false 'down' events)
+    if (this.browser && this.browser.services) {
+      for (const service of this.browser.services) {
+        const txt = service.txt || {};
+        const peerId = txt.id;
+        if (peerId && peerId !== this.deviceId && this.peers.has(peerId)) {
+          this.peers.get(peerId).lastSeen = Date.now();
         }
       }
     }
-  }
 
-  _cleanupPeers() {
+    // Timeout sweep — catch ungraceful shutdowns where 'down' never fires
     const now = Date.now();
     for (const [id, peer] of this.peers) {
       if (now - peer.lastSeen > PEER_TIMEOUT) {
         this.peers.delete(id);
+        console.log(`[Discovery] Peer timed out: ${peer.name}`);
         if (this.onPeerLost) {
           this.onPeerLost(peer);
         }
       }
     }
-  }
-
-  getPeers() {
-    return Array.from(this.peers.values());
   }
 }
 

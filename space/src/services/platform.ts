@@ -1,4 +1,4 @@
-import type { Peer, SharedFile, SavedPeer, Space, SpaceFile } from '@/types';
+import type { Peer, SavedPeer, Space, SpaceFile } from '@/types';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 
 export type Platform = 'electron' | 'android' | 'ios' | 'web';
@@ -49,21 +49,13 @@ export interface ConnectionInfo {
 }
 
 type PeersCallback = (peers: Peer[]) => void;
-type FilesCallback = (files: SharedFile[]) => void;
 
 let peersListeners: PeersCallback[] = [];
-let filesListeners: FilesCallback[] = [];
 let localPeers: Peer[] = [];
-let localFiles: SharedFile[] = [];
 
 function notifyPeers(peers: Peer[]) {
   localPeers = peers;
   peersListeners.forEach((cb) => cb(peers));
-}
-
-function notifyFiles(files: SharedFile[]) {
-  localFiles = files;
-  filesListeners.forEach((cb) => cb(files));
 }
 
 // ---------- Electron implementation ----------
@@ -74,9 +66,6 @@ function electronAPI() {
     getConnectionInfo: (): Promise<ConnectionInfo | null> => window.electron.getConnectionInfo(),
     onPeersUpdate: (cb: PeersCallback) => {
       window.electron.onPeersUpdate(cb);
-    },
-    onFilesUpdate: (cb: FilesCallback) => {
-      window.electron.onFilesUpdate(cb);
     },
     getFilePath: (file: File) => window.electron.getFilePath(file),
     pickFiles: () => window.electron.pickFiles(),
@@ -187,10 +176,6 @@ function capacitorAPI() {
         import('./mobileNet').then((m) => m.initMobileNet(deviceId));
       }
     },
-    onFilesUpdate: (cb: FilesCallback) => {
-      filesListeners.push(cb);
-      cb(localFiles);
-    },
     getFilePath: (_file: File) => '',
     pickFiles: async (): Promise<FileEntry[]> => {
       return new Promise((resolve) => {
@@ -218,13 +203,16 @@ function capacitorAPI() {
       });
     },
     addFiles: async (files: FileEntry[]) => {
-      const { addLocalFile, storeFileBlob } = await import('./mobileNet');
+      // Add to default (first) space via v2
+      const { getMobileSpaces, mobileAddFileToSpace, storeFileBlob } = await import('./mobileNet');
+      const spaces = getMobileSpaces();
+      const spaceId = spaces.length > 0 ? spaces[0].id : 'general';
+
       for (const file of files) {
         const fileId = Array.from(crypto.getRandomValues(new Uint8Array(6)))
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
 
-        // Store the original File object for WS transfer
         const key = `${file.name}-${file.size}`;
         const fileObj = pendingFileObjects.get(key);
         let thumbnail: string | undefined;
@@ -234,22 +222,30 @@ function capacitorAPI() {
           thumbnail = await generateThumbnail(fileObj);
         }
 
-        addLocalFile({
+        mobileAddFileToSpace(spaceId, {
           id: fileId,
           name: file.name,
           size: file.size,
           mimeType: file.mimeType,
           deviceId,
           deviceName: 'Android Device',
-          uploadedAt: Date.now(),
-          blobUrl: file.path.startsWith('blob:') ? file.path : undefined,
+          addedAt: Date.now(),
+          spaceId,
           thumbnail,
+          available: true,
+          blobUrl: file.path.startsWith('blob:') ? file.path : undefined,
         });
       }
     },
     removeFile: async (fileId: string) => {
-      const { removeLocalFile } = await import('./mobileNet');
-      removeLocalFile(fileId);
+      const { getMobileSpaces, getMobileSpaceFiles, mobileRemoveFileFromSpace } = await import('./mobileNet');
+      for (const space of getMobileSpaces()) {
+        const files = getMobileSpaceFiles(space.id);
+        if (files.some(f => f.id === fileId)) {
+          mobileRemoveFileFromSpace(space.id, fileId);
+          break;
+        }
+      }
     },
     downloadFile: async (
       fileId: string, fileName: string, _peerId: string, ip: string, port: number,
@@ -387,13 +383,12 @@ function capacitorAPI() {
       return getMobileSpaceFiles(spaceId);
     },
     addFilesToSpace: async (spaceId: string, files: FileEntry[]) => {
-      const { addLocalFile, storeFileBlob, mobileAddFileToSpace } = await import('./mobileNet');
+      const { storeFileBlob, mobileAddFileToSpace } = await import('./mobileNet');
       for (const file of files) {
         const fileId = Array.from(crypto.getRandomValues(new Uint8Array(6)))
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
 
-        // Store the original File object for WS transfer
         const key = `${file.name}-${file.size}`;
         const fileObj = pendingFileObjects.get(key);
         let thumbnail: string | undefined;
@@ -403,21 +398,6 @@ function capacitorAPI() {
           thumbnail = await generateThumbnail(fileObj);
         }
 
-        const sharedFile: SharedFile = {
-          id: fileId,
-          name: file.name,
-          size: file.size,
-          mimeType: file.mimeType,
-          deviceId,
-          deviceName: 'Android Device',
-          uploadedAt: Date.now(),
-          blobUrl: file.path.startsWith('blob:') ? file.path : undefined,
-          thumbnail,
-        };
-
-        addLocalFile(sharedFile);
-
-        // Also track in space
         mobileAddFileToSpace(spaceId, {
           id: fileId,
           name: file.name,
@@ -457,4 +437,4 @@ export function getSpaceAPI(): SpaceAPI {
 }
 
 // Export for mobile networking (called by the WebSocket client)
-export { notifyPeers, notifyFiles };
+export { notifyPeers };

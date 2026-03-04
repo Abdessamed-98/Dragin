@@ -26,17 +26,6 @@ export interface Peer {
   platform: string;
 }
 
-// WebSocket message types
-export type WSMessage =
-  | { type: 'file-list'; files: SharedFile[] }
-  | { type: 'file-added'; file: SharedFile }
-  | { type: 'file-removed'; fileId: string };
-
-// UDP discovery message types
-export type DiscoveryMessage =
-  | { type: 'hello'; id: string; name: string; ip: string; port: number; platform: string }
-  | { type: 'bye'; id: string };
-
 // Saved/known peer (persisted across sessions)
 export interface SavedPeer {
   id: string;
@@ -80,7 +69,6 @@ export interface ElectronAPI {
   getConnectionInfo: () => Promise<{ ip: string; port: number; id: string; name: string }>;
   getFilePath: (file: File) => string;
   onPeersUpdate: (callback: (peers: Peer[]) => void) => void;
-  onFilesUpdate: (callback: (files: SharedFile[]) => void) => void;
   onDownloadProgress: (callback: (data: { fileId: string; progress: number }) => void) => () => void;
   generatePairPin: () => Promise<string>;
   clearPairPin: () => Promise<void>;
