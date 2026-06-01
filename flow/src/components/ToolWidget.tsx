@@ -1,7 +1,7 @@
 
 import React, { DragEvent, useState, useEffect, useRef, MouseEvent } from 'react';
 import { motion } from 'framer-motion';
-import { LucideIcon, X, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, PenTool, Settings, File as FileIcon, ClipboardPaste, Paintbrush, Zap, Crosshair, Ban } from 'lucide-react';
+import { LucideIcon, X, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, Settings, File as FileIcon, ClipboardPaste, Brush, Zap, Crosshair, Ban } from 'lucide-react';
 import { ActiveSession, ToolId, SessionItem } from '../types';
 import JSZip from 'jszip';
 import { CropperTool } from './tools/CropperTool';
@@ -15,9 +15,9 @@ import { MetadataTool } from './tools/MetadataTool';
 import { WatermarkTool } from './tools/WatermarkTool';
 import { PaletteTool } from './tools/PaletteTool';
 import { MagicBrushTool } from './tools/MagicBrushTool';
-import { dragState } from '../state/dragState';
 import { clipboardState } from '../state/clipboardState';
 import { getFileThumbnail } from '../services/api';
+import { useI18n } from '../i18n/I18nContext';
 
 interface ToolWidgetProps {
     id: ToolId;
@@ -159,14 +159,14 @@ const GridItemPreview: React.FC<{
                 />
             ) : (
                 <div className={`flex flex-col items-center justify-center gap-1 w-full h-full ${opacity} pointer-events-none select-none`}>
-                    <FileIcon className="w-8 h-8 text-slate-400" />
-                    <span className="text-[10px] text-slate-400 text-center break-all line-clamp-2 px-1 leading-tight">{name}</span>
+                    <FileIcon className="w-8 h-8 text-[var(--text-2)]" />
+                    <span className="text-[10px] text-[var(--text-2)] text-center break-all line-clamp-2 px-1 leading-tight">{name}</span>
                 </div>
             )}
             {/* File name label at bottom */}
             {showImage && (
                 <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5 pointer-events-none">
-                    <p className="text-[9px] text-slate-300 truncate text-center leading-tight">{name}</p>
+                    <p className="text-[9px] text-[var(--text-2)] truncate text-center leading-tight">{name}</p>
                 </div>
             )}
         </>
@@ -176,7 +176,6 @@ const GridItemPreview: React.FC<{
 export const ToolWidget: React.FC<ToolWidgetProps> = ({
     id,
     title,
-    description,
     icon: Icon,
     colorClass,
     isDockVisible,
@@ -188,7 +187,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     onClose,
     onExpand,
     onSelectItem,
-    isToolDragging,
     isReordering = false,
     onUpdateItem,
     onOpenSettings,
@@ -223,7 +221,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     formatLines,
     onSelfItemCountChange,
 }) => {
-    const [isDragHover, setIsDragHover] = useState(false);
+    const { t } = useI18n();
     const [cancelHover, setCancelHover] = useState(false);
     const [showOriginal, setShowOriginal] = useState(false);
     const [, forceUpdate] = useState(0);
@@ -334,124 +332,39 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
         return () => window.removeEventListener('paste', handler);
     }, [isExpanded, id, onDrop]);
 
-    // --- DIMENSION LOGIC MOVED TO JS VARIABLES ---
-    let targetWidth = 80;
-    let targetHeight = 80;
-    let targetOpacity = 0;
-    let targetX = 100; // Translate X
-    let pointerEvents = 'none';
-    let cursor = 'default';
-
-    if (isActive) {
-        const availableWidth = window.innerWidth - 20;
-        // All expanded tools: fixed width, 4:5 aspect ratio (width:height)
-        targetWidth = Math.min(420, availableWidth);
-        targetHeight = Math.round(targetWidth * 5 / 4);
-        targetOpacity = 1;
-        targetX = 0;
-        pointerEvents = 'auto';
-    } else if (isDragHover || externalDragHover) {
-        // Expand on drag hover. When externalDragHandled=true the parent wrapper
-        // covers both the tool box AND the pill, so expanding is safe (cursor stays
-        // within the wrapper even after the tool grows in size).
-        targetWidth = 300;
-        targetHeight = 220;
-        targetOpacity = 1;
-        targetX = 0;
-        pointerEvents = 'auto';
-    } else if (isDockVisible) {
-        targetWidth = 80;
-        targetHeight = 80;
-        targetOpacity = 1;
-        targetX = 0;
-        pointerEvents = 'auto';
-        cursor = 'pointer';
-    }
-
-    // Dynamic colors
-    const bgGradient = isActive || isDragHover || externalDragHover
-        ? `bg-slate-900 border-${colorClass}-500/30`
-        : `bg-slate-800 border-white/10`;
+    // ── SIZE OWNERSHIP ───────────────────────────────────────────────────────
+    // The size of the dock is now owned by the single "tongue" panel in SideDock.
+    // The widget simply fills the panel when active, or renders as a fixed rail
+    // tile (80×80) when collapsed. A file dragged over a tile gives a highlight
+    // ring — it no longer expands into a catch-frame.
 
     const handleDragEnter = (e: DragEvent) => {
         if (externalDragHandled) return; // parent wrapper handles this
         e.preventDefault();
-        if (isReordering) return;
-        if (e.dataTransfer.types.includes('application/x-smart-tool-reorder')) return;
-        if (isDockVisible && !isActive && !isToolDragging) setIsDragHover(true);
     };
 
     const handleDragLeave = (e: DragEvent) => {
         if (externalDragHandled) return; // parent wrapper handles this
         e.preventDefault();
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        if (
-            e.clientX < rect.left ||
-            e.clientX >= rect.right ||
-            e.clientY < rect.top ||
-            e.clientY >= rect.bottom
-        ) {
-            setIsDragHover(false);
-        }
     };
 
     const handleDrop = (e: DragEvent) => {
-        if (externalDragHandled) {
-            // Parent wrapper already processes the drop — just clear local state
-            setIsDragHover(false);
-            return;
-        }
-
+        if (externalDragHandled) return; // parent wrapper handles drops
         e.stopPropagation();
-        setIsDragHover(false);
-
         if (e.dataTransfer.types.includes('application/x-smart-tool-reorder')) return;
-
-        // Check shared drag state first (survives startDrag overriding dataTransfer)
-        const ds = dragState.get();
-        if (ds && ds.sourceToolId !== id) {
-            dragState.clear();
-            onInternalDrop(ds.sourceToolId, id, ds.itemIds);
-            return;
-        }
-        dragState.clear();
-
-        const internalData = e.dataTransfer.getData('application/app-internal-transfer');
-        if (internalData) {
-            try {
-                const { sourceToolId, itemIds } = JSON.parse(internalData);
-                if (sourceToolId && itemIds && itemIds.length > 0) {
-                    onInternalDrop(sourceToolId, id, itemIds);
-                    return;
-                }
-            } catch (err) {
-                console.error("Failed to parse internal drop data");
-            }
-        }
-
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            const files: File[] = [];
-            for (let i = 0; i < e.dataTransfer.files.length; i++) {
-                files.push(e.dataTransfer.files[i]);
-            }
-            onDrop(files, id);
+            onDrop(Array.from(e.dataTransfer.files), id);
         }
     };
 
     const handleItemDragStart = (e: DragEvent, itemId: string) => {
-        e.stopPropagation();
-
-        // Replace the browser's default ghost (a large card snapshot) with a transparent 1×1 canvas.
-        // This prevents the ghost from getting stuck on screen when the OS native drag takes over.
-        const ghostCanvas = document.createElement('canvas');
-        ghostCanvas.width = 1;
-        ghostCanvas.height = 1;
-        e.dataTransfer.setDragImage(ghostCanvas, 0, 0);
+        // Default Electron native file drag-out: prevent the HTML5 drag and hand the
+        // files straight to the OS via startDrag. Supports multi-select.
+        e.preventDefault();
 
         let idsToDrag = [itemId];
         if (selectedIds.includes(itemId) && selectedIds.length > 1) idsToDrag = selectedIds;
 
-        // Build export payload for potential OS drag-out
         const exportItems = items
             .filter(i => idsToDrag.includes(i.id))
             .map(i => {
@@ -465,29 +378,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                 };
             });
 
-        // Listener: when drag leaves the Electron window, initiate native OS file drag
-        // We do NOT call startNativeDrag here — doing so blocks the renderer and prevents
-        // browser drop events from firing, breaking tool-to-tool transfers.
-        const onLeaveWindow = (ev: Event) => {
-            const de = ev as globalThis.DragEvent;
-            if (de.relatedTarget === null) {
-                dragState.clear(); // also removes this listener via cleanupFn
-                window.electron?.startNativeDrag?.({ items: exportItems });
-            }
-        };
-        document.documentElement.addEventListener('dragleave', onLeaveWindow);
-
-        // Store shared state: used by handleWrapperDrop in SideDock for in-app transfers
-        dragState.set(
-            { sourceToolId: id, itemIds: idsToDrag, exportItems },
-            () => document.documentElement.removeEventListener('dragleave', onLeaveWindow)
-        );
-
-        // dataTransfer fallback (works when startDrag is not in effect)
-        e.dataTransfer.setData('application/app-internal-transfer', JSON.stringify({
-            sourceToolId: id,
-            itemIds: idsToDrag
-        }));
+        window.electron?.startNativeDrag?.({ items: exportItems });
     };
 
     const handleItemClick = (e: MouseEvent, itemId: string) => {
@@ -690,7 +581,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
 
         } catch (error) {
             console.error("Failed to zip files", error);
-            alert("حدث خطأ أثناء ضغط الملفات");
+            alert(t('widget.zipError'));
         } finally {
             setIsZipping(false);
         }
@@ -709,26 +600,19 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     return (
         <motion.div
             initial={false}
-            animate={{
-                width: targetWidth,
-                height: targetHeight,
-                opacity: targetOpacity,
-                x: targetX,
-            }}
-            transition={{
-                type: "spring",
-                stiffness: 400,
-                damping: 30,
-            }}
             style={{
-                pointerEvents: pointerEvents as any,
-                cursor
+                width: isActive ? '100%' : 80,
+                height: isActive ? '100%' : 80,
+                pointerEvents: 'auto',
+                cursor: isActive ? 'default' : 'pointer',
             }}
             data-interactive
-            className={`relative flex flex-col items-center justify-center 
-        backdrop-blur-xl border rounded-2xl shadow-2xl transition-colors duration-300
-        overflow-hidden
-        ${bgGradient}
+            className={`relative flex flex-col items-center justify-center overflow-hidden transition-colors duration-200
+        ${isActive
+                    ? 'rounded-[20px]'
+                    : `rounded-2xl border ${externalDragHover
+                        ? 'bg-[var(--tile-hover)] border-[var(--accent)] ring-2 ring-[var(--accent)]'
+                        : 'bg-[var(--tile)] border-[var(--border)] hover:bg-[var(--tile-hover)]'}`}
       `}
             onDragEnter={handleDragEnter}
             onDragOver={(e) => {
@@ -740,34 +624,15 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
             onClick={handleContainerClick}
         >
             {/* --- STATE: IDLE / MINI (Dock Icon) --- */}
-            {!isActive && !isDragHover && !externalDragHover && (
-                <div className="relative flex items-center justify-center w-full h-full text-slate-400">
+            {!isActive && (
+                <div className="relative flex items-center justify-center w-full h-full text-[var(--text-2)]">
                     <Icon className={`w-8 h-8 text-${colorClass}-400`} />
                     {(itemCount || selfItemCount) > 0 && (
-                        <div className="absolute top-4 right-4 translate-x-1/2 -translate-y-1/2 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border border-slate-900 shadow-sm animate-in zoom-in">
+                        <div className="absolute top-4 right-4 translate-x-1/2 -translate-y-1/2 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border border-[var(--bg)] shadow-sm animate-in zoom-in">
                             {itemCount || selfItemCount}
                         </div>
                     )}
                 </div>
-            )}
-
-            {/* --- STATE: DRAG HOVER (Expanded, file dragged over tool or pill) --- */}
-            {!isActive && (isDragHover || externalDragHover) && (
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center pointer-events-none"
-                >
-                    <div className={`p-3 rounded-full bg-${colorClass}-500/20 mb-3`}>
-                        <Icon className={`w-8 h-8 text-${colorClass}-400`} />
-                    </div>
-                    <h3 className="text-white font-bold text-lg">{title}</h3>
-                    <p className="text-xs text-slate-400 mt-1">{description}</p>
-
-                    <div className={`mt-4 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-${colorClass}-500/10 text-${colorClass}-300 border border-${colorClass}-500/20`}>
-                        أفلت الملفات هنا
-                    </div>
-                </motion.div>
             )}
 
             {/* --- STATE: ACTIVE / EXPANDED --- */}
@@ -828,12 +693,12 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark', 'vectorizer', 'palette'].includes(id)
                         || (id === 'cropper' && isCropping)
                         || (id === 'remover' && isBrushing)) && (<>
-                    <div className="flex items-center pb-3 border-b border-white/5 mb-3 shrink-0">
+                    <div className="flex items-center pb-3 border-b border-[var(--separator)] mb-3 shrink-0">
                         {/* Left: Title + count */}
                         <div className="flex items-center gap-2">
                             <Icon className={`w-4 h-4 text-${colorClass}-400`} />
-                            <span className="text-sm font-bold text-white">{title}</span>
-                            {isMultiple && <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full text-slate-300">{itemCount}</span>}
+                            <span className="text-sm font-bold text-[var(--text)]">{title}</span>
+                            {isMultiple && <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{itemCount}</span>}
                         </div>
 
                         <div className="flex-1" />
@@ -841,11 +706,11 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         {/* Right: Settings + close */}
                         <div className="flex items-center gap-0.5">
                             {onOpenSettings && (
-                                <button onClick={onOpenSettings} className="text-slate-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5" title="الإعدادات">
+                                <button onClick={onOpenSettings} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1 rounded-lg hover:bg-[var(--surface-3)]" title={t('widget.settings')}>
                                     <Settings className="w-4 h-4" />
                                 </button>
                             )}
-                            <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
+                            <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
                                 <X className="w-4 h-4" />
                             </button>
                         </div>
@@ -854,11 +719,11 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     {/* Remover mode toggle */}
                     {id === 'remover' && items.length > 0 && onRemoverModeChange && (
                         <div className="flex justify-center shrink-0 mb-2">
-                            <div className="inline-flex rounded-lg bg-slate-800/80 border border-white/5 p-0.5">
+                            <div className="inline-flex rounded-lg bg-[var(--surface)] border border-[var(--separator)] p-0.5">
                                 {([
-                                    { mode: 'speed' as const, label: 'سرعة', Icon: Zap },
-                                    { mode: 'precision' as const, label: 'دقة', Icon: Crosshair },
-                                ] as const).map(({ mode, label, Icon }) => {
+                                    { mode: 'speed' as const, label: t('widget.modeSpeed'), Icon: Zap },
+                                    { mode: 'precision' as const, label: t('widget.modePrecision'), Icon: Crosshair },
+                                ]).map(({ mode, label, Icon }) => {
                                     const active = (removerOptions?.mode || 'speed') === mode;
                                     return (
                                         <button
@@ -866,8 +731,8 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                             onClick={() => onRemoverModeChange(mode)}
                                             className={`flex items-center justify-center gap-1.5 w-20 py-1 rounded-md text-xs font-bold transition-all ${
                                                 active
-                                                    ? 'bg-indigo-600 text-white shadow-sm'
-                                                    : 'text-slate-400 hover:text-white'
+                                                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                                                    : 'text-[var(--text-2)] hover:text-[var(--text)]'
                                             }`}
                                         >
                                             <Icon className="w-3.5 h-3.5" />
@@ -880,25 +745,25 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     )}
 
                     {/* Content Body */}
-                    <div className="flex-1 relative rounded-xl overflow-hidden bg-black/20 mb-3 min-h-0 border border-white/5"
+                    <div className="flex-1 relative rounded-xl overflow-hidden bg-black/20 mb-3 min-h-0 border border-[var(--separator)]"
                         onClick={(e) => { if (e.target === e.currentTarget && isMultiple) { /* Deselect logic optional */ } }}>
 
                         {!items.length ? (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed border-slate-700 bg-slate-800/30">
-                                <div className="p-4 rounded-2xl bg-slate-800">
-                                    <Icon className="w-8 h-8 text-slate-500" />
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed border-[var(--border)] bg-[var(--surface-2)]">
+                                <div className="p-4 rounded-2xl bg-[var(--surface)]">
+                                    <Icon className="w-8 h-8 text-[var(--text-3)]" />
                                 </div>
                                 <div className="text-center px-4">
-                                    <p className="text-sm font-semibold text-slate-300">
-                                        {emptyHint || 'اسحب ملفات هنا'}
+                                    <p className="text-sm font-semibold text-[var(--text-2)]">
+                                        {emptyHint || t('widget.defaultEmptyHint')}
                                     </p>
                                     {emptySubHint && (
-                                        <p className="text-xs text-slate-500 mt-1">{emptySubHint}</p>
+                                        <p className="text-xs text-[var(--text-3)] mt-1">{emptySubHint}</p>
                                     )}
                                     {formatLines && formatLines.length > 0 && (
                                         <div className="mt-2">
                                             {formatLines.map((line, i) => (
-                                                <p key={i} className="text-[10px] text-slate-600">{line}</p>
+                                                <p key={i} className="text-[10px] text-[var(--text-3)]">{line}</p>
                                             ))}
                                         </div>
                                     )}
@@ -913,9 +778,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                             <div
                                                 className="w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing"
                                                 draggable={!isSingleProcessing}
-                                                onDragStart={(e) => handleItemDragStart(e, singleItem.id)}
-                                                onDragEnd={() => { dragState.clear(); }}
-                                            >
+                                                onDragStart={(e) => handleItemDragStart(e, singleItem.id)}                                            >
                                                 <GridItemPreview item={singleItem} colorClass={colorClass} />
                                             </div>
                                         ) : (
@@ -924,23 +787,21 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                                 className="w-full h-full object-contain cursor-grab active:cursor-grabbing"
                                                 alt="preview"
                                                 draggable={!isSingleProcessing}
-                                                onDragStart={(e) => handleItemDragStart(e, singleItem.id)}
-                                                onDragEnd={() => { dragState.clear(); }}
-                                            />
+                                                onDragStart={(e) => handleItemDragStart(e, singleItem.id)}                                            />
                                         )}
 
                                         {isSingleProcessing && (
                                             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center">
                                                 <Loader2 className={`w-8 h-8 text-${colorClass}-400 animate-spin mb-2`} />
-                                                <span className="text-xs text-slate-300">{isModelLoading ? 'تحميل النموذج...' : 'جاري المعالجة...'}</span>
+                                                <span className="text-xs text-[var(--text-2)]">{isModelLoading ? t('widget.loadingModel') : t('widget.processing')}</span>
                                             </div>
                                         )}
 
                                         {isSingleCompleted && singleItem.metadata && (
                                             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3 pt-6 pointer-events-none">
-                                                <div className="flex justify-between text-xs text-slate-300">
+                                                <div className="flex justify-between text-xs text-[var(--text-2)]">
                                                     <span>{singleItem.metadata.newSize || 'Done'}</span>
-                                                    {singleItem.metadata.savedPercentage && <span className="text-green-400">{singleItem.metadata.savedPercentage} saved</span>}
+                                                    {singleItem.metadata.savedPercentage && <span className="text-[var(--green)]">{singleItem.metadata.savedPercentage} saved</span>}
                                                 </div>
                                             </div>
                                         )}
@@ -959,13 +820,12 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                                         onClick={(e) => handleItemClick(e, item.id)}
                                                         draggable={item.status !== 'processing'}
                                                         onDragStart={item.status !== 'processing' ? (e) => handleItemDragStart(e, item.id) : undefined}
-                                                        onDragEnd={() => { dragState.clear(); }}
                                                         className={`
                                                 group relative aspect-square rounded-lg border overflow-hidden flex items-center justify-center p-2 transition-all duration-200
                                                 ${item.status !== 'processing' ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}
                                                 ${isSelected
                                                                 ? `bg-${colorClass}-500/20 border-${colorClass}-500 ring-1 ring-${colorClass}-500`
-                                                                : 'bg-slate-800/50 border-white/5 hover:bg-slate-700/50'
+                                                                : 'bg-[var(--surface-2)] border-[var(--separator)] hover:bg-[var(--surface-3)]'
                                                             }
                                             `}
                                                     >
@@ -1012,11 +872,11 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                     onClick={() => setShowOriginal(!showOriginal)}
                                     disabled={!isFocusedCompleted || isMultiple}
                                     className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                                        !isFocusedCompleted || isMultiple ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed' :
-                                            showOriginal ? 'bg-indigo-900/30 text-indigo-300 hover:bg-indigo-900/40' :
-                                                'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
+                                        !isFocusedCompleted || isMultiple ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed' :
+                                            showOriginal ? 'bg-[var(--accent-soft)] text-[var(--accent)] hover:bg-[var(--accent-soft)]' :
+                                                'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]'
                                     }`}
-                                    title={showOriginal ? "عرض النتيجة" : "عرض الأصل"}
+                                    title={showOriginal ? t('widget.showResult') : t('widget.showOriginal')}
                                 >
                                     {showOriginal ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
@@ -1025,12 +885,12 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                     disabled={!isFocusedCompleted}
                                     className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                                         !isFocusedCompleted
-                                            ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                            : 'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
+                                            ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                            : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]'
                                     }`}
-                                    title="فرشاة التعديل"
+                                    title={t('widget.magicBrush')}
                                 >
-                                    <Paintbrush className="w-4 h-4" />
+                                    <Brush className="w-4 h-4" />
                                 </button>
                                 <button
                                     onClick={async () => {
@@ -1055,10 +915,10 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                     disabled={!hasCompleted || showOriginal || isTrimming}
                                     className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                                         !hasCompleted || showOriginal
-                                            ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                            : 'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
+                                            ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                            : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]'
                                     }`}
-                                    title="قص الفراغ"
+                                    title={t('widget.autoCrop')}
                                 >
                                     {isTrimming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scissors className="w-4 h-4" />}
                                 </button>
@@ -1073,7 +933,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                         className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-orange-600 hover:bg-orange-500 text-white"
                                     >
                                         <CropIcon className="w-4 h-4" />
-                                        قص
+                                        {t('widget.crop')}
                                     </button>
                                 )}
                             </div>
@@ -1081,7 +941,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         {/* Compressor: quality slider + re-compress */}
                         {id === 'compressor' && items.length > 0 && (
                             <div className="flex items-center gap-2 w-full">
-                                <span className="text-[10px] text-slate-500 shrink-0 w-8 text-center">{compressorQuality ?? 70}%</span>
+                                <span className="text-[10px] text-[var(--text-3)] shrink-0 w-8 text-center">{compressorQuality ?? 70}%</span>
                                 <input
                                     type="range"
                                     min={10}
@@ -1089,11 +949,11 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                     step={5}
                                     value={compressorQuality ?? 70}
                                     onChange={e => onRecompress?.(Number(e.target.value))}
-                                    className="flex-1 accent-emerald-500 cursor-pointer h-1"
+                                    className="flex-1 accent-[var(--accent)] cursor-pointer h-1"
                                     disabled={anyProcessing}
                                 />
-                                <span className="text-[10px] text-slate-500 shrink-0">
-                                    {(compressorQuality ?? 70) >= 85 ? 'عالية' : (compressorQuality ?? 70) >= 65 ? 'متوسطة' : (compressorQuality ?? 70) >= 40 ? 'منخفضة' : 'منخفضة جداً'}
+                                <span className="text-[10px] text-[var(--text-3)] shrink-0">
+                                    {(compressorQuality ?? 70) >= 85 ? t('widget.qualityHigh') : (compressorQuality ?? 70) >= 65 ? t('widget.qualityMedium') : (compressorQuality ?? 70) >= 40 ? t('widget.qualityLow') : t('widget.qualityVeryLow')}
                                 </span>
                             </div>
                         )}
@@ -1113,24 +973,24 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                     }`}
                                 >
                                     {cancelHover && onCancelProcessing
-                                        ? <><Ban className="w-4 h-4" />إلغاء</>
-                                        : <><Loader2 className="w-4 h-4 animate-spin" />{isModelLoading ? 'تحميل النموذج...' : 'جاري المعالجة...'}</>
+                                        ? <><Ban className="w-4 h-4" />{t('widget.cancel')}</>
+                                        : <><Loader2 className="w-4 h-4 animate-spin" />{isModelLoading ? t('widget.loadingModel') : t('widget.processing')}</>
                                     }
                                 </button>
                             ) : hasCompleted ? (
                                 <button
                                     onClick={handleDownload}
                                     disabled={isZipping}
-                                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
-                                    title={hasSelection ? `تحميل المحدد (${selectionCount})` : 'تحميل'}
+                                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white disabled:opacity-50"
+                                    title={hasSelection ? t('widget.downloadSelected', { count: selectionCount }) : t('widget.download')}
                                 >
                                     {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                                    تحميل
+                                    {t('widget.download')}
                                 </button>
                             ) : (
                                 <button
                                     disabled
-                                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-slate-800/50 text-slate-600 cursor-not-allowed"
+                                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed"
                                 >
                                     <Icon className="w-4 h-4" />
                                     {title}
@@ -1142,21 +1002,21 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                 <button
                                     onClick={handleCopy}
                                     disabled={isCopying || items.length === 0}
-                                    className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                                    title="نسخ"
+                                    className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed"
+                                    title={t('widget.copy')}
                                 >
                                     {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> :
-                                        showCopySuccess ? <Check className="w-4 h-4 text-green-400" /> :
+                                        showCopySuccess ? <Check className="w-4 h-4 text-[var(--green)]" /> :
                                             <Copy className="w-4 h-4" />}
                                 </button>
                                 <button
                                     onClick={handlePaste}
                                     disabled={isPasting}
-                                    className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title="لصق (Ctrl+V)"
+                                    className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)] disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title={t('widget.paste')}
                                 >
                                     {isPasting ? <Loader2 className="w-4 h-4 animate-spin" /> :
-                                        showPasteSuccess ? <Check className="w-4 h-4 text-green-400" /> :
+                                        showPasteSuccess ? <Check className="w-4 h-4 text-[var(--green)]" /> :
                                             <ClipboardPaste className="w-4 h-4" />}
                                 </button>
                                 <button
@@ -1164,10 +1024,10 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                     disabled={items.length === 0}
                                     className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                                         items.length === 0
-                                            ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                            : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'
+                                            ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                            : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
                                     }`}
-                                    title={hasSelection ? `حذف المحدد (${selectionCount})` : 'مسح الكل'}
+                                    title={hasSelection ? t('widget.deleteSelected', { count: selectionCount }) : t('widget.clearAll')}
                                 >
                                     <Trash2 className="w-4 h-4" />
                                 </button>

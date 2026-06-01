@@ -4,7 +4,7 @@ import { useElectron } from '../hooks/useElectron';
 import { ToolId } from '../types';
 
 export const GalleryApp: React.FC = () => {
-    const { activeToolIds, installedToolIds, installProgress, isDockEnabled, dispatch, closeGallery, onDockToolDragActive, onDockToolDragEnd, openLogsFolder } = useElectron();
+    const { activeToolIds, installedToolIds, installProgress, isDockEnabled, dispatch, closeGallery, openLogsFolder } = useElectron();
 
     // Hide splash screen once React has rendered
     useEffect(() => {
@@ -42,8 +42,6 @@ export const GalleryApp: React.FC = () => {
             onToggleDock={handleToggleDock}
             onClearData={() => dispatch('CLEAR_SESSIONS')}
             onOpenLogs={openLogsFolder}
-            onDockToolDragActive={onDockToolDragActive}
-            onDockToolDragEnd={onDockToolDragEnd}
         />
     );
 };

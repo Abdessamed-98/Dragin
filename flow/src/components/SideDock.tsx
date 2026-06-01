@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect, useMemo, Component, ErrorInfo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, Component, ErrorInfo } from 'react';
+import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion';
 import { ToolWidget } from './ToolWidget';
 import { ActiveSession, ToolId, SessionItem } from '../types';
-import { ALL_TOOLS } from '../data/tools';
-import { dragState } from '../state/dragState';
+import { useLocalizedTools } from '../i18n/useLocalizedTools';
+import { useI18n } from '../i18n/I18nContext';
 import { dlog } from '../utils/dockLogger';
 
 // ── Error Boundary ─────────────────────────────────────────────────────────
@@ -46,22 +46,6 @@ class ToolErrorBoundary extends Component<
   }
 }
 
-// Map colorClass names → real hex colours (avoids Tailwind purge)
-const COLOR_MAP: Record<string, string> = {
-  indigo: '#818cf8',
-  emerald: '#34d399',
-  amber: '#fbbf24',
-  pink: '#f472b6',
-  teal: '#2dd4bf',
-  blue: '#60a5fa',
-  red: '#f87171',
-  cyan: '#22d3ee',
-  rose: '#fb7185',
-  fuchsia: '#e879f9',
-  violet: '#a78bfa',
-  orange: '#fb923c',
-};
-
 interface SideDockProps {
   contentRef?: React.RefObject<HTMLDivElement | null>;
   isVisible: boolean;
@@ -77,14 +61,10 @@ interface SideDockProps {
   onRemoveTool: (toolId: ToolId) => void;
   isToolDragging: boolean;
   onReorderTools: (newOrder: ToolId[]) => void;
-  onAddTool: (toolId: ToolId, atIndex?: number) => void;
-  externalDragId?: ToolId | null;
-  proposedIndex?: number | null;
-  onProposeIndex?: (index: number) => void;
+  onAddTool: (toolId: ToolId) => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
   onOpenGallery?: () => void;
-  onToolDragToGallery?: (toolId: ToolId | null) => void;
   onUpdateItem: (toolId: ToolId, itemId: string, updates: Partial<SessionItem>) => void;
   pdfDroppedFiles?: File[];
   pdfDropGen?: number;
@@ -127,11 +107,7 @@ export const SideDock: React.FC<SideDockProps> = ({
   isToolDragging,
   onReorderTools,
   onAddTool: _onAddTool,
-  externalDragId,
-  proposedIndex,
-  onProposeIndex,
   onOpenGallery,
-  onToolDragToGallery,
   onMouseEnter,
   onMouseLeave,
   onUpdateItem,
@@ -159,6 +135,8 @@ export const SideDock: React.FC<SideDockProps> = ({
   onRemoverModeChange,
   onSelfItemCountChange,
 }) => {
+  const { t } = useI18n();
+  const ALL_TOOLS = useLocalizedTools();
 
   // --- REORDER STATE ---
   const [localOrder, setLocalOrder] = useState<ToolId[] | null>(null);
@@ -174,78 +152,114 @@ export const SideDock: React.FC<SideDockProps> = ({
   // fileDragHoverId stuck.
   useEffect(() => { setFileDragHoverId(null); }, [expandedToolId]);
 
-  const draggingId = externalDragId || internalDraggingId;
+  const draggingId = internalDraggingId; // only in-tongue reorder now
   const effectiveToolIds = localOrder || activeToolIds;
-  const displayToolIds = [...effectiveToolIds];
 
-  if (externalDragId && !displayToolIds.includes(externalDragId) && isVisible && proposedIndex !== null && proposedIndex !== undefined) {
-    const safeIndex = Math.max(0, Math.min(proposedIndex, displayToolIds.length));
-    displayToolIds.splice(safeIndex, 0, externalDragId);
-  }
-
-  const activeTools = displayToolIds
+  const activeTools = effectiveToolIds
     .map(id => ALL_TOOLS.find(t => t.id === id))
     .filter((t): t is typeof ALL_TOOLS[0] => t !== undefined);
 
-  // ── VERTICAL CENTERING ─────────────────────────────────────────────────────
-  // When a tool is expanded, shift the column so that tool is vertically centered.
-  const [viewportH, setViewportH] = useState(window.innerHeight);
+  // ── RECOMPUTE ON RESIZE ─────────────────────────────────────────────────────
+  // Re-render when the window resizes so the expanded panel size tracks viewport.
+  const [, setViewportTick] = useState(0);
   useEffect(() => {
-    const onResize = () => setViewportH(window.innerHeight);
+    const onResize = () => setViewportTick(n => n + 1);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // Compute a translateY shift to center the expanded tool in the viewport.
-  // When collapsed, shift = 0 and the outer justify-center handles centering.
-  const centerTransform = useMemo<string>(() => {
-    if (!expandedToolId) return '';
+  // Debug "sensing zones" overlays — toggled from Settings, off by default.
+  const [showZones, setShowZones] = useState(false);
+  useEffect(() => {
+    window.electron?.getSetting?.('debugZones').then((v: any) => setShowZones(!!v));
+    window.electron?.onSettingChange?.(({ key, value }) => {
+      if (key === 'debugZones') setShowZones(!!value);
+    });
+  }, []);
 
-    const collapsedH = 80;
-    const gap = 16;
-    const pad = 8;
-    const n = activeTools.length;
+  // ── TONGUE PANEL GEOMETRY ───────────────────────────────────────────────────
+  // The dock is one edge-attached "tongue" panel. In rail mode it holds the
+  // stacked tool tiles; when a tool is active it grows to host that tool's UI.
+  const PAD = 8;          // padding around the rail tiles
+  const GAP = 10;         // vertical gap between rail tiles
+  const TILE = 80;        // rail tile size
+  const OUTER_R = 24;     // "corner value" R = tile radius (16) + PAD (8) → concentric with tiles
 
-    const idx = activeTools.findIndex(t => t.id === expandedToolId);
-    if (idx === -1 || n === 0) return '';
+  const tileCount = activeTools.length;
+  const railW = TILE + PAD * 2;
+  const railH = tileCount > 0
+    ? tileCount * TILE + (tileCount - 1) * GAP + PAD * 2
+    : TILE + PAD * 2;
+  const expW = Math.min(420, window.innerWidth - 20);
+  const expH = Math.round(expW * 5 / 4);
 
-    const expandedW = Math.min(420, window.innerWidth - 20);
-    const expandedH = Math.round(expandedW * 5 / 4);
-    const totalH = (n - 1) * (collapsedH + gap) + expandedH;
+  const panelW = expandedToolId ? expW : railW;
+  const panelH = expandedToolId ? expH : railH;
 
-    // Center of expanded tool within the column
-    const centerOfExpanded = idx * (collapsedH + gap) + expandedH / 2;
+  // ── Width-driven reveal ─────────────────────────────────────────────────────
+  // Animate the panel WIDTH via a motion value. The neck (concave fillet) size is
+  // derived from the live width: 0 until the left cap completes (width = R), then
+  // grows to full (R) by width = 2R, then stays pinned — exactly the 3-phase
+  // behaviour. The left cap radius clamps itself via CSS as the body narrows.
+  const R = OUTER_R;
+  const ONE_TOOL_H = TILE + PAD * 2; // tongue height with a single tool (reveal start height)
+  const REVEAL_DUR = 0.45;           // tongue open/close duration
+  const REVEAL_EASE = [0.22, 1, 0.36, 1] as const; // smooth ease-out (snappy open, soft settle)
+  const wMV = useMotionValue(isVisible ? panelW : 0);
+  useEffect(() => {
+    const cw = animate(wMV, isVisible ? panelW : 0, { duration: REVEAL_DUR, ease: REVEAL_EASE });
+    return () => cw.stop();
+  }, [isVisible, panelW]); // eslint-disable-line react-hooks/exhaustive-deps
+  const neckMV = useTransform(wMV, (v) => Math.min(Math.max((v - R) / R, 0), 1) * R);
+  // Height has its OWN tween (see effect below) rather than being derived from the
+  // live width. Deriving it made height JUMP whenever expandedToolId toggled — the
+  // branch returned a new constant instantly, so the frame snapped to full height
+  // while the width was still growing (the "weird" expand). A dedicated animation
+  // keeps width + height growing together for smooth expand/collapse.
+  const hMV = useMotionValue(isVisible ? panelH : ONE_TOOL_H);
 
-    // Shift needed to move from column-center to expanded-tool-center
-    // (justify-center already puts column-center at viewport center)
-    let shift = totalH / 2 - centerOfExpanded;
+  // Stagger gated on the HEIGHT timeline: a tile waits until the height has grown
+  // enough to fit its row. Height only starts growing once the cap completes
+  // (at tCap), expanding from the middle outward to full at REVEAL_DUR. So the
+  // middle tile starts at tCap and the OUTERMOST tile starts at REVEAL_DUR (its
+  // slide therefore *ends after* the tongue finishes).
+  const tCap = (R / Math.max(1, panelW)) * REVEAL_DUR; // time the left cap completes
+  const STAGGER_GAP = 0.045;         // delay between successive tiles (smaller = tighter)
+  // Tile slide duration: long enough that even the FIRST tile (starts at tCap)
+  // ends after the tongue (REVEAL_DUR).
+  const TILE_POP = (REVEAL_DUR - tCap) + REVEAL_DUR * 0.35;
 
-    // Clamp so expanded tool stays within viewport
-    const baseTop = (viewportH - totalH) / 2; // column top from justify-center
-    const expandedTop = baseTop + idx * (collapsedH + gap);
-    // After shift: expandedTop + shift >= pad
-    shift = Math.max(pad - expandedTop, shift);
-    // After shift: expandedTop + expandedH + shift <= viewportH - pad
-    shift = Math.min(viewportH - pad - expandedTop - expandedH, shift);
-
-    return `translateY(${shift}px)`;
-  }, [expandedToolId, activeTools, viewportH]);
+  // ── HEIGHT ANIMATION ────────────────────────────────────────────────────────
+  // Tween height explicitly so it grows/shrinks *with* the width on expand and
+  // collapse (same duration + ease → they move together, no snap). On a fresh
+  // reveal we still lag it by tCap so it begins exactly when the concave necks
+  // start appearing — matching the tile stagger.
+  const prevVisibleRef = React.useRef(isVisible);
+  useEffect(() => {
+    const justRevealed = isVisible && !prevVisibleRef.current;
+    prevVisibleRef.current = isVisible;
+    let target = ONE_TOOL_H, duration = REVEAL_DUR, delay = 0;
+    if (isVisible && expandedToolId) {
+      target = expH;                                                    // expand/collapse
+    } else if (isVisible) {
+      target = railH;
+      if (justRevealed) { delay = tCap; duration = REVEAL_DUR - tCap; } // reveal lag only
+    }
+    const ctrl = animate(hMV, target, { duration, delay, ease: REVEAL_EASE });
+    return () => ctrl.stop();
+  }, [isVisible, expandedToolId, railH, expH]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── REORDER HANDLERS ──────────────────────────────────────────────────────
   const handleDragStart = (e: React.DragEvent, toolId: ToolId) => {
     if (expandedToolId === toolId) { e.preventDefault(); return; }
 
-    // Build a ghost image that omits the pill — the browser captures the ghost
-    // at dragstart before requestAnimationFrame hides the element, so the pill
-    // would otherwise be visible during the entire drag.
+    // Build a ghost image so the drag preview is just the tile.
     const wrapper = e.currentTarget as HTMLElement;
     const ghost = wrapper.cloneNode(true) as HTMLElement;
     Object.assign(ghost.style, {
       position: 'fixed', top: '-9999px', left: '-9999px',
       width: `${wrapper.offsetWidth}px`, pointerEvents: 'none',
     });
-    // The pill is always the last child of the wrapper
-    ghost.lastElementChild?.remove();
     document.body.appendChild(ghost);
     e.dataTransfer.setDragImage(ghost, (e.nativeEvent as MouseEvent).offsetX, (e.nativeEvent as MouseEvent).offsetY);
     requestAnimationFrame(() => ghost.remove());
@@ -254,23 +268,11 @@ export const SideDock: React.FC<SideDockProps> = ({
     e.dataTransfer.effectAllowed = 'move';
     setLocalOrder([...activeToolIds]);
     requestAnimationFrame(() => setInternalDraggingId(toolId));
-    onToolDragToGallery?.(toolId);
   };
 
   const handleReorderDragOver = (e: React.DragEvent, targetToolId: ToolId) => {
     if (!draggingId) return;
-
-    // External drag (gallery → dock): propose an insertion index
-    if (externalDragId === draggingId && onProposeIndex) {
-      const targetIndex = effectiveToolIds.indexOf(targetToolId);
-      if (targetIndex === -1) return;
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      const newIndex = e.clientY > rect.top + rect.height / 2 ? targetIndex + 1 : targetIndex;
-      if (proposedIndex !== newIndex) onProposeIndex(newIndex);
-      return;
-    }
-
-    // Internal reorder: insert dragged item before/after target based on cursor position.
+    // Insert dragged tile before/after the target based on cursor position.
     // Insert-based (not swap-based) so behaviour is identical dragging up or down.
     if (!localOrder || draggingId === targetToolId) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -286,7 +288,6 @@ export const SideDock: React.FC<SideDockProps> = ({
     if (localOrder && internalDraggingId) onReorderTools(localOrder);
     setInternalDraggingId(null);
     setLocalOrder(null);
-    onToolDragToGallery?.(null);
   };
 
   // ── UNIFIED FILE-DRAG HANDLERS (one listener per wrapper) ─────────────────
@@ -324,98 +325,135 @@ export const SideDock: React.FC<SideDockProps> = ({
     e.stopPropagation();
     setFileDragHoverId(null);
 
-    // Check shared drag state first — survives startDrag overriding dataTransfer
-    const ds = dragState.get();
-    if (ds && ds.sourceToolId !== toolId) {
-      dragState.clear();
-      onInternalDrop(ds.sourceToolId, toolId, ds.itemIds);
-      return;
-    }
-    dragState.clear();
-
-    // Fallback: dataTransfer internal data (when startDrag is not in effect)
-    const internalData = e.dataTransfer.getData('application/app-internal-transfer');
-    if (internalData) {
-      try {
-        const { sourceToolId, itemIds } = JSON.parse(internalData);
-        if (sourceToolId && itemIds?.length > 0) {
-          onInternalDrop(sourceToolId, toolId, itemIds);
-          return;
-        }
-      } catch { /* ignore */ }
-    }
-
-    // File drop
+    // Native OS file drop only (tool→tool moves go through copy/paste now).
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       onDrop(Array.from(e.dataTransfer.files), toolId);
     }
   };
 
+  // Tongue surface (themed): pitch-black in dark, white-glass in light.
+  const glass: React.CSSProperties = {
+    background: 'var(--glass)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+  };
+  // Inverted-corner fillets: a glass square with a transparent quarter-circle
+  // cut, leaving an L that hugs the edge line + the panel and presents a
+  // concave arc — so the panel "necks" into the line. Top cuts the top-left
+  // quarter; bottom cuts the bottom-left quarter.
+  // Size-independent (farthest-side) masks, so the fillet scales with neckMV.
+  const filletMaskTop = 'radial-gradient(circle farthest-side at top left, #0000 98.5%, #000 99.5%)';
+  const filletMaskBottom = 'radial-gradient(circle farthest-side at bottom left, #0000 98.5%, #000 99.5%)';
+
   return (
     // dir="ltr" overrides document dir="rtl" (Arabic) so flex layout is left→right as expected
     <div ref={contentRef} dir="ltr" className="fixed inset-0 flex flex-col items-end justify-center z-50 pointer-events-none">
 
-      <div
-        className="relative flex flex-col items-end gap-4 pointer-events-none transition-transform duration-500 ease-out"
-        style={{ transform: `translateX(${isVisible ? 0 : 200}px) ${centerTransform}` }}
+      {/* DEBUG SENSING ZONES (toggled from Settings → off by default) */}
+      {showZones && (<>
+        {/* BLUE — reveal/keep-alive box = rail tongue + margin (right side is the
+            screen edge). Only shown while the tongue is revealed (with red). The
+            margin here (100) must match REVEAL_MARGIN in DockApp. */}
+        {isVisible && (
+          <div
+            className="absolute pointer-events-none"
+            style={{ zIndex: 1, right: 0, top: '50%', transform: 'translateY(-50%)', width: railW + 100, height: railH + 200, background: 'rgba(59,130,246,0.14)', outline: '2px dashed #3b82f6', outlineOffset: -2 }}
+          />
+        )}
+        {/* GREEN — full-height 16px edge strip: reveals AND keeps the tongue
+            visible (keep-alive = this green OR the blue box). */}
+        <div className="absolute top-0 right-0 bottom-0 pointer-events-none" style={{ zIndex: 2, width: 16, background: 'rgba(34,197,94,0.40)' }} />
+      </>)}
+
+      {/* ── THE TONGUE: one edge-attached frame that holds the rail or the active tool ── */}
+      <motion.div
+        initial={false}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        data-interactive
+        // Width-driven reveal via motion values; necks (neckMV) track the width.
+        className="relative pointer-events-auto"
+        style={{ width: wMV, height: hMV, willChange: 'width, height' }}
       >
+        {/* Background surface: glass body (rounded outer corners, flush right)
+            + two concave neck fillets molding it into the edge line. The whole
+            group shares one drop-shadow so the necks cast shadow too. */}
+        <div className="absolute inset-0" style={{ zIndex: 0, filter: 'var(--tongue-shadow)' }}>
+          {/* main body — square right edge sits flush against the line */}
+          <div className="absolute inset-0" style={{ ...glass, borderTopLeftRadius: OUTER_R, borderBottomLeftRadius: OUTER_R }} />
+          {/* top neck fillet — size = neckMV (0 → R → pinned), tracks the width */}
+          <motion.div style={{ position: 'absolute', right: 0, bottom: '100%', width: neckMV, height: neckMV, ...glass, WebkitMaskImage: filletMaskTop, maskImage: filletMaskTop }} />
+          {/* bottom neck fillet */}
+          <motion.div style={{ position: 'absolute', right: 0, top: '100%', width: neckMV, height: neckMV, ...glass, WebkitMaskImage: filletMaskBottom, maskImage: filletMaskBottom }} />
+        </div>
+
+        {/* RED — the tongue's interactive/sensing hit area (debug, toggled from Settings) */}
+        {showZones && (
+          <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 60, background: 'rgba(255,0,0,0.35)', outline: '2px solid red' }} />
+        )}
+
+        {/* Content: clipped to the panel + faded, so the retracting frame never shows squashed/clipped tiles */}
+        <div
+          className="absolute inset-0 overflow-hidden flex flex-col items-center justify-center"
+          style={{ gap: GAP, padding: expandedToolId ? 0 : PAD }}
+        >
         <AnimatePresence mode='popLayout'>
-          {activeTools.map(tool => {
-            const isPreview = tool.id === externalDragId;
-            const color = COLOR_MAP[tool.colorClass] ?? '#818cf8';
+          {activeTools.map((tool, i) => {
             const isActive = expandedToolId === tool.id;
             const isFileDragHovered = fileDragHoverId === tool.id;
+            const hiddenByExpand = !!expandedToolId && !isActive;
+            // Stagger tiles from the middle outward; outer tile lands as the tongue completes.
+            const mid = (activeTools.length - 1) / 2;
+            const distFromMid = Math.abs(i - mid);
+            const revealDelay = isVisible && !expandedToolId ? tCap + distFromMid * STAGGER_GAP : 0;
+            // Tiles SLIDE in horizontally from the screen edge (right). No scale, no centre-slide.
+            const slideFrom = railW; // start fully off past the right edge → slide to 0
 
             return (
-              // ┌─ ONE wrapper = ONE drag entity (tool box + pill) ──────────────┐
-              // │ All file drag events are caught here.                           │
-              // │ Moving between pill and tool box stays INSIDE this wrapper,    │
-              // │ so no spurious dragLeave fires.                                 │
-              // └────────────────────────────────────────────────────────────────┘
               <motion.div
                 layout={localOrder ? "position" : false}
                 key={tool.id}
-                initial={{ opacity: 0, x: 50, scale: 0.8 }}
+                initial={{ opacity: 0, x: slideFrom }}
                 animate={{
-                  opacity: draggingId === tool.id ? 0 : (isPreview ? 0.6 : 1),
-                  x: 0,
-                  scale: 1,
-                  zIndex: draggingId === tool.id ? 0 : 1,
-                  filter: isPreview ? 'grayscale(100%)' : 'none'
+                  opacity: !isVisible ? 0 : (draggingId === tool.id ? 0.4 : 1),
+                  x: !isVisible ? slideFrom : 0,
                 }}
                 exit={{ opacity: 0, scale: 0.5, transition: { duration: 0.2 } }}
-                transition={{ type: "spring", stiffness: 500, damping: 40, layout: { duration: 0.25 } }}
-                // Reorder dragging (this tool being dragged out)
-                draggable={expandedToolId !== tool.id && isVisible && !isPreview}
+                transition={localOrder
+                  // Reordering: snappy, no reveal stagger delay.
+                  ? { type: 'spring', stiffness: 700, damping: 45, layout: { duration: 0.22 } }
+                  // Revealing: staggered slide-in.
+                  : { duration: TILE_POP, ease: REVEAL_EASE, delay: revealDelay, layout: { duration: 0.25 } }}
+                // Drag to reorder within the tongue
+                draggable={!isActive && isVisible}
                 onDragStart={(e) => handleDragStart(e as unknown as React.DragEvent, tool.id)}
                 onDragEnd={handleDragEnd}
                 // Unified drag-over (handles both reorder + file drag)
                 onDragOver={(e) => handleWrapperDragOver(e as unknown as React.DragEvent, tool.id)}
-                // Unified file-drag enter/leave/drop — covers pill AND tool box
                 onDragEnter={(e) => handleWrapperDragEnter(e as unknown as React.DragEvent, tool.id)}
                 onDragLeave={(e) => handleWrapperDragLeave(e as unknown as React.DragEvent)}
                 onDrop={(e) => handleWrapperDrop(e as unknown as React.DragEvent, tool.id)}
                 onMouseEnter={onMouseEnter}
                 onMouseLeave={onMouseLeave}
-                // items-stretch: pill container auto-matches ToolWidget's exact height
-                className="relative group/dock-item pointer-events-auto flex flex-row items-stretch"
+                className={`group/dock-item pointer-events-auto shrink-0 ${isActive ? 'absolute inset-0 z-10' : 'relative z-10'}`}
+                style={hiddenByExpand ? { display: 'none' } : undefined}
                 data-interactive
               >
-                {/* Delete Button */}
-                {isVisible && expandedToolId !== tool.id && draggingId !== tool.id && !isPreview && (
+                {/* Delete Button (rail only) */}
+                {isVisible && !expandedToolId && draggingId !== tool.id && (
                   <motion.button
                     initial={{ opacity: 0, scale: 0 }}
                     whileHover={{ scale: 1.1 }}
-                    className="absolute -left-2 top-0 -translate-x-full opacity-0 group-hover/dock-item:opacity-100 bg-red-500/20 text-red-400 p-1.5 rounded-full hover:bg-red-500 hover:text-white transition-colors z-10 pointer-events-auto"
+                    className="absolute -top-1 -left-1 opacity-0 group-hover/dock-item:opacity-100 bg-red-500/30 text-red-300 p-1 rounded-full hover:bg-red-500 hover:text-white transition-colors z-20 pointer-events-auto"
                     onClick={(e) => { e.stopPropagation(); onRemoveTool(tool.id); }}
                     onMouseEnter={onMouseEnter}
                     title="Remove Tool"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
                   </motion.button>
                 )}
 
-                {/* Tool Widget — file drag is now handled by the parent wrapper */}
+                {/* Tool Widget — file drag is handled by this wrapper */}
                 <ToolErrorBoundary toolId={tool.id}>
                 <ToolWidget
                   id={tool.id}
@@ -467,36 +505,6 @@ export const SideDock: React.FC<SideDockProps> = ({
                   onSelfItemCountChange={(count) => onSelfItemCountChange?.(tool.id, count)}
                 />
                 </ToolErrorBoundary>
-
-                {/* Pill — PURELY VISUAL, no drag listeners (parent wrapper handles all drag) */}
-                {!isPreview && draggingId !== tool.id && (
-                  <div
-                    // opacity-0 by default; shows on mouse hover (group-hover) OR file drag hover (inline override)
-                    className="flex-shrink-0 flex items-center opacity-0 group-hover/dock-item:opacity-100 transition-opacity duration-200"
-                    style={{
-                      alignSelf: 'stretch',
-                      width: 9,              // 4px gap + 5px pill
-                      paddingLeft: 4,
-                      // Override CSS opacity when a file is being dragged over the wrapper
-                      ...(isFileDragHovered ? { opacity: 1 } : {}),
-                    }}
-                  >
-                    <div style={{
-                      width: 5,
-                      height: '55%',
-                      minHeight: 28,
-                      maxHeight: 120,
-                      borderRadius: '99px',
-                      background: color,
-                      boxShadow: isFileDragHovered
-                        ? `0 0 14px 4px ${color}99`
-                        : `0 0 6px 1px ${color}55`,
-                      transition: 'box-shadow 0.2s ease',
-                      flexShrink: 0,
-                    }} />
-                  </div>
-                )}
-
               </motion.div>
             )
           })}
@@ -506,12 +514,13 @@ export const SideDock: React.FC<SideDockProps> = ({
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="w-[80px] h-[80px] rounded-2xl border-2 border-dashed border-slate-700 flex items-center justify-center text-slate-600 text-xs text-center p-2"
+            className="relative z-10 w-[80px] h-[80px] rounded-2xl border-2 border-dashed border-slate-700 flex items-center justify-center text-slate-600 text-[10px] text-center p-2"
           >
-            اسحب الأدوات هنا
+            {t('dock.dragToolsHere')}
           </motion.div>
         )}
-      </div>
+        </div>
+      </motion.div>
     </div>
   );
 };

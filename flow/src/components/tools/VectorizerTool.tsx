@@ -7,6 +7,7 @@ import {
 import { vectorizeImage, getFileThumbnail } from '../../services/api';
 import type { VectorizeOptions } from '../../services/api';
 import JSZip from 'jszip';
+import { useI18n } from '../../i18n/I18nContext';
 
 interface VectorizerToolProps {
     onClose: () => void;
@@ -41,6 +42,7 @@ const isAccepted = (file: File) => {
 export const VectorizerTool: React.FC<VectorizerToolProps> = ({
     onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0,
 }) => {
+    const { t } = useI18n();
     const [files, setFiles] = useState<VecFileItem[]>([]);
     const [smoothness, setSmoothness] = useState(0);
     const [colorMode, setColorMode] = useState<'color' | 'binary'>('binary');
@@ -161,7 +163,7 @@ const handleVectorize = useCallback(async () => {
             } catch (err: any) {
                 if (!abortRef.current) {
                     setFiles(prev => prev.map(f => f.id === item.id ? {
-                        ...f, status: 'error' as const, error: err.message || 'فشل التحويل',
+                        ...f, status: 'error' as const, error: err.message || t('vectorizer.conversionFailed'),
                     } : f));
                 }
             }
@@ -301,10 +303,10 @@ const handleVectorize = useCallback(async () => {
     const anyProcessing = files.some(f => f.status === 'processing');
     const anyDone = files.some(f => f.status === 'done');
 
-    const smoothnessLabel = smoothness <= 20 ? 'حاد' : smoothness <= 40 ? 'خفيف' :
-        smoothness <= 60 ? 'متوسط' : smoothness <= 80 ? 'ناعم' : 'سلس جداً';
-    const colorLabel = colorPrecision <= 3 ? 'قليل' : colorPrecision <= 5 ? 'متوسط' :
-        colorPrecision <= 7 ? 'غني' : 'كامل';
+    const smoothnessLabel = smoothness <= 20 ? t('vectorizer.smoothSharp') : smoothness <= 40 ? t('vectorizer.smoothLight') :
+        smoothness <= 60 ? t('vectorizer.smoothMedium') : smoothness <= 80 ? t('vectorizer.smoothSmooth') : t('vectorizer.smoothVerySmooth');
+    const colorLabel = colorPrecision <= 3 ? t('vectorizer.colorFew') : colorPrecision <= 5 ? t('vectorizer.colorMedium') :
+        colorPrecision <= 7 ? t('vectorizer.colorRich') : t('vectorizer.colorFull');
     const isColor = colorMode === 'color';
 
     return (
@@ -318,7 +320,7 @@ const handleVectorize = useCallback(async () => {
             <div className="flex items-center px-4 py-3 border-b border-white/5 shrink-0">
                 <div className="flex items-center gap-2">
                     <PenTool className="w-4 h-4 text-rose-400" />
-                    <span className="text-sm font-bold text-white">تحويل لـ Vector</span>
+                    <span className="text-sm font-bold text-white">{t('vectorizer.headerTitle')}</span>
                     {hasFiles && (
                         <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full text-slate-300">{files.length}</span>
                     )}
@@ -337,7 +339,7 @@ const handleVectorize = useCallback(async () => {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
                                 <Sliders className="w-3 h-3 text-slate-500" />
-                                <span className="text-xs font-bold text-slate-400">النعومة</span>
+                                <span className="text-xs font-bold text-slate-400">{t('vectorizer.smoothness')}</span>
                             </div>
                             <span className="text-xs text-rose-400 font-medium">{smoothnessLabel}</span>
                         </div>
@@ -362,12 +364,12 @@ const handleVectorize = useCallback(async () => {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
                                 <Palette className="w-3 h-3 text-slate-500" />
-                                <span className="text-xs font-bold text-slate-400">الألوان</span>
+                                <span className="text-xs font-bold text-slate-400">{t('vectorizer.colors')}</span>
                                 <button
                                     onClick={handleColorModeToggle}
                                     className="relative w-7 h-3.5 rounded-full transition-colors duration-200 shrink-0"
                                     style={{ backgroundColor: isColor ? 'rgb(245 158 11 / 0.4)' : 'rgb(51 65 85 / 0.8)' }}
-                                    title={isColor ? 'تحويل لأبيض/أسود' : 'تحويل لألوان'}
+                                    title={isColor ? t('vectorizer.toBW') : t('vectorizer.toColor')}
                                 >
                                     <div
                                         className="absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white shadow-sm transition-all duration-200"
@@ -419,10 +421,10 @@ const handleVectorize = useCallback(async () => {
                         </div>
                         <div className="text-center px-4">
                             <p className="text-sm font-semibold text-slate-300">
-                                {isDragOver ? 'أفلت الصورة هنا' : 'اسحب صورة هنا للتحويل'}
+                                {isDragOver ? t('vectorizer.dropImage') : t('vectorizer.dragImage')}
                             </p>
-                            <p className="text-xs text-slate-500 mt-1">تحويل الصورة لرسم متجه SVG</p>
-                            <p className="text-[10px] text-slate-600 mt-2">صور: JPG · PNG · WEBP · BMP · TIFF</p>
+                            <p className="text-xs text-slate-500 mt-1">{t('vectorizer.subHint')}</p>
+                            <p className="text-[10px] text-slate-600 mt-2">{t('vectorizer.formatHint')}</p>
                         </div>
                         <input
                             id="vectorizer-file-input" type="file" accept="image/*" multiple
@@ -449,13 +451,13 @@ const handleVectorize = useCallback(async () => {
                         {files[0].status === 'processing' && (
                             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center">
                                 <Loader2 className="w-8 h-8 text-rose-400 animate-spin mb-2" />
-                                <span className="text-xs text-slate-300">جاري التحويل...</span>
+                                <span className="text-xs text-slate-300">{t('vectorizer.converting')}</span>
                             </div>
                         )}
                         {files[0].status === 'error' && (
                             <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-950/70 gap-2">
                                 <AlertCircle className="w-8 h-8 text-red-400" />
-                                <span className="text-xs text-red-300">{files[0].error || 'فشل التحويل'}</span>
+                                <span className="text-xs text-red-300">{files[0].error || t('vectorizer.conversionFailed')}</span>
                             </div>
                         )}
                     </div>
@@ -540,8 +542,8 @@ const handleVectorize = useCallback(async () => {
                         }`}
                     >
                         {cancelHover
-                            ? <><Ban className="w-4 h-4" />إلغاء</>
-                            : <><Loader2 className="w-4 h-4 animate-spin" />جاري التحويل...</>
+                            ? <><Ban className="w-4 h-4" />{t('vectorizer.cancel')}</>
+                            : <><Loader2 className="w-4 h-4 animate-spin" />{t('vectorizer.converting')}</>
                         }
                     </button>
                 ) : (
@@ -555,7 +557,7 @@ const handleVectorize = useCallback(async () => {
                         }`}
                     >
                         {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                        تحميل
+                        {t('vectorizer.download')}
                     </button>
                 )}
 
@@ -568,7 +570,7 @@ const handleVectorize = useCallback(async () => {
                                 ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
                                 : 'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
                         }`}
-                        title="نسخ"
+                        title={t('vectorizer.copy')}
                     >
                         {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> :
                             showCopySuccess ? <Check className="w-4 h-4 text-green-400" /> :
@@ -577,7 +579,7 @@ const handleVectorize = useCallback(async () => {
                     <button
                         onClick={handlePaste}
                         className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white"
-                        title="لصق"
+                        title={t('vectorizer.paste')}
                     >
                         <ClipboardPaste className="w-4 h-4" />
                     </button>
@@ -589,7 +591,7 @@ const handleVectorize = useCallback(async () => {
                                 ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
                                 : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'
                         }`}
-                        title="مسح الكل"
+                        title={t('vectorizer.clearAll')}
                     >
                         <Trash2 className="w-4 h-4" />
                     </button>

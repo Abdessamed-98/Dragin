@@ -1,6 +1,7 @@
 import React, { DragEvent, useState, useEffect } from 'react';
-import { Upload, X, Download, Loader2, Wand2, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { Upload, X, Download, Loader2, Sparkles, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { ActiveSession } from '../types';
+import { useI18n } from '../i18n/I18nContext';
 
 interface DropDrawerProps {
   isVisible: boolean;
@@ -18,6 +19,7 @@ export const DropDrawer: React.FC<DropDrawerProps> = ({
   onClose 
 }) => {
   const [showComparison, setShowComparison] = useState(false);
+  const { t } = useI18n();
 
   // Get the active item (first item) from session
   const activeItem = session?.items?.[0];
@@ -68,7 +70,7 @@ export const DropDrawer: React.FC<DropDrawerProps> = ({
       {session && (
         <div className="relative z-20 flex items-center justify-between p-4 border-b border-white/5">
             <span className="text-xs font-bold text-indigo-400 tracking-wider flex items-center gap-2">
-                <Wand2 className="w-3 h-3" />
+                <Sparkles className="w-3 h-3" />
                 AI REMOVER
             </span>
             <button 
@@ -92,8 +94,8 @@ export const DropDrawer: React.FC<DropDrawerProps> = ({
                 </div>
              </div>
              <div>
-                 <h2 className="text-xl font-bold text-white">أفلت الصورة هنا</h2>
-                 <p className="text-sm text-slate-400 mt-2">ستتم إزالة الخلفية فوراً</p>
+                 <h2 className="text-xl font-bold text-white">{t('drawer.dropImage')}</h2>
+                 <p className="text-sm text-slate-400 mt-2">{t('drawer.willRemoveBg')}</p>
              </div>
           </div>
         )}
@@ -147,12 +149,12 @@ export const DropDrawer: React.FC<DropDrawerProps> = ({
                        {showComparison ? (
                            <>
                              <EyeOff className="w-3 h-3" />
-                             <span>عرض النتيجة</span>
+                             <span>{t('drawer.showResult')}</span>
                            </>
                        ) : (
                            <>
                              <Eye className="w-3 h-3" />
-                             <span>عرض الأصل</span>
+                             <span>{t('drawer.showOriginal')}</span>
                            </>
                        )}
                    </button>
@@ -162,7 +164,7 @@ export const DropDrawer: React.FC<DropDrawerProps> = ({
             {/* Error Message */}
             {session.status === 'error' && (
                 <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-200 text-sm text-center">
-                    {session.error || 'حدث خطأ غير متوقع'}
+                    {session.error || t('drawer.unexpectedError')}
                 </div>
             )}
 
@@ -175,14 +177,14 @@ export const DropDrawer: React.FC<DropDrawerProps> = ({
                         className="col-span-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl transition-all active:scale-95 text-sm font-medium shadow-lg shadow-indigo-500/25"
                     >
                         <Download className="w-4 h-4" />
-                        تحميل
+                        {t('drawer.download')}
                     </a>
                     <button 
                         onClick={onClose}
                         className="col-span-1 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-xl transition-all active:scale-95 text-sm border border-white/5"
                     >
                         <RefreshCw className="w-4 h-4" />
-                        صورة جديدة
+                        {t('drawer.newImage')}
                     </button>
                 </div>
             )}

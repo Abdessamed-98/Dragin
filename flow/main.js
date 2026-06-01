@@ -8,6 +8,7 @@ const log = require('electron-log');
 
 let pyServer = null;
 let tray = null;
+let rebuildTrayMenu = null; // assigned inside app.whenReady
 
 // --- MIGRATE userData from old "demo" name to "dragin-flow" ---
 (function migrateUserData() {
@@ -51,6 +52,44 @@ function saveSettings(settings) {
     } catch (err) {
         log.error('[Settings] Failed to save settings:', err);
     }
+}
+
+// --- MAIN PROCESS i18n ---
+const mainTranslations = {
+    ar: {
+        'tray.hide': 'إخفاء الشريط',
+        'tray.show': 'إظهار الشريط',
+        'tray.settings': 'الإعدادات',
+        'tray.restart': 'إعادة تشغيل الشريط',
+        'tray.quit': 'إنهاء',
+        'install.preparing': 'جاري التحضير...',
+        'install.downloading': 'جاري التحميل...',
+        'install.installing': 'جاري التثبيت...',
+        'install.complete': 'اكتمل التثبيت',
+        'install.cancelled': 'تم الإلغاء',
+        'install.cancelledError': 'تم إلغاء التحميل',
+        'install.failed': 'فشل التثبيت',
+    },
+    en: {
+        'tray.hide': 'Hide Dock',
+        'tray.show': 'Show Dock',
+        'tray.settings': 'Settings',
+        'tray.restart': 'Restart Dock',
+        'tray.quit': 'Quit',
+        'install.preparing': 'Preparing...',
+        'install.downloading': 'Downloading...',
+        'install.installing': 'Installing...',
+        'install.complete': 'Installation complete',
+        'install.cancelled': 'Cancelled',
+        'install.cancelledError': 'Download cancelled',
+        'install.failed': 'Installation failed',
+    }
+};
+
+let currentLang = (loadSettings()?.language) || 'ar';
+
+function mt(key) {
+    return mainTranslations[currentLang]?.[key] || mainTranslations['ar'][key] || key;
 }
 
 const createMenu = () => {
@@ -253,8 +292,22 @@ ipcMain.on('native-drag-start', (event, { items }) => {
             if (filePath) filePaths.push(filePath);
         }
 
-        if (filePaths.length > 0 && DRAG_ICON) {
-            event.sender.startDrag({ files: filePaths, icon: DRAG_ICON });
+        if (filePaths.length > 0) {
+            // Use the dragged file's own image as the drag preview (the natural,
+            // default-feeling thumbnail). startDrag requires a non-empty icon, so
+            // fall back to the app icon for non-image files.
+            let icon = nativeImage.createFromPath(filePaths[0]);
+            if (icon.isEmpty()) {
+                icon = DRAG_ICON;
+            } else {
+                const s = icon.getSize();
+                const max = 96;
+                if (s.width > max || s.height > max) {
+                    const scale = max / Math.max(s.width, s.height);
+                    icon = icon.resize({ width: Math.round(s.width * scale), height: Math.round(s.height * scale) });
+                }
+            }
+            if (icon) event.sender.startDrag({ files: filePaths, icon });
         }
     } catch (err) {
         log.error('[NativeDrag] Failed:', err);
@@ -448,7 +501,7 @@ async function handleToolInstall(toolId) {
     const toolDir = getToolDir(toolId);
     const tempPath = path.join(getTempDir(), `${toolId}-${Date.now()}.zip`);
 
-    state.installProgress[toolId] = { toolId, status: 'installing', progress: 0, step: 'جاري التحضير...' };
+    state.installProgress[toolId] = { toolId, status: 'installing', progress: 0, step: mt('install.preparing') };
     broadcastState();
 
     try {
@@ -459,12 +512,12 @@ async function handleToolInstall(toolId) {
             if (now - lastBroadcast < 100) return; // Throttle: max 10 updates/sec
             lastBroadcast = now;
             const pct = Math.round((downloaded / total) * 70);
-            state.installProgress[toolId] = { toolId, status: 'installing', progress: pct, step: 'جاري التحميل...' };
+            state.installProgress[toolId] = { toolId, status: 'installing', progress: pct, step: mt('install.downloading') };
             broadcastState();
         }, { signal: abortController.signal });
 
         // --- Phase 2: Extract (70% → 95%) ---
-        state.installProgress[toolId] = { toolId, status: 'installing', progress: 70, step: 'جاري التثبيت...' };
+        state.installProgress[toolId] = { toolId, status: 'installing', progress: 70, step: mt('install.installing') };
         broadcastState();
 
         // Clean previous partial extraction
@@ -472,7 +525,7 @@ async function handleToolInstall(toolId) {
 
         await extractZip(tempPath, toolDir, (extracted, total) => {
             const pct = 70 + Math.round((extracted / total) * 25);
-            state.installProgress[toolId] = { toolId, status: 'installing', progress: pct, step: 'جاري التثبيت...' };
+            state.installProgress[toolId] = { toolId, status: 'installing', progress: pct, step: mt('install.installing') };
             broadcastState();
         });
 
@@ -491,7 +544,7 @@ async function handleToolInstall(toolId) {
 
         // Mark as installed
         state.installedToolIds.push(toolId);
-        state.installProgress[toolId] = { toolId, status: 'installed', progress: 100, step: 'اكتمل التثبيت' };
+        state.installProgress[toolId] = { toolId, status: 'installed', progress: 100, step: mt('install.complete') };
         persistSettings();
         broadcastState();
 
@@ -513,8 +566,8 @@ async function handleToolInstall(toolId) {
         const isCancelled = err.message === 'Download cancelled';
         state.installProgress[toolId] = {
             toolId, status: 'error', progress: 0,
-            step: isCancelled ? 'تم الإلغاء' : undefined,
-            error: isCancelled ? 'تم إلغاء التحميل' : (err.message || 'فشل التثبيت'),
+            step: isCancelled ? mt('install.cancelled') : undefined,
+            error: isCancelled ? mt('install.cancelledError') : (err.message || mt('install.failed')),
         };
         broadcastState();
 
@@ -529,10 +582,6 @@ async function handleToolInstall(toolId) {
     }
 }
 
-// --- CROSS-WINDOW TOOL DRAG STATE ---
-let galleryDraggedToolId = null;  // Tool being dragged FROM gallery TO dock
-let dockDraggedToolId = null;     // Tool being dragged FROM dock TO gallery
-let lastProposedIndex = 0;        // Last proposed dock insertion index
 
 function broadcastState() {
     const windows = BrowserWindow.getAllWindows();
@@ -541,9 +590,11 @@ function broadcastState() {
     });
 }
 
-// Persist tool state
+// Persist tool state (merge with existing settings to keep language etc.)
 function persistSettings() {
+    const existing = loadSettings() || {};
     saveSettings({
+        ...existing,
         activeToolIds: state.activeToolIds,
         installedToolIds: state.installedToolIds,
     });
@@ -596,10 +647,31 @@ const createDockWindow = () => {
     // Highest z-order so the dock stays above other always-on-top windows
     dockWindow.setAlwaysOnTop(true, 'screen-saver');
 
+    // Re-raise above any *other* topmost windows. setAlwaysOnTop(true) is a no-op
+    // when the flag is already true, so it won't win a z-order tie against another
+    // topmost window — moveTop() forces the dock back to the very front.
+    const raiseDock = () => {
+        if (!dockWindow || dockWindow.isDestroyed() || !dockWindow.isVisible()) return;
+        dockWindow.setAlwaysOnTop(true, 'screen-saver');
+        dockWindow.moveTop();
+    };
+
     // Re-assert on-top after Windows steals it (e.g. fullscreen apps, UAC dialogs)
     dockWindow.on('always-on-top-changed', (_e, isOnTop) => {
-        if (!isOnTop) dockWindow.setAlwaysOnTop(true, 'screen-saver');
+        if (!isOnTop) raiseDock();
     });
+    // Another window grabbing focus is the usual moment the dock gets buried
+    dockWindow.on('blur', raiseDock);
+
+    // Periodic re-assertion — Windows can silently drop top z-order without firing
+    // an event (a newly-opened topmost window slips above us between ticks).
+    const alwaysOnTopInterval = setInterval(() => {
+        if (dockWindow && !dockWindow.isDestroyed()) {
+            raiseDock();
+        } else {
+            clearInterval(alwaysOnTopInterval);
+        }
+    }, 1000);
 
     // Start in click-through mode
     dockWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -636,28 +708,6 @@ function checkAndEnableEdge(x) {
     }
 }
 
-// Helper: is x,y inside a BrowserWindow?
-function isOverWindow(win, x, y) {
-    if (!win || win.isDestroyed()) return false;
-    const bounds = win.getBounds();
-    return x >= bounds.x && x <= bounds.x + bounds.width &&
-        y >= bounds.y && y <= bounds.y + bounds.height;
-}
-
-// Helper: calculate proposed dock index from global Y position
-function calcProposedIndex(y) {
-    if (!dockWindow || dockWindow.isDestroyed()) return 0;
-    const bounds = dockWindow.getBounds();
-    const toolCount = state.activeToolIds.length;
-    if (toolCount === 0) return 0;
-    // Each tool icon is ~80px + 16px gap, centered vertically
-    const totalHeight = toolCount * 96;
-    const startY = bounds.y + (bounds.height - totalHeight) / 2;
-    const relativeY = y - startY;
-    const index = Math.round(relativeY / 96);
-    return Math.max(0, Math.min(index, toolCount));
-}
-
 const createGalleryWindow = () => {
     if (galleryWindow) {
         galleryWindow.show();
@@ -666,8 +716,8 @@ const createGalleryWindow = () => {
     }
 
     galleryWindow = new BrowserWindow({
-        width: 700,
-        height: 500,
+        width: 900,
+        height: 600,
         frame: true,
         transparent: false,
         backgroundColor: '#0f172a', // slate-900
@@ -746,7 +796,7 @@ app.whenReady().then(() => {
     function buildTrayMenu() {
         const menu = Menu.buildFromTemplate([
             {
-                label: state.isDockPinned ? 'إخفاء الشريط' : 'إظهار الشريط',
+                label: state.isDockPinned ? mt('tray.hide') : mt('tray.show'),
                 click: () => {
                     state.isDockPinned = !state.isDockPinned;
                     broadcastState();
@@ -754,12 +804,12 @@ app.whenReady().then(() => {
                 }
             },
             {
-                label: 'الإعدادات',
+                label: mt('tray.settings'),
                 click: () => createGalleryWindow()
             },
             { type: 'separator' },
             {
-                label: 'إعادة تشغيل الشريط',
+                label: mt('tray.restart'),
                 click: () => {
                     if (dockWindow && !dockWindow.isDestroyed()) {
                         dockWindow.webContents.reload();
@@ -784,13 +834,14 @@ app.whenReady().then(() => {
             },
             { type: 'separator' },
             {
-                label: 'إنهاء',
+                label: mt('tray.quit'),
                 click: () => app.quit()
             }
         ]);
         tray.setContextMenu(menu);
     }
 
+    rebuildTrayMenu = buildTrayMenu;
     buildTrayMenu();
     tray.on('click', () => {
         createGalleryWindow();
@@ -846,75 +897,10 @@ uIOhook.on('mousemove', () => {
     // physical pixels on high-DPI displays which would cause coordinate mismatches.
     const cursor = screen.getCursorScreenPoint();
     checkAndEnableEdge(cursor.x);
-
-    // --- GALLERY → DOCK: Track mouse position during external tool drag ---
-    if (galleryDraggedToolId && dockWindow && !dockWindow.isDestroyed()) {
-        const display = screen.getPrimaryDisplay();
-        const rightEdge = display.workAreaSize.width;
-        const nearDock = cursor.x >= rightEdge - 400; // Dock area
-
-        if (nearDock) {
-            const newIndex = calcProposedIndex(cursor.y);
-            if (newIndex !== lastProposedIndex) {
-                lastProposedIndex = newIndex;
-            }
-            dockWindow.webContents.send('external-tool-drag-move', {
-                toolId: galleryDraggedToolId,
-                proposedIndex: newIndex
-            });
-        } else {
-            dockWindow.webContents.send('external-tool-drag-move', {
-                toolId: galleryDraggedToolId,
-                proposedIndex: null  // Not near dock, hide ghost
-            });
-        }
-    }
 });
 
 uIOhook.on('mouseup', () => {
     isMouseDown = false;
-
-    // Use logical (device-independent) coords so they match getBounds() and workAreaSize.
-    const cursor = screen.getCursorScreenPoint();
-
-    // --- GALLERY → DOCK: Finalize add on mouseup ---
-    if (galleryDraggedToolId) {
-        const display = screen.getPrimaryDisplay();
-        const rightEdge = display.workAreaSize.width;
-        const nearDock = cursor.x >= rightEdge - 400;
-
-        if (nearDock && !state.activeToolIds.includes(galleryDraggedToolId)) {
-            const insertIndex = calcProposedIndex(cursor.y);
-            const newOrder = [...state.activeToolIds];
-            newOrder.splice(insertIndex, 0, galleryDraggedToolId);
-            state.activeToolIds = newOrder;
-            broadcastState();
-            persistToolOrder();
-        }
-
-        // Tell dock to clear external drag state
-        if (dockWindow && !dockWindow.isDestroyed()) {
-            dockWindow.webContents.send('external-tool-drag-end');
-        }
-        galleryDraggedToolId = null;
-        lastProposedIndex = 0;
-    }
-
-    // --- DOCK → GALLERY: Finalize removal on mouseup ---
-    if (dockDraggedToolId) {
-        if (isOverWindow(galleryWindow, cursor.x, cursor.y)) {
-            // Mouse released over gallery → remove tool
-            state.activeToolIds = state.activeToolIds.filter(id => id !== dockDraggedToolId);
-            broadcastState();
-            persistToolOrder();
-        }
-
-        // Tell gallery to hide removal overlay
-        if (galleryWindow && !galleryWindow.isDestroyed()) {
-            galleryWindow.webContents.send('dock-tool-drag-end');
-        }
-        dockDraggedToolId = null;
-    }
 
     // Restore click-through if dock is in idle mode
     if (dockMode === 'idle' && dockWindow && !dockWindow.isDestroyed()) {
@@ -1068,50 +1054,6 @@ ipcMain.on('dispatch-action', (event, action) => {
 
 // --- CROSS-WINDOW TOOL DRAG IPC ---
 
-// Gallery tells us: "User started dragging tool X from library"
-ipcMain.on('tool-drag-start', (event, toolId) => {
-    galleryDraggedToolId = toolId;
-    lastProposedIndex = state.activeToolIds.length; // Default: append at end
-    // Notify dock that an external tool is being dragged
-    if (dockWindow && !dockWindow.isDestroyed()) {
-        dockWindow.webContents.send('external-tool-drag', { toolId });
-    }
-});
-
-// Gallery tells us: "User stopped dragging (dragend fired)"
-ipcMain.on('tool-drag-end', () => {
-    // If mouseup didn't already handle it, clean up
-    if (galleryDraggedToolId) {
-        if (dockWindow && !dockWindow.isDestroyed()) {
-            dockWindow.webContents.send('external-tool-drag-end');
-        }
-        galleryDraggedToolId = null;
-        lastProposedIndex = 0;
-    }
-});
-
-// Dock tells us: "User started dragging tool X out of dock"
-ipcMain.on('dock-tool-drag-start', (event, toolId) => {
-    dockDraggedToolId = toolId;
-    // Notify gallery to show removal overlay
-    if (galleryWindow && !galleryWindow.isDestroyed()) {
-        galleryWindow.webContents.send('dock-tool-drag-active', { toolId });
-    }
-});
-
-// Dock tells us: "User stopped dragging tool (dragend fired)"
-ipcMain.on('dock-tool-drag-end', () => {
-    // NOTE: Do NOT clear dockDraggedToolId here!
-    // The mouseup handler is responsible for checking isOverWindow() and
-    // performing the actual removal + cleanup. If we clear dockDraggedToolId
-    // here, the mouseup check fires after this and finds null — so removal never happens.
-    // We only need to hide the gallery overlay if the drag ends without a mouseup
-    // (e.g., Escape key cancels). In that case dockDraggedToolId remains set
-    // until mouseup fires and cleans up.
-    // Therefore, this handler is intentionally left as a no-op for cleanup;
-    // the overlay stays visible until mouseup decides the outcome.
-});
-
 // --- CLIPBOARD IPC ---
 
 // Parse a Windows CF_HDROP buffer back to an array of file paths
@@ -1244,4 +1186,31 @@ ipcMain.handle('clipboard:read', () => {
 ipcMain.handle('OPEN_LOGS_FOLDER', () => {
     const logPath = log.transports.file.getFile().path;
     shell.openPath(path.dirname(logPath));
+});
+
+// --- SETTINGS IPC (language, etc.) ---
+ipcMain.handle('get-setting', (_event, key) => {
+    const settings = loadSettings();
+    return settings ? settings[key] ?? null : null;
+});
+
+ipcMain.handle('set-setting', (_event, key, value) => {
+    const existing = loadSettings() || {};
+    existing[key] = value;
+    saveSettings(existing);
+
+    // Broadcast every setting change so other windows (e.g. the dock) can react
+    BrowserWindow.getAllWindows().forEach(win => {
+        try { win.webContents.send('setting-change', { key, value }); } catch (_) {}
+    });
+
+    // Broadcast language change to all windows
+    if (key === 'language') {
+        currentLang = value;
+        BrowserWindow.getAllWindows().forEach(win => {
+            try { win.webContents.send('language-change', value); } catch (_) {}
+        });
+        // Rebuild tray menu with new language
+        if (tray && rebuildTrayMenu) rebuildTrayMenu();
+    }
 });

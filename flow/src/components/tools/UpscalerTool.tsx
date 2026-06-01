@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    ImagePlus, Upload, Loader2, Download, Trash2, AlertCircle,
+    Maximize2, Upload, Loader2, Download, Trash2, AlertCircle,
     X, Check, ClipboardPaste, Ban, Copy
 } from 'lucide-react';
 import {
@@ -10,6 +10,7 @@ import {
     fetchUpscaleResultBlob, cleanupUpscaleJob
 } from '../../services/api';
 import type { UpscaleScale, UpscaleModel } from '../../services/api';
+import { useI18n } from '../../i18n/I18nContext';
 import JSZip from 'jszip';
 
 interface UpscalerToolProps {
@@ -52,12 +53,13 @@ const isImageFile = (file: File): boolean => {
 
 const SCALE_OPTIONS: UpscaleScale[] = [2, 4];
 
-const MODEL_OPTIONS: { value: UpscaleModel; label: string }[] = [
-    { value: 'realesrgan-x4plus', label: 'عام' },
-    { value: 'realesrgan-x4plus-anime', label: 'رسوم' },
+const MODEL_OPTIONS: { value: UpscaleModel; labelKey: 'upscaler.modelGeneral' | 'upscaler.modelAnime' }[] = [
+    { value: 'realesrgan-x4plus', labelKey: 'upscaler.modelGeneral' },
+    { value: 'realesrgan-x4plus-anime', labelKey: 'upscaler.modelAnime' },
 ];
 
 export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
+    const { t } = useI18n();
     const [files, setFiles] = useState<UpscaleFileItem[]>([]);
     const [available, setAvailable] = useState<boolean | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -367,26 +369,26 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-white/5 shrink-0">
+            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
                 <div className="flex items-center gap-2">
-                    <ImagePlus className="w-4 h-4 text-pink-400" />
-                    <span className="text-sm font-bold text-white">رفع الدقة</span>
+                    <Maximize2 className="w-4 h-4 text-pink-400" />
+                    <span className="text-sm font-bold text-[var(--text)]">{t('upscaler.headerTitle')}</span>
                     {hasFiles && (
-                        <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full text-slate-300">{files.length}</span>
+                        <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{files.length}</span>
                     )}
                 </div>
                 <div className="flex-1" />
-                <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
+                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
                     <X className="w-4 h-4" />
                 </button>
             </div>
 
             {/* Global settings bar */}
             {hasFiles && (
-                <div className="flex items-center gap-3 px-4 py-2 border-b border-white/5 shrink-0">
+                <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--separator)] shrink-0">
                     {/* Scale selector */}
                     <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-slate-500">التكبير:</span>
+                        <span className="text-[10px] text-[var(--text-3)]">{t('upscaler.scaleLabel')}</span>
                         <div className="flex gap-0.5">
                             {SCALE_OPTIONS.map(s => (
                                 <button
@@ -395,7 +397,7 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                                     className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
                                         globalScale === s
                                             ? 'bg-pink-600 text-white'
-                                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                            : 'bg-[var(--surface)] text-[var(--text-2)] hover:bg-[var(--surface-3)]'
                                     }`}
                                 >
                                     {s}x
@@ -404,11 +406,11 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                         </div>
                     </div>
 
-                    <div className="w-px h-4 bg-white/10" />
+                    <div className="w-px h-4 bg-[var(--border)]" />
 
                     {/* Model selector */}
                     <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-slate-500">النموذج:</span>
+                        <span className="text-[10px] text-[var(--text-3)]">{t('upscaler.modelLabel')}</span>
                         <div className="flex gap-0.5">
                             {MODEL_OPTIONS.map(m => (
                                 <button
@@ -417,10 +419,10 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                                     className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
                                         globalModel === m.value
                                             ? 'bg-pink-600 text-white'
-                                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                            : 'bg-[var(--surface)] text-[var(--text-2)] hover:bg-[var(--surface-3)]'
                                     }`}
                                 >
-                                    {m.label}
+                                    {t(m.labelKey)}
                                 </button>
                             ))}
                         </div>
@@ -444,26 +446,26 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                                 border-2 border-dashed transition-all duration-200 cursor-pointer
                                 ${isDragOver
                                     ? 'border-pink-400 bg-pink-500/10 scale-[0.99]'
-                                    : 'border-slate-700 bg-slate-800/30 hover:border-slate-500 hover:bg-slate-800/50'
+                                    : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border)] hover:bg-[var(--surface)]'
                                 }
                             `}
                         >
-                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-pink-500/20' : 'bg-slate-800'}`}>
+                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-pink-500/20' : 'bg-[var(--surface)]'}`}>
                                 {isDragOver
                                     ? <Upload className="w-8 h-8 text-pink-400" />
-                                    : <ImagePlus className="w-8 h-8 text-slate-500" />
+                                    : <Maximize2 className="w-8 h-8 text-[var(--text-3)]" />
                                 }
                             </div>
                             <div className="text-center px-4">
-                                <p className="text-sm font-semibold text-slate-300">
-                                    {isDragOver ? 'أفلت الصور هنا' : 'اسحب صور هنا لرفع الدقة'}
+                                <p className="text-sm font-semibold text-[var(--text-2)]">
+                                    {isDragOver ? t('upscaler.dropImages') : t('upscaler.dragImages')}
                                 </p>
-                                <p className="text-xs text-slate-500 mt-1">أو اضغط للاختيار يدويًا</p>
-                                <p className="text-[10px] text-slate-600 mt-2">
+                                <p className="text-xs text-[var(--text-3)] mt-1">{t('upscaler.orClickToSelect')}</p>
+                                <p className="text-[10px] text-[var(--text-3)] mt-2">
                                     JPG · PNG · WEBP · BMP · TIFF
                                 </p>
-                                <p className="text-[10px] text-slate-600 mt-1">
-                                    Real-ESRGAN AI · تكبير حتى 4x
+                                <p className="text-[10px] text-[var(--text-3)] mt-1">
+                                    {t('upscaler.aiHint')}
                                 </p>
                             </div>
                             <input
@@ -489,10 +491,10 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                             {files.map(item => (
                                 <div
                                     key={item.id}
-                                    className="flex items-center gap-2 px-2.5 py-2 bg-slate-800/60 rounded-lg border border-white/5 shrink-0 group"
+                                    className="flex items-center gap-2 px-2.5 py-2 bg-[var(--surface)] rounded-lg border border-[var(--separator)] shrink-0 group"
                                 >
                                     {/* Thumbnail — always shows the small ORIGINAL preview */}
-                                    <div className="w-8 h-8 rounded overflow-hidden bg-slate-900 shrink-0 flex items-center justify-center">
+                                    <div className="w-8 h-8 rounded overflow-hidden bg-[var(--surface)] shrink-0 flex items-center justify-center">
                                         <img
                                             src={item.previewUrl}
                                             className={`w-full h-full object-cover ${item.status === 'done' ? '' : 'opacity-60'}`}
@@ -502,8 +504,8 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
 
                                     {/* Name + size */}
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-[11px] text-slate-300 truncate">{item.name}</p>
-                                        <p className="text-[10px] text-slate-600">{formatSize(item.sizeBytes)}</p>
+                                        <p className="text-[11px] text-[var(--text-2)] truncate">{item.name}</p>
+                                        <p className="text-[10px] text-[var(--text-3)]">{formatSize(item.sizeBytes)}</p>
                                     </div>
 
                                     {/* Scale badge */}
@@ -514,7 +516,7 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                                     {/* Status indicator */}
                                     <div className="w-14 text-right shrink-0">
                                         {item.status === 'idle' && (
-                                            <span className="text-[10px] text-slate-600">—</span>
+                                            <span className="text-[10px] text-[var(--text-3)]">—</span>
                                         )}
                                         {item.status === 'processing' && (
                                             <div className="flex items-center gap-1 justify-end">
@@ -543,8 +545,8 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                                     <button
                                         onClick={() => removeFile(item.id)}
                                         disabled={item.status === 'processing'}
-                                        className="shrink-0 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-30"
-                                        title="إزالة"
+                                        className="shrink-0 text-[var(--text-3)] hover:text-[var(--red)] transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-30"
+                                        title={t('upscaler.remove')}
                                     >
                                         <X className="w-3.5 h-3.5" />
                                     </button>
@@ -557,11 +559,11 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                                 className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed cursor-pointer transition-colors shrink-0 ${
                                     isDragOver
                                         ? 'border-pink-400 bg-pink-500/10'
-                                        : 'border-slate-700 hover:border-slate-500 bg-slate-800/20'
+                                        : 'border-[var(--border)] hover:border-[var(--border)] bg-[var(--surface-2)]'
                                 }`}
                             >
-                                <Upload className="w-3.5 h-3.5 text-slate-500" />
-                                <span className="text-[11px] text-slate-500">إضافة صور</span>
+                                <Upload className="w-3.5 h-3.5 text-[var(--text-3)]" />
+                                <span className="text-[11px] text-[var(--text-3)]">{t('upscaler.addImages')}</span>
                                 <input
                                     id="upscaler-add-input"
                                     type="file"
@@ -580,7 +582,7 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
             {available === false && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-red-900/20 border-t border-red-500/20 shrink-0">
                     <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                    <span className="text-[11px] text-red-300">Real-ESRGAN غير متوفر</span>
+                    <span className="text-[11px] text-red-300">{t('upscaler.unavailable')}</span>
                 </div>
             )}
 
@@ -597,19 +599,19 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                         }`}
                     >
                         {cancelHover ? (
-                            <><Ban className="w-4 h-4" />إلغاء</>
+                            <><Ban className="w-4 h-4" />{t('upscaler.cancel')}</>
                         ) : (
-                            <><Loader2 className="w-4 h-4 animate-spin" />جاري التكبير...</>
+                            <><Loader2 className="w-4 h-4 animate-spin" />{t('upscaler.upscaling')}</>
                         )}
                     </button>
                 ) : allCompleted ? (
                     <button
                         onClick={handleDownload}
                         disabled={isDownloading}
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white disabled:opacity-50"
                     >
                         {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                        تحميل
+                        {t('upscaler.download')}
                     </button>
                 ) : hasIdle ? (
                     <button
@@ -617,20 +619,20 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                         disabled={available === false}
                         className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${
                             available === false
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
+                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
                                 : 'bg-pink-600 hover:bg-pink-500 text-white'
                         }`}
                     >
-                        <ImagePlus className="w-4 h-4" />
-                        تكبير
+                        <Maximize2 className="w-4 h-4" />
+                        {t('upscaler.upscale')}
                     </button>
                 ) : (
                     <button
                         disabled
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-slate-800/50 text-slate-600 cursor-not-allowed"
+                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed"
                     >
-                        <ImagePlus className="w-4 h-4" />
-                        رفع الدقة
+                        <Maximize2 className="w-4 h-4" />
+                        {t('upscaler.defaultBtn')}
                     </button>
                 )}
 
@@ -641,17 +643,17 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                         disabled={!files.some(f => f.status === 'done' && f.jobId) || isCopying}
                         className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                             !files.some(f => f.status === 'done' && f.jobId)
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
+                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]'
                         }`}
-                        title="نسخ"
+                        title={t('upscaler.copy')}
                     >
                         {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopySuccess ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
                     </button>
                     <button
                         onClick={handlePaste}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white"
-                        title="لصق"
+                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]"
+                        title={t('upscaler.paste')}
                     >
                         <ClipboardPaste className="w-4 h-4" />
                     </button>
@@ -660,10 +662,10 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                         disabled={!hasFiles || isProcessing}
                         className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                             !hasFiles || isProcessing
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'
+                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
                         }`}
-                        title="مسح الكل"
+                        title={t('upscaler.clearAll')}
                     >
                         <Trash2 className="w-4 h-4" />
                     </button>

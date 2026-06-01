@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Graphite — Dragin Flow Design System</title>
+<style>
+/* ============================================================
+   GRAPHITE — Apple-clean light design system for Dragin Flow
+   All tokens live here; every component is built from them.
+   ============================================================ */
+:root {
+  /* — Surfaces — */
+  --bg:           #ececef;   /* app canvas (warm grey)   */
+  --surface:      #ffffff;   /* primary cards / panels    */
+  --surface-2:    #f5f5f7;   /* secondary fill            */
+  --surface-3:    #e8e8ec;   /* tertiary / track          */
+  --tint:         #fbfbfd;
+
+  /* — Text — */
+  --text:         #1d1d1f;   /* primary  */
+  --text-2:       #6e6e73;   /* secondary */
+  --text-3:       #86868b;   /* tertiary  */
+  --on-accent:    #ffffff;
+
+  /* — Lines — */
+  --border:       rgba(0,0,0,0.08);
+  --border-2:     rgba(0,0,0,0.13);
+  --separator:    rgba(0,0,0,0.06);
+
+  /* — Accent (Apple system indigo = on-brand for Dragin) — */
+  --accent:       #5e5ce6;
+  --accent-hover: #4b49d6;
+  --accent-press: #4240bf;
+  --accent-soft:  rgba(94,92,230,0.12);
+  --focus-ring:   rgba(94,92,230,0.35);
+
+  /* — Semantic — */
+  --green:  #34c759;
+  --orange: #ff9f0a;
+  --red:    #ff3b30;
+
+  /* — Tool palette (Apple system colors, light-safe) — */
+  --t-indigo:#5e5ce6; --t-green:#34c759; --t-blue:#007aff; --t-orange:#ff9500;
+  --t-red:#ff3b30; --t-pink:#ff2d55; --t-teal:#00c7be; --t-purple:#af52de;
+
+  /* — Radius — */
+  --r-sm: 8px; --r-md: 12px; --r-lg: 18px; --r-xl: 22px; --r-pill: 980px;
+  --fillet: 22px;   /* concave neck radius where the tongue molds into the edge */
+
+  /* — Elevation — */
+  --e1: 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px var(--border);
+  --e2: 0 6px 18px -6px rgba(0,0,0,0.14), 0 0 0 1px var(--border);
+  --e3: 0 18px 48px -18px rgba(0,0,0,0.26), 0 0 0 1px var(--border);
+
+  /* — Surfaces that flip with mode — */
+  --stage-bg: linear-gradient(160deg,#dfe3ea,#c9cdd6);
+  --glass: rgba(255,255,255,0.72);
+  --glass-strong: rgba(255,255,255,0.82);
+  --tip-bg: #1d1d1f; --tip-text: #fff;
+  --badge-ring: #e9ecf1;
+  --edge-line: rgba(0,0,0,0.1);
+  --checker: rgba(0,0,0,0.04);
+  --tongue-shadow: 0 18px 48px -18px rgba(0,0,0,0.3);   /* ringless: no hairline */
+  --scrollbar: rgba(0,0,0,0.22); --scrollbar-hover: rgba(0,0,0,0.4);
+
+  /* — Type — */
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+
+  /* — Spacing scale — */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s8:32px;
+}
+
+/* ── DARK MODE — Apple-dark counterpart of Graphite ── */
+html[data-mode="dark"] {
+  --bg:#1c1c1e; --surface:#2c2c2e; --surface-2:#3a3a3c; --surface-3:#48484a; --tint:#363638;
+  --text:#f5f5f7; --text-2:rgba(235,235,245,0.6); --text-3:rgba(235,235,245,0.32);
+  --border:rgba(255,255,255,0.10); --border-2:rgba(255,255,255,0.18); --separator:rgba(255,255,255,0.08);
+  --accent:#7d7aff; --accent-hover:#928fff; --accent-press:#6e6bf0; --accent-soft:rgba(125,122,255,0.18); --focus-ring:rgba(125,122,255,0.4);
+  --green:#30d158; --orange:#ff9f0a; --red:#ff453a;
+  --t-indigo:#7d7aff; --t-green:#30d158; --t-blue:#0a84ff; --t-orange:#ff9f0a; --t-red:#ff453a; --t-pink:#ff375f; --t-teal:#64d2ff; --t-purple:#bf5af2;
+  --e1: 0 1px 2px rgba(0,0,0,0.4), 0 0 0 1px var(--border);
+  --e2: 0 8px 22px -8px rgba(0,0,0,0.6), 0 0 0 1px var(--border);
+  --e3: 0 22px 56px -18px rgba(0,0,0,0.75), 0 0 0 1px var(--border);
+  /* Glow kept to the upper-LEFT; right edge stays near-black so the pitch-black
+     tongue emerges from the darkness instead of sitting on a lit edge. */
+  --stage-bg: radial-gradient(640px 480px at 14% 6%, #2a2748, transparent 55%), linear-gradient(100deg,#1a1a1e, #0c0c0e 64%, #050506 100%);
+  /* Pitch-black tongue: it reads as the screen-edge darkness extending inward,
+     not a panel floating on top. Opaque #000, no glass. */
+  --glass: #000; --glass-strong: #000;
+  --tip-bg:#f5f5f7; --tip-text:#1d1d1f;
+  --badge-ring:#000; --edge-line: rgba(255,255,255,0.07); --checker: rgba(255,255,255,0.05);
+  --tongue-shadow: 0 22px 56px -20px rgba(0,0,0,0.85);
+  --scrollbar: rgba(255,255,255,0.22); --scrollbar-hover: rgba(255,255,255,0.42);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
+
+/* Thin, Apple-style overlay scrollbars (theme-aware) */
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+body {
+  font-family: var(--font); background: var(--bg); color: var(--text);
+  -webkit-font-smoothing: antialiased; line-height: 1.5;
+  display: grid; grid-template-columns: 232px 1fr; min-height: 100vh;
+}
+
+/* ---- Sidebar nav ---- */
+aside {
+  position: sticky; top: 0; height: 100vh; overflow: auto;
+  background: var(--surface); border-right: 1px solid var(--border);
+  padding: 24px 16px;
+}
+aside .brand { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; padding: 0 10px 4px; }
+aside .brand b { color: var(--accent); }
+aside .brand small { display:block; font-size: 11px; font-weight: 500; color: var(--text-3); letter-spacing: 0; }
+aside .grp { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; color: var(--text-3); margin: 22px 10px 6px; }
+aside a { display: block; padding: 7px 10px; font-size: 13px; color: var(--text-2); text-decoration: none; border-radius: 8px; font-weight: 500; }
+aside a:hover { background: var(--surface-2); color: var(--text); }
+
+/* ---- Content ---- */
+main { padding: 40px 48px 120px; max-width: 1100px; }
+.h-page { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }
+.h-sub { color: var(--text-2); font-size: 15px; margin-top: 6px; margin-bottom: 8px; }
+section { margin-top: 56px; scroll-margin-top: 24px; }
+h2.sec { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; padding-bottom: 12px; border-bottom: 1px solid var(--separator); margin-bottom: 24px; }
+h3.sub { font-size: 13px; font-weight: 600; color: var(--text-2); margin: 26px 0 12px; }
+.card { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--e1); padding: 24px; }
+.demo { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+
+/* ===== FOUNDATIONS ===== */
+.swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap: 12px; }
+.swatch { border-radius: var(--r-md); overflow: hidden; box-shadow: var(--e1); background: var(--surface); }
+.swatch .chip { height: 64px; }
+.swatch .meta { padding: 9px 11px; }
+.swatch .meta b { display:block; font-size: 12px; font-weight: 600; }
+.swatch .meta span { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.type-row { display: flex; align-items: baseline; gap: 18px; padding: 12px 0; border-bottom: 1px solid var(--separator); }
+.type-row:last-child { border: 0; }
+.type-row .tag { width: 130px; font-size: 11px; color: var(--text-3); flex: none; }
+
+.scale-row { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+.scale-row .bar { background: var(--accent-soft); border-radius: 4px; height: 22px; }
+.scale-row .lbl { font-size: 12px; color: var(--text-2); width: 70px; }
+
+.radius-demo { display:flex; gap:18px; flex-wrap:wrap; }
+.radius-demo .box { width: 84px; height: 84px; background: var(--surface-2); border: 1px solid var(--border); display:grid; place-items:end center; padding-bottom:8px; font-size:11px; color: var(--text-3); }
+
+.elev-demo { display:flex; gap: 26px; flex-wrap: wrap; }
+.elev-demo .box { width: 130px; height: 90px; background: var(--surface); border-radius: var(--r-md); display:grid; place-items:center; font-size:12px; color: var(--text-2); }
+
+/* ===== COMPONENTS ===== */
+/* Buttons */
+.btn { font: inherit; font-size: 14px; font-weight: 590; cursor: pointer; border: 1px solid transparent;
+  padding: 0 18px; height: 38px; border-radius: var(--r-md); display: inline-flex; align-items: center; gap: 8px; transition: .15s; }
+.btn svg { width: 17px; height: 17px; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:active { background: var(--accent-press); transform: scale(.985); }
+.btn-secondary { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+.btn-secondary:hover { background: var(--surface-3); }
+.btn-ghost { background: transparent; color: var(--accent); }
+.btn-ghost:hover { background: var(--accent-soft); }
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover { filter: brightness(.94); }
+.btn:disabled, .btn.disabled { opacity: .4; cursor: not-allowed; }
+.btn-sm { height: 30px; font-size: 13px; padding: 0 14px; }
+.btn-lg { height: 46px; font-size: 15px; padding: 0 24px; }
+.iconbtn { width: 38px; height: 38px; border-radius: var(--r-md); display:grid; place-items:center; cursor:pointer;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); transition:.15s; }
+.iconbtn:hover { background: var(--surface-3); color: var(--text); }
+.iconbtn svg { width:18px; height:18px; }
+
+/* Input / search */
+.input { font: inherit; font-size: 14px; height: 38px; padding: 0 14px; border-radius: var(--r-md);
+  border: 1px solid var(--border-2); background: var(--surface); color: var(--text); width: 260px; outline: none; transition:.15s; }
+.input::placeholder { color: var(--text-3); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--focus-ring); }
+
+/* Slider */
+.slider { width: 280px; }
+.slider input { -webkit-appearance:none; width:100%; height: 5px; border-radius: 999px; background: var(--surface-3); outline:none; }
+.slider input::-webkit-slider-thumb { -webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:#fff; box-shadow: 0 1px 4px rgba(0,0,0,.3), 0 0 0 0.5px rgba(0,0,0,.1); cursor:pointer; }
+
+/* Switch (Apple green) */
+.switch { width: 48px; height: 29px; border-radius: 999px; background: var(--surface-3); position: relative; cursor: pointer; transition:.2s; border:none; padding:0; }
+.switch::after { content:''; position:absolute; top:2px; left:2px; width:25px; height:25px; border-radius:50%; background:#fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition:.2s; }
+.switch.on { background: var(--green); }
+.switch.on::after { left: 21px; }
+
+/* Segmented control */
+.seg { display:inline-flex; background: var(--surface-3); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg button { font: inherit; font-size: 13px; font-weight: 590; border:0; background:transparent; color: var(--text-2); padding: 6px 16px; border-radius: 7px; cursor:pointer; transition:.15s; }
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--e1); }
+
+/* Badge / pill */
+.badge { background: var(--red); color:#fff; font-size: 11px; font-weight: 700; min-width: 18px; height: 18px; border-radius: 999px; display:inline-grid; place-items:center; padding: 0 5px; }
+.pill { font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.pill.gray { background: var(--surface-3); color: var(--text-2); }
+.pill.green { background: rgba(52,199,89,.15); color: #1e8e3e; }
+
+/* Tabs */
+.tabs2 { display:flex; gap:4px; border-bottom: 1px solid var(--separator); }
+.tabs2 button { font:inherit; font-size:14px; font-weight:590; border:0; background:none; color:var(--text-2); padding:10px 4px; margin-right:18px; cursor:pointer; border-bottom: 2px solid transparent; }
+.tabs2 button.on { color: var(--text); border-bottom-color: var(--accent); }
+
+/* Progress */
+.progress { width: 280px; height: 6px; background: var(--surface-3); border-radius: 999px; overflow:hidden; }
+.progress > i { display:block; height:100%; width: 64%; background: var(--accent); border-radius:999px; }
+
+/* Tooltip */
+.tip { position: relative; }
+.tip .bubble { background: var(--tip-bg); color: var(--tip-text); font-size:12px; font-weight:500; padding:6px 10px; border-radius: 8px; box-shadow: var(--e2); }
+
+/* List row (settings) */
+.list { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--e1); overflow: hidden; max-width: 560px; }
+.list .row { display:flex; align-items:center; gap:14px; padding: 16px 18px; border-bottom: 1px solid var(--separator); }
+.list .row:last-child { border:0; }
+.list .row .ic { width: 34px; height:34px; border-radius:9px; display:grid; place-items:center; color:#fff; flex:none; }
+.list .row .tx b { display:block; font-size: 14px; font-weight: 590; }
+.list .row .tx span { font-size: 12.5px; color: var(--text-2); }
+.list .row .end { margin-left:auto; }
+
+/* ===== FLOW COMPOSITIONS ===== */
+.stage { background: var(--stage-bg); border-radius: var(--r-lg); box-shadow: var(--e1) inset; overflow: hidden;
+  padding: 28px 0 28px 28px; display:flex; align-items:center; justify-content:flex-end; gap: 24px; min-height: 360px; position: relative; }
+
+.tongue { background: var(--glass); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border: 0; border-radius: var(--r-xl) 0 0 var(--r-xl);
+  box-shadow: var(--tongue-shadow); padding: 10px; display:flex; flex-direction:column; gap:10px; }
+
+/* ── Concave neck fillets: mold the tongue/panel into the screen edge ── */
+.tongue, .panel { position: relative; }
+.tongue::before, .tongue::after, .panel::before, .panel::after {
+  content:''; position:absolute; right:0; width: var(--fillet); height: var(--fillet);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); pointer-events:none;
+}
+.tongue::before, .panel::before { bottom:100%;
+  -webkit-mask: radial-gradient(circle var(--fillet) at top left, #0000 var(--fillet), #000 var(--fillet));
+          mask: radial-gradient(circle var(--fillet) at top left, #0000 var(--fillet), #000 var(--fillet)); }
+.tongue::after, .panel::after { top:100%;
+  -webkit-mask: radial-gradient(circle var(--fillet) at bottom left, #0000 var(--fillet), #000 var(--fillet));
+          mask: radial-gradient(circle var(--fillet) at bottom left, #0000 var(--fillet), #000 var(--fillet)); }
+.tongue::before, .tongue::after { background: var(--glass); }
+.panel::before, .panel::after { background: var(--glass-strong); }
+.tile { width:60px; height:60px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--border);
+  display:grid; place-items:center; cursor:pointer; transition:.15s; position:relative; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.tile:hover { background: var(--tint); transform: translateX(-2px); }
+.tile.sel { box-shadow: 0 0 0 2px var(--accent); }
+.tile svg { width:25px; height:25px; }
+.tile .badge { position:absolute; top:-5px; left:-5px; border: 2px solid var(--badge-ring); }
+.edge { width:2px; align-self:stretch; background: var(--edge-line); }
+
+.panel { width: 304px; background: var(--glass-strong); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border:0; border-radius: var(--r-xl) 0 0 var(--r-xl); box-shadow: var(--tongue-shadow); padding:16px; display:flex; flex-direction:column; gap:14px; }
+.panel .ph { display:flex; align-items:center; gap:10px; }
+.panel .ph .ic { width:30px; height:30px; border-radius:9px; background: var(--accent-soft); color: var(--accent); display:grid; place-items:center; }
+.panel .ph .ic svg { width:17px; height:17px; }
+.panel .ph b { font-size: 14px; font-weight: 600; }
+.panel .ph .x { margin-left:auto; color: var(--text-3); cursor:pointer; font-size:17px; width:24px; height:24px; display:grid; place-items:center; border-radius:7px; }
+.panel .ph .x:hover { background: var(--surface-2); color: var(--text); }
+.panel .preview { aspect-ratio:4/3; border-radius: var(--r-md); border:1px solid var(--border);
+  background: conic-gradient(from 45deg, #0000 0 25%, var(--checker) 0 50%, #0000 0 75%, var(--checker) 0) 0/22px 22px, var(--surface-2);
+  display:grid; place-items:center; }
+.panel .preview .subj { width:55%; height:68%; border-radius:14px; background: linear-gradient(135deg, var(--accent), #8b89f0); box-shadow: var(--e2); }
+.panel .actions { display:flex; gap:8px; }
+.store-card { width: 280px; background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--e1); padding: 18px; }
+.store-card .top { display:flex; align-items:center; gap:12px; margin-bottom: 12px; }
+.store-card .top .ic { width:46px; height:46px; border-radius: 13px; display:grid; place-items:center; color:#fff; }
+.store-card .top b { font-size:15px; font-weight:600; }
+.store-card .top span { font-size:12px; color: var(--text-3); }
+.store-card p { font-size: 12.5px; color: var(--text-2); margin-bottom: 14px; line-height:1.5; }
+
+/* Empty state */
+.empty { border: 2px dashed var(--border-2); border-radius: var(--r-lg); padding: 30px; text-align:center; max-width: 320px; background: var(--surface-2); }
+.empty .ic { width:54px; height:54px; border-radius: 15px; background: var(--surface); display:grid; place-items:center; margin: 0 auto 14px; color: var(--text-3); box-shadow: var(--e1); }
+.empty .ic svg { width:24px; height:24px; }
+.empty b { font-size: 15px; font-weight: 600; display:block; }
+.empty p { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
+.empty .fmt { font-size: 11px; color: var(--text-3); margin-top: 12px; letter-spacing:.03em; }
+
+/* Select / dropdown */
+.select { width: 220px; }
+.select .field { height: 38px; border-radius: var(--r-md); border:1px solid var(--border-2); background: var(--surface); display:flex; align-items:center; padding: 0 12px; font-size:14px; cursor:pointer; gap:8px; }
+.select .field svg { margin-left:auto; width:16px; height:16px; color: var(--text-3); }
+.menu { margin-top:6px; width:220px; background: var(--surface); border:1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--e2); padding:6px; }
+.menu .opt { font-size:14px; padding:8px 10px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:8px; }
+.menu .opt:hover { background: var(--surface-2); }
+.menu .opt.on { color: var(--accent); font-weight:590; }
+.menu .opt.on::after { content:'✓'; margin-left:auto; }
+
+/* Toast */
+.toast { display:inline-flex; align-items:center; gap:10px; background: var(--surface); border:1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--e2); padding: 11px 15px; font-size: 13.5px; font-weight: 500; }
+.toast .dot { width:22px; height:22px; border-radius:50%; display:grid; place-items:center; color:#fff; flex:none; }
+.toast .dot svg { width:13px; height:13px; stroke-width:3; }
+
+/* Modal / sheet */
+.modal-demo { position: relative; height: 290px; border-radius: var(--r-lg); overflow:hidden; background: var(--stage-bg); display:grid; place-items:center; }
+.scrim { position:absolute; inset:0; background: rgba(0,0,0,0.42); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.modal { position: relative; width: 340px; background: var(--surface); border-radius: var(--r-xl); box-shadow: var(--e3); overflow:hidden; }
+.modal .mh { padding: 16px 18px; font-size: 15px; font-weight: 600; }
+.modal .mb { padding: 0 18px 4px; font-size: 13.5px; color: var(--text-2); line-height:1.5; }
+.modal .mf { padding: 16px 18px; display:flex; gap:10px; justify-content:flex-end; }
+
+/* Tool: Converter rows */
+.frow { display:flex; align-items:center; gap:10px; padding:8px; border-radius:10px; background: var(--surface-2); }
+.frow .fic { width:32px;height:32px;border-radius:8px;background:var(--surface);display:grid;place-items:center;color:var(--text-3);flex:none; box-shadow:var(--e1); }
+.frow .fic svg { width:16px;height:16px; }
+.frow .nm { font-size:12.5px; font-weight:500; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.frow .st { font-size:11px; color:var(--text-3); }
+.frow .mini { width:58px; height:4px; border-radius:999px; background: var(--surface-3); overflow:hidden; }
+.frow .mini>i { display:block; height:100%; background:var(--accent); }
+.chk { color: var(--green); display:grid; place-items:center; }
+.chk svg { width:18px; height:18px; stroke-width:2.4; }
+/* Tool: OCR text */
+.ocr-text { background: var(--surface-2); border-radius: var(--r-md); padding: 14px; font-size:12.5px; line-height:1.6; color: var(--text); max-height: 150px; overflow:auto; }
+.ocr-text .ar { direction: rtl; text-align: right; font-size: 14px; }
+/* Tool: PDF grid */
+.pdf-grid { display:grid; grid-template-columns: repeat(3,1fr); gap:8px; max-height: 190px; overflow:auto; padding:2px; }
+.pg { aspect-ratio: 3/4; background: var(--surface); border:1px solid var(--border); border-radius:8px; position:relative; display:grid; place-items:center; color:var(--text-3); box-shadow:var(--e1); }
+.pg svg { width:18px; height:18px; opacity:.5; }
+.pg b { position:absolute; bottom:3px; right:5px; font-size:9px; font-weight:600; color:var(--text-3); }
+/* Tool: Palette swatches */
+.pal { display:flex; flex-direction:column; gap:8px; }
+.pal .sw2 { display:flex; align-items:center; gap:12px; }
+.pal .sw2 .blk { width:38px; height:38px; border-radius:10px; box-shadow: var(--e1); flex:none; }
+.pal .sw2 .hex { font-size:13px; font-weight:590; font-variant-numeric:tabular-nums; }
+.pal .sw2 .pc { font-size:11px; color:var(--text-3); margin-left:auto; }
+
+/* Gallery tool cards */
+.section-head { margin-bottom:16px; }
+.section-head h4 { font-size:19px; font-weight:700; letter-spacing:-0.02em; color:var(--text); }
+.section-head p { font-size:12.5px; color:var(--text-2); margin-top:2px; }
+.tcards { display:grid; grid-template-columns: repeat(auto-fill, minmax(146px,1fr)); gap:14px; }
+.tcard { position:relative; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:18px 14px; box-shadow:var(--e1);
+  display:flex; flex-direction:column; align-items:center; gap:11px; text-align:center; cursor:pointer; transition:transform .15s, box-shadow .15s, background .15s; }
+.tcard:hover { box-shadow:var(--e2); transform:translateY(-2px); }
+.tcard .tic { width:52px; height:52px; border-radius:15px; display:grid; place-items:center; }
+.tcard .tic svg { width:26px; height:26px; }
+.tcard .nm { font-size:13.5px; font-weight:590; color:var(--text); line-height:1.2; }
+.tcard .meta { font-size:11px; color:var(--text-3); }
+.tcard .corner { position:absolute; top:9px; left:9px; width:24px; height:24px; border-radius:50%; display:grid; place-items:center;
+  border:1px solid var(--border); background:var(--surface-2); color:var(--text-2); opacity:0; transition:.15s; box-shadow:var(--e1); }
+.tcard:hover .corner { opacity:1; }
+.tcard .corner svg { width:13px; height:13px; stroke-width:2.4; }
+.tcard .corner.remove:hover { background:var(--red); color:#fff; border-color:transparent; }
+.tcard .corner.add { opacity:1; background:var(--accent); color:#fff; border-color:transparent; }
+.tcard .corner.add:hover { background:var(--accent-hover); }
+.tcard.installing { cursor:default; }
+/* Fixed-height status slot: keeps every card the same height whether it shows
+   "Bundled" or the install progress bar — the bar never pushes the icon/name. */
+.tcard .status { width:100%; min-height:30px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; }
+.tcard .pbar { width:100%; height:5px; border-radius:999px; background:var(--surface-3); overflow:hidden; }
+.tcard .pbar>i { display:block; height:100%; width:58%; background:var(--accent); border-radius:999px; }
+
+/* Icon inventory */
+.icon-note { display:flex; gap:24px; flex-wrap:wrap; align-items:center; margin-bottom:20px; }
+.icon-note .swatch-ico { display:flex; align-items:center; gap:10px; }
+.icon-note .swatch-ico svg { width:24px; height:24px; color:var(--text); }
+.icon-note .lbl2 { font-size:12px; color:var(--text-2); }
+.icongrid { display:grid; grid-template-columns: repeat(auto-fill, minmax(104px,1fr)); gap:4px; }
+.icell { display:flex; flex-direction:column; align-items:center; gap:9px; padding:16px 6px 12px; border-radius:12px; transition:background .12s; }
+.icell:hover { background:var(--surface-2); }
+.icell svg { width:24px; height:24px; color:var(--text); }
+.icell span { font-size:10.5px; color:var(--text-3); text-align:center; line-height:1.2; }
+
+svg.ico { fill:none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.note { font-size: 12px; color: var(--text-3); margin-top: 10px; }
+.cols { display:flex; gap: 40px; flex-wrap: wrap; }
+
+/* Light/Dark mode toggle */
+.modetoggle { position: fixed; top: 16px; right: 22px; z-index: 100; display:inline-flex;
+  background: var(--surface); border:1px solid var(--border); border-radius: 999px; padding:3px; box-shadow: var(--e2); }
+.modetoggle button { font:inherit; font-size:12.5px; font-weight:590; border:0; background:transparent; color:var(--text-2);
+  padding:7px 15px; border-radius:999px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:.15s; }
+.modetoggle button.on { background: var(--accent); color:#fff; }
+.modetoggle svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+</style>
+</head>
+<body>
+<div class="modetoggle">
+  <button data-mode-btn="light" class="on"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Light</button>
+  <button data-mode-btn="dark"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>Dark</button>
+</div>
+<aside>
+  <div class="brand">Graphite<small>Dragin Flow design system</small></div>
+  <div class="grp">Foundations</div>
+  <a href="#color">Color</a>
+  <a href="#type">Typography</a>
+  <a href="#spacing">Spacing</a>
+  <a href="#radius">Radius</a>
+  <a href="#elevation">Elevation</a>
+  <a href="#icons">Icons</a>
+  <div class="grp">Components</div>
+  <a href="#buttons">Buttons</a>
+  <a href="#inputs">Inputs &amp; Sliders</a>
+  <a href="#controls">Switches &amp; Segments</a>
+  <a href="#status">Badges &amp; Progress</a>
+  <a href="#tabs">Tabs &amp; Tooltip</a>
+  <a href="#rows">List rows</a>
+  <a href="#empty">Empty state</a>
+  <a href="#select">Dropdown</a>
+  <a href="#feedback">Toast &amp; Modal</a>
+  <div class="grp">Flow</div>
+  <a href="#dock">Dock &amp; tiles</a>
+  <a href="#toolpanel">Tool panel</a>
+  <a href="#toolcards">Tool cards</a>
+  <a href="#store">Store card</a>
+  <div class="grp">Tool layouts</div>
+  <a href="#t-converter">Converter</a>
+  <a href="#t-ocr">OCR</a>
+  <a href="#t-pdf">PDF</a>
+  <a href="#t-palette">Palette</a>
+</aside>
+
+<main>
+  <div class="h-page">Graphite</div>
+  <p class="h-sub">Apple-clean, light, content-first. White surfaces on warm grey, hairline separators, pill buttons, one calm indigo accent, generous space. Built from CSS tokens — change a token, the whole system follows.</p>
+
+  <!-- COLOR -->
+  <section id="color">
+    <h2 class="sec">Color</h2>
+    <h3 class="sub">Surfaces &amp; text</h3>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip" style="background:#ececef"></div><div class="meta"><b>Canvas</b><span>#ECECEF</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#ffffff;border-bottom:1px solid var(--border)"></div><div class="meta"><b>Surface</b><span>#FFFFFF</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#f5f5f7"></div><div class="meta"><b>Surface-2</b><span>#F5F5F7</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#e8e8ec"></div><div class="meta"><b>Track</b><span>#E8E8EC</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#1d1d1f"></div><div class="meta"><b>Text</b><span>#1D1D1F</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#6e6e73"></div><div class="meta"><b>Text-2</b><span>#6E6E73</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#86868b"></div><div class="meta"><b>Text-3</b><span>#86868B</span></div></div>
+    </div>
+    <h3 class="sub">Accent &amp; semantic</h3>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip" style="background:#5e5ce6"></div><div class="meta"><b>Accent (indigo)</b><span>#5E5CE6</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#4b49d6"></div><div class="meta"><b>Accent hover</b><span>#4B49D6</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#34c759"></div><div class="meta"><b>Green</b><span>#34C759</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#ff9f0a"></div><div class="meta"><b>Orange</b><span>#FF9F0A</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#ff3b30"></div><div class="meta"><b>Red</b><span>#FF3B30</span></div></div>
+    </div>
+    <h3 class="sub">Tool palette</h3>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip" style="background:#5e5ce6"></div><div class="meta"><b>Indigo</b><span>remover</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#34c759"></div><div class="meta"><b>Green</b><span>compressor</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#007aff"></div><div class="meta"><b>Blue</b><span>converter</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#ff9500"></div><div class="meta"><b>Orange</b><span>cropper</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#ff3b30"></div><div class="meta"><b>Red</b><span>pdf</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#ff2d55"></div><div class="meta"><b>Pink</b><span>watermark</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#00c7be"></div><div class="meta"><b>Teal</b><span>palette</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#af52de"></div><div class="meta"><b>Purple</b><span>vectorizer</span></div></div>
+    </div>
+  </section>
+
+  <!-- TYPE -->
+  <section id="type">
+    <h2 class="sec">Typography</h2>
+    <div class="card">
+      <div class="type-row"><span class="tag">Display · 30/700</span><span style="font-size:30px;font-weight:700;letter-spacing:-.03em">Drag in. Done.</span></div>
+      <div class="type-row"><span class="tag">Title · 22/700</span><span style="font-size:22px;font-weight:700;letter-spacing:-.02em">Background Remover</span></div>
+      <div class="type-row"><span class="tag">Headline · 17/600</span><span style="font-size:17px;font-weight:600">Installed tools</span></div>
+      <div class="type-row"><span class="tag">Body · 14/400</span><span style="font-size:14px">Reduce file size without losing quality.</span></div>
+      <div class="type-row"><span class="tag">Body strong · 14/590</span><span style="font-size:14px;font-weight:590">Download</span></div>
+      <div class="type-row"><span class="tag">Caption · 12/500</span><span style="font-size:12px;font-weight:500;color:var(--text-2)">PNG · JPG · WEBP</span></div>
+      <div class="type-row"><span class="tag">Micro · 11/600</span><span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--text-3)">On-demand</span></div>
+    </div>
+    <p class="note">Face: San Francisco via <code>-apple-system / system-ui</code> (no web font needed). Weight 590 ≈ SF "Semibold".</p>
+  </section>
+
+  <!-- SPACING -->
+  <section id="spacing">
+    <h2 class="sec">Spacing</h2>
+    <div class="card">
+      <div class="scale-row"><span class="lbl">4 · xs</span><span class="bar" style="width:4px"></span></div>
+      <div class="scale-row"><span class="lbl">8 · sm</span><span class="bar" style="width:8px"></span></div>
+      <div class="scale-row"><span class="lbl">12 · md</span><span class="bar" style="width:12px"></span></div>
+      <div class="scale-row"><span class="lbl">16 · lg</span><span class="bar" style="width:16px"></span></div>
+      <div class="scale-row"><span class="lbl">20 · xl</span><span class="bar" style="width:20px"></span></div>
+      <div class="scale-row"><span class="lbl">24 · 2xl</span><span class="bar" style="width:24px"></span></div>
+      <div class="scale-row"><span class="lbl">32 · 3xl</span><span class="bar" style="width:32px"></span></div>
+    </div>
+  </section>
+
+  <!-- RADIUS -->
+  <section id="radius">
+    <h2 class="sec">Radius</h2>
+    <div class="card radius-demo">
+      <div class="box" style="border-radius:8px">8 · sm</div>
+      <div class="box" style="border-radius:12px">12 · md</div>
+      <div class="box" style="border-radius:18px">18 · lg</div>
+      <div class="box" style="border-radius:22px">22 · xl</div>
+      <div class="box" style="border-radius:980px">pill</div>
+    </div>
+  </section>
+
+  <!-- ELEVATION -->
+  <section id="elevation">
+    <h2 class="sec">Elevation</h2>
+    <div class="card elev-demo" style="background:var(--surface-2)">
+      <div class="box" style="box-shadow:var(--e1)">e1 · rest</div>
+      <div class="box" style="box-shadow:var(--e2)">e2 · raised</div>
+      <div class="box" style="box-shadow:var(--e3)">e3 · floating</div>
+    </div>
+    <p class="note">Soft, low-contrast shadows + a 1px hairline ring — never harsh. Glass panels (dock, tool) use e3.</p>
+  </section>
+
+  <!-- ICONS -->
+  <section id="icons">
+    <h2 class="sec">Icons</h2>
+    <p class="h-sub" style="margin-bottom:18px">Lucide — stroke-based, <b>1.75px</b> weight, round caps/joins, <code>currentColor</code> so each icon inherits text or accent color. Sizes: 16 (inline), 18 (controls), 24 (tools/headers). Tool icons carry their tool color; everything else is monochrome.</p>
+
+    <h3 class="sub" style="margin-top:0">Tools</h3>
+    <div class="card"><div class="icongrid">
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--t-indigo)"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-5.14-1.32a.5.5 0 0 1 0-.97L8.5 10.44A2 2 0 0 0 9.94 9l1.32-5.14a.5.5 0 0 1 .97 0L13.56 9A2 2 0 0 0 15 10.44l5.14 1.32a.5.5 0 0 1 0 .97L15 14.06a2 2 0 0 0-1.44 1.44l-1.32 5.14a.5.5 0 0 1-.97 0z"/><path d="M20 3v4M22 5h-4M4 17v2M5 18H3"/></svg><span>Bg Remover</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--t-green)"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg><span>Compressor</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--t-blue)"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"/></svg><span>Converter</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--t-orange)"><path d="M6 2v14a2 2 0 0 0 2 2h14M18 22V8a2 2 0 0 0-2-2H2"/></svg><span>Cropper</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--t-red)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg><span>PDF Tools</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--red)"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg><span>Metadata</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--t-pink)"><circle cx="12" cy="12" r="10"/><path d="M14.83 14.83a4 4 0 1 1 0-5.66"/></svg><span>Watermark</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--t-teal)"><circle cx="13.5" cy="6.5" r=".6" fill="currentColor" stroke="none"/><circle cx="17.5" cy="10.5" r=".6" fill="currentColor" stroke="none"/><circle cx="8.5" cy="7.5" r=".6" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12.5" r=".6" fill="currentColor" stroke="none"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.555C21.965 6.012 17.461 2 12 2z"/></svg><span>Palette</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--t-purple)"><path d="m12 19 7-7 3 3-7 7-3-3z"/><path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18z"/><path d="m2 2 7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg><span>Vectorizer</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--t-indigo)"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8h10M7 12h8M7 16h5"/></svg><span>OCR</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--t-green)"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg><span>Upscaler</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24" style="color:var(--orange)"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg><span>Shelf</span></div>
+    </div></div>
+
+    <h3 class="sub">Actions</h3>
+    <div class="card"><div class="icongrid">
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span>Download</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M15 2H9a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1z"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg><span>Paste</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg><span>Delete</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg><span>Add</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14"/></svg><span>Remove</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg><span>Close</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Confirm</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg><span>Cancel</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg><span>Show</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg><span>Magic Brush</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg><span>Auto-trim</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span>Search</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span>Dropdown</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><span>Loading</span></div>
+    </div></div>
+
+    <h3 class="sub">Navigation &amp; settings</h3>
+    <div class="card"><div class="icongrid">
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span>Tools</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="m2 7 2.5-4h15L22 7M4 7v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7M2 7h20M16 11a4 4 0 0 1-8 0"/></svg><span>Store</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span>Settings</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span>About</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span>Light</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><span>Dark</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg><span>Language</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.8 0"/></svg><span>Power</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6A2 2 0 0 1 18.46 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg><span>Open folder</span></div>
+      <div class="icell"><svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg><span>Drag handle</span></div>
+    </div></div>
+
+    <h3 class="sub">Status</h3>
+    <div class="card"><div class="icongrid">
+      <div class="icell" style="color:var(--green)"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><span>Success</span></div>
+      <div class="icell" style="color:var(--red)"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg><span>Error</span></div>
+      <div class="icell" style="color:var(--orange)"><svg class="ico" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4M12 17h.01"/></svg><span>Warning</span></div>
+      <div class="icell" style="color:var(--accent)"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span>Info</span></div>
+    </div></div>
+  </section>
+
+  <!-- BUTTONS -->
+  <section id="buttons">
+    <h2 class="sec">Buttons</h2>
+    <div class="card">
+      <div class="demo">
+        <button class="btn btn-primary">Download</button>
+        <button class="btn btn-secondary">Add tool</button>
+        <button class="btn btn-ghost">Settings</button>
+        <button class="btn btn-danger">Remove</button>
+        <button class="btn btn-primary disabled" disabled>Disabled</button>
+      </div>
+      <h3 class="sub">Sizes</h3>
+      <div class="demo">
+        <button class="btn btn-primary btn-sm">Small</button>
+        <button class="btn btn-primary">Medium</button>
+        <button class="btn btn-primary btn-lg">Large</button>
+      </div>
+      <h3 class="sub">Icon buttons</h3>
+      <div class="demo">
+        <div class="iconbtn"><svg class="ico" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></div>
+        <div class="iconbtn"><svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
+        <div class="iconbtn"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- INPUTS -->
+  <section id="inputs">
+    <h2 class="sec">Inputs &amp; Sliders</h2>
+    <div class="card">
+      <div class="cols">
+        <div>
+          <h3 class="sub" style="margin-top:0">Text field</h3>
+          <input class="input" placeholder="Search tools…" />
+          <h3 class="sub">Focused</h3>
+          <input class="input" value="vector" style="border-color:var(--accent);box-shadow:0 0 0 4px var(--focus-ring)" />
+        </div>
+        <div>
+          <h3 class="sub" style="margin-top:0">Quality slider</h3>
+          <div class="slider"><input type="range" min="0" max="100" value="62" /></div>
+          <p class="note">62% · Medium</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTROLS -->
+  <section id="controls">
+    <h2 class="sec">Switches &amp; Segmented</h2>
+    <div class="card demo" style="gap:40px">
+      <div>
+        <h3 class="sub" style="margin-top:0">Switch</h3>
+        <div class="demo">
+          <button class="switch on" aria-label="on"></button>
+          <button class="switch" aria-label="off"></button>
+        </div>
+      </div>
+      <div>
+        <h3 class="sub" style="margin-top:0">Segmented control</h3>
+        <div class="seg"><button class="on">Speed</button><button>Precision</button></div>
+      </div>
+      <div>
+        <h3 class="sub" style="margin-top:0">Pills</h3>
+        <div class="demo"><span class="pill">Default</span><span class="pill green">Installed</span><span class="pill gray">330 MB</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATUS -->
+  <section id="status">
+    <h2 class="sec">Badges &amp; Progress</h2>
+    <div class="card demo" style="gap:40px">
+      <div><h3 class="sub" style="margin-top:0">Count badge</h3><span class="badge">3</span></div>
+      <div><h3 class="sub" style="margin-top:0">Install progress</h3><div class="progress"><i></i></div><p class="note">Downloading… 64%</p></div>
+    </div>
+  </section>
+
+  <!-- TABS -->
+  <section id="tabs">
+    <h2 class="sec">Tabs &amp; Tooltip</h2>
+    <div class="card">
+      <div class="tabs2"><button class="on">Tools</button><button>Store</button><button>Settings</button><button>About</button></div>
+      <div class="demo" style="margin-top:24px"><div class="tip"><span class="bubble">Strip metadata</span></div></div>
+    </div>
+  </section>
+
+  <!-- ROWS -->
+  <section id="rows">
+    <h2 class="sec">List rows (Settings)</h2>
+    <div class="list">
+      <div class="row"><div class="ic" style="background:#34c759"><svg class="ico" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M12 2v20M2 12h20"/></svg></div><div class="tx"><b>Dock status</b><span>Enable or disable the screen-edge dock</span></div><button class="switch on end"></button></div>
+      <div class="row"><div class="ic" style="background:#5e5ce6"><svg class="ico" viewBox="0 0 24 24" style="width:18px;height:18px"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/></svg></div><div class="tx"><b>Language</b><span>العربية · English</span></div><div class="seg end"><button class="on">AR</button><button>EN</button></div></div>
+      <div class="row"><div class="ic" style="background:#ff3b30"><svg class="ico" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></div><div class="tx"><b>Clear files</b><span>Remove all processed files from this session</span></div><button class="btn btn-secondary btn-sm end">Clear</button></div>
+    </div>
+  </section>
+
+  <!-- EMPTY STATE -->
+  <section id="empty">
+    <h2 class="sec">Empty state</h2>
+    <div class="card">
+      <div class="empty">
+        <div class="ic"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></div>
+        <b>Drop files here</b>
+        <p>Drag images onto the tool to remove their background.</p>
+        <div class="fmt">PNG · JPG · WEBP · HEIC</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DROPDOWN -->
+  <section id="select">
+    <h2 class="sec">Dropdown / Select</h2>
+    <div class="card demo" style="align-items:flex-start;gap:40px">
+      <div class="select">
+        <h3 class="sub" style="margin-top:0">Closed</h3>
+        <div class="field">MP4 <svg class="ico" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div>
+      </div>
+      <div>
+        <h3 class="sub" style="margin-top:0">Open</h3>
+        <div class="menu">
+          <div class="opt on">MP4</div>
+          <div class="opt">WebM</div>
+          <div class="opt">MOV</div>
+          <div class="opt">GIF</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TOAST & MODAL -->
+  <section id="feedback">
+    <h2 class="sec">Toast &amp; Modal</h2>
+    <h3 class="sub">Toasts</h3>
+    <div class="demo">
+      <div class="toast"><span class="dot" style="background:var(--green)"><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>Copied 3 files to clipboard</div>
+      <div class="toast"><span class="dot" style="background:var(--red)"><svg class="ico" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span>Couldn't reach the converter engine</div>
+    </div>
+    <h3 class="sub">Modal / sheet</h3>
+    <div class="modal-demo">
+      <div class="scrim"></div>
+      <div class="modal">
+        <div class="mh">Remove “Background Remover”?</div>
+        <div class="mb">This frees ~330&nbsp;MB. You can reinstall it any time from the Store.</div>
+        <div class="mf">
+          <button class="btn btn-secondary">Cancel</button>
+          <button class="btn btn-danger">Remove</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DOCK -->
+  <section id="dock">
+    <h2 class="sec">Dock &amp; tiles</h2>
+    <div class="stage" style="justify-content:flex-end;gap:0">
+      <div class="tongue">
+        <div class="tile sel"><svg class="ico" viewBox="0 0 24 24" style="stroke:var(--t-indigo)"><path d="M15 4V2M8 9h2M20 9h2M3 21l9-9M12 6 11 5"/><path d="m14 7 3 3L7 20l-3 .5.5-3z"/></svg></div>
+        <div class="tile"><svg class="ico" viewBox="0 0 24 24" style="stroke:var(--t-green)"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg></div>
+        <div class="tile"><svg class="ico" viewBox="0 0 24 24" style="stroke:var(--t-blue)"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"/></svg><span class="badge">1</span></div>
+        <div class="tile"><svg class="ico" viewBox="0 0 24 24" style="stroke:var(--t-orange)"><path d="M6 2v14a2 2 0 0 0 2 2h14M18 22V8a2 2 0 0 0-2-2H2"/></svg></div>
+        <div class="tile"><svg class="ico" viewBox="0 0 24 24" style="stroke:var(--t-red)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
+      </div>
+    </div>
+    <p class="note">Light: white-glass tongue molded into the edge via concave neck fillets. Dark: pitch-black, no edge stroke — it blends straight into the screen-edge darkness.</p>
+  </section>
+
+  <!-- TOOL PANEL -->
+  <section id="toolpanel">
+    <h2 class="sec">Expanded tool panel</h2>
+    <div class="stage">
+      <div class="panel">
+        <div class="ph">
+          <div class="ic"><svg class="ico" viewBox="0 0 24 24"><path d="M15 4V2M8 9h2M20 9h2M3 21l9-9"/><path d="m14 7 3 3L7 20l-3 .5.5-3z"/></svg></div>
+          <b>Background Remover</b>
+          <div class="x">×</div>
+        </div>
+        <div class="seg" style="align-self:center"><button class="on">Speed</button><button>Precision</button></div>
+        <div class="preview"><div class="subj"></div></div>
+        <div class="slider"><input type="range" min="0" max="100" value="62" style="width:100%"/></div>
+        <div class="actions">
+          <button class="btn btn-primary" style="flex:1">
+            <svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Download</button>
+          <div class="iconbtn"><svg class="ico" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></div>
+          <div class="iconbtn" style="color:var(--red)"><svg class="ico" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TOOL CARDS (gallery grid) -->
+  <section id="toolcards">
+    <h2 class="sec">Tool cards (gallery grid)</h2>
+
+    <div class="section-head">
+      <h4>Installed tools</h4>
+      <p>Currently in the dock — hover a card to remove it.</p>
+    </div>
+    <div class="tcards" style="margin-bottom:36px">
+      <div class="tcard">
+        <button class="corner remove" title="Remove"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+        <div class="tic" style="background:color-mix(in srgb,var(--t-orange) 16%,transparent);color:var(--t-orange)"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14M18 22V8a2 2 0 0 0-2-2H2"/></svg></div>
+        <div class="nm">Image Cropper</div>
+      </div>
+      <div class="tcard">
+        <button class="corner remove" title="Remove"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+        <div class="tic" style="background:color-mix(in srgb,var(--t-blue) 16%,transparent);color:var(--t-blue)"><svg class="ico" viewBox="0 0 24 24"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"/></svg></div>
+        <div class="nm">Format Converter</div>
+      </div>
+      <div class="tcard">
+        <button class="corner remove" title="Remove"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+        <div class="tic" style="background:color-mix(in srgb,var(--t-indigo) 16%,transparent);color:var(--t-indigo)"><svg class="ico" viewBox="0 0 24 24"><path d="M15 4V2M8 9h2M3 21l9-9"/><path d="m14 7 3 3L7 20l-3 .5.5-3z"/></svg></div>
+        <div class="nm">Background Remover</div>
+      </div>
+      <div class="tcard">
+        <button class="corner remove" title="Remove"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+        <div class="tic" style="background:color-mix(in srgb,var(--t-red) 16%,transparent);color:var(--t-red)"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
+        <div class="nm">PDF Tools</div>
+      </div>
+    </div>
+
+    <div class="section-head">
+      <h4>Tool library</h4>
+      <p>Tap + or drag a tool to install it.</p>
+    </div>
+    <div class="tcards">
+      <div class="tcard">
+        <button class="corner add" title="Add"><svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <div class="tic" style="background:color-mix(in srgb,var(--t-purple) 16%,transparent);color:var(--t-purple)"><svg class="ico" viewBox="0 0 24 24"><path d="M12 19l7-7 3 3-7 7-3-3zM18 13l-1.5-7.5L2 2l3.5 14.5L13 18zM2 2l7.586 7.586M11 11a2 2 0 1 0 4 0 2 2 0 0 0-4 0z"/></svg></div>
+        <div class="nm">Vectorizer</div>
+        <div class="status"><div class="meta">Bundled</div></div>
+      </div>
+      <div class="tcard">
+        <button class="corner add" title="Install"><svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <div class="tic" style="background:color-mix(in srgb,var(--t-teal) 16%,transparent);color:var(--t-teal)"><svg class="ico" viewBox="0 0 24 24"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5S12.5 5 12 2.5C11.5 5 10 7.9 8 9.5S5 13 5 15a7 7 0 0 0 7 7z"/></svg></div>
+        <div class="nm">Watermark</div>
+        <div class="status"><div class="meta">Bundled</div></div>
+      </div>
+      <div class="tcard installing">
+        <div class="tic" style="background:color-mix(in srgb,var(--t-green) 16%,transparent);color:var(--t-green)"><svg class="ico" viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg></div>
+        <div class="nm">Upscaler</div>
+        <div class="status"><div class="pbar"><i></i></div><div class="meta">Installing… 58%</div></div>
+      </div>
+      <div class="tcard">
+        <button class="corner add" title="Install"><svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <div class="tic" style="background:color-mix(in srgb,var(--t-red) 16%,transparent);color:var(--t-red)"><svg class="ico" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <div class="nm">Metadata Scrub</div>
+        <div class="status"><div class="meta">Bundled</div></div>
+      </div>
+    </div>
+    <p class="note">Flat surface cards (no per-card accent border). Tool color lives only in the icon squircle. Remove = subtle circular button on hover (reds on hover); Install = persistent accent +; in-progress shows a progress bar inline.</p>
+  </section>
+
+  <!-- STORE CARD -->
+  <section id="store">
+    <h2 class="sec">Store card</h2>
+    <div class="card" style="background:var(--surface-2)">
+      <div class="demo" style="align-items:stretch">
+        <div class="store-card">
+          <div class="top"><div class="ic" style="background:var(--t-indigo)"><svg class="ico" viewBox="0 0 24 24" style="width:22px;height:22px"><path d="M15 4V2M8 9h2M3 21l9-9"/><path d="m14 7 3 3L7 20l-3 .5.5-3z"/></svg></div><div><b>Background Remover</b><br><span>330 MB · on-demand</span></div></div>
+          <p>AI-powered background removal in seconds, fully on-device.</p>
+          <button class="btn btn-primary" style="width:100%"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Install</button>
+        </div>
+        <div class="store-card">
+          <div class="top"><div class="ic" style="background:var(--t-green)"><svg class="ico" viewBox="0 0 24 24" style="width:22px;height:22px"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg></div><div><b>Compressor</b><br><span>Bundled</span></div></div>
+          <p>Reduce file size without losing visible quality.</p>
+          <button class="btn btn-secondary" style="width:100%">Added <span class="pill green" style="margin-left:6px">✓</span></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TOOL: CONVERTER -->
+  <section id="t-converter">
+    <h2 class="sec">Converter</h2>
+    <div class="stage">
+      <div class="panel">
+        <div class="ph"><div class="ic" style="background:color-mix(in srgb,var(--t-blue) 18%,transparent);color:var(--t-blue)"><svg class="ico" viewBox="0 0 24 24"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"/></svg></div><b>Converter</b><div class="x">×</div></div>
+        <div class="select" style="width:100%"><div class="field">Convert to&nbsp;·&nbsp;<b style="font-weight:600">MP4</b><svg class="ico" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div></div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="frow"><div class="fic"><svg class="ico" viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8zM14 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg></div><div class="nm">holiday-clip.mov</div><span class="chk"><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span></div>
+          <div class="frow"><div class="fic"><svg class="ico" viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8zM14 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg></div><div class="nm">drone-shot.avi</div><div class="mini"><i style="width:64%"></i></div></div>
+          <div class="frow"><div class="fic"><svg class="ico" viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8zM14 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg></div><div class="nm">trailer.mkv</div><span class="st">Queued</span></div>
+        </div>
+        <div class="actions"><button class="btn btn-primary" style="flex:1"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Download all</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TOOL: OCR -->
+  <section id="t-ocr">
+    <h2 class="sec">OCR — Text Extractor</h2>
+    <div class="stage">
+      <div class="panel">
+        <div class="ph"><div class="ic" style="background:color-mix(in srgb,var(--t-indigo) 18%,transparent);color:var(--t-indigo)"><svg class="ico" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8h10M7 12h8M7 16h5"/></svg></div><b>Text Extractor</b><div class="x">×</div></div>
+        <div class="ocr-text">
+          <p class="ar">مرحبًا بك في درّاجن فلو — هذا نصٌّ مُستخرَجٌ من الصورة.</p>
+          <p style="margin-top:10px">Invoice #4821<br>Total: $1,240.00 · Due 2026-06-15<br>Thank you for your business.</p>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);display:flex;align-items:center;gap:6px">Page 1 of 3</div>
+        <div class="actions"><button class="btn btn-primary" style="flex:1"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy text</button><div class="iconbtn"><svg class="ico" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TOOL: PDF -->
+  <section id="t-pdf">
+    <h2 class="sec">PDF Tools</h2>
+    <div class="stage">
+      <div class="panel">
+        <div class="ph"><div class="ic" style="background:color-mix(in srgb,var(--t-red) 18%,transparent);color:var(--t-red)"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div><b>PDF Tools</b><div class="x">×</div></div>
+        <div class="seg" style="align-self:stretch"><button class="on" style="flex:1">Merge</button><button style="flex:1">Organize</button><button style="flex:1">Compress</button></div>
+        <div class="pdf-grid">
+          <div class="pg"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><b>1</b></div>
+          <div class="pg"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><b>2</b></div>
+          <div class="pg"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><b>3</b></div>
+          <div class="pg"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><b>4</b></div>
+          <div class="pg"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><b>5</b></div>
+          <div class="pg"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><b>6</b></div>
+        </div>
+        <div class="actions"><button class="btn btn-primary" style="flex:1">Export merged PDF</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TOOL: PALETTE -->
+  <section id="t-palette">
+    <h2 class="sec">Palette</h2>
+    <div class="stage">
+      <div class="panel">
+        <div class="ph"><div class="ic" style="background:color-mix(in srgb,var(--t-teal) 18%,transparent);color:var(--t-teal)"><svg class="ico" viewBox="0 0 24 24"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5S12.5 5 12 2.5C11.5 5 10 7.9 8 9.5S5 13 5 15a7 7 0 0 0 7 7z"/></svg></div><b>Palette</b><div class="x">×</div></div>
+        <div class="preview" style="aspect-ratio:16/9"><div class="subj" style="width:62%;height:64%"></div></div>
+        <div class="pal">
+          <div class="sw2"><div class="blk" style="background:#5e5ce6"></div><span class="hex">#5E5CE6</span><span class="pc">38%</span></div>
+          <div class="sw2"><div class="blk" style="background:#34c759"></div><span class="hex">#34C759</span><span class="pc">24%</span></div>
+          <div class="sw2"><div class="blk" style="background:#ff9500"></div><span class="hex">#FF9500</span><span class="pc">19%</span></div>
+          <div class="sw2"><div class="blk" style="background:#1d1d1f"></div><span class="hex">#1D1D1F</span><span class="pc">11%</span></div>
+        </div>
+        <div class="actions"><button class="btn btn-primary" style="flex:1"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy palette</button></div>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+  const html = document.documentElement;
+  document.querySelectorAll('[data-mode-btn]').forEach(b => b.addEventListener('click', () => {
+    html.dataset.mode = b.dataset.modeBtn;
+    document.querySelectorAll('[data-mode-btn]').forEach(x => x.classList.toggle('on', x === b));
+  }));
+</script>
+</body>
+</html>

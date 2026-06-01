@@ -3,6 +3,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScanText, FileText, Upload, Loader2, Download, Trash2, AlertCircle, File as FileIcon, Copy, Check, X, Ban, ClipboardPaste } from 'lucide-react';
 import { extractText } from '../../services/api';
+import { useI18n } from '../../i18n/I18nContext';
 
 type OcrState = 'idle' | 'processing' | 'done' | 'error';
 
@@ -13,6 +14,7 @@ interface OcrToolProps {
 }
 
 export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dropGeneration = 0 }) => {
+    const { t } = useI18n();
     const [state, setState] = useState<OcrState>('idle');
     const [extractedText, setExtractedText] = useState('');
     const [pages, setPages] = useState(1);
@@ -27,7 +29,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
         const isImage = file.type.startsWith('image/');
         const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
         if (!isImage && !isPdf) {
-            setErrorMsg('الملفات المدعومة: صور (JPG, PNG, WEBP…) أو PDF فقط');
+            setErrorMsg(t('ocr.unsupportedFile'));
             setState('error');
             return;
         }
@@ -43,7 +45,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
             setPages(result.pages);
             setState('done');
         } catch (err: any) {
-            setErrorMsg(err?.message || 'فشل استخراج النص');
+            setErrorMsg(err?.message || t('ocr.extractionFailed'));
             setState('error');
         }
     }, []);
@@ -150,16 +152,16 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-white/5 shrink-0">
+            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
                 <div className="flex items-center gap-2">
                     <ScanText className="w-4 h-4 text-fuchsia-400" />
-                    <span className="text-sm font-bold text-white">استخراج النص</span>
+                    <span className="text-sm font-bold text-[var(--text)]">{t('tool.ocr.title')}</span>
                     {state === 'done' && pages > 1 && (
-                        <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full text-slate-300">{pages} صفحات</span>
+                        <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{pages} {t('ocr.pages')}</span>
                     )}
                 </div>
                 <div className="flex-1" />
-                <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
+                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
                     <X className="w-4 h-4" />
                 </button>
             </div>
@@ -181,22 +183,22 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                                 border-2 border-dashed transition-all duration-200 cursor-pointer
                                 ${isDragOver
                                     ? 'border-fuchsia-400 bg-fuchsia-500/10 scale-[0.99]'
-                                    : 'border-slate-700 bg-slate-800/30 hover:border-slate-500 hover:bg-slate-800/50'
+                                    : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--text-3)] hover:bg-[var(--surface-2)]'
                                 }
                             `}
                         >
-                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-fuchsia-500/20' : 'bg-slate-800'}`}>
+                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-fuchsia-500/20' : 'bg-[var(--surface)]'}`}>
                                 {isDragOver
                                     ? <Upload className="w-8 h-8 text-fuchsia-400" />
-                                    : <ScanText className="w-8 h-8 text-slate-500" />
+                                    : <ScanText className="w-8 h-8 text-[var(--text-3)]" />
                                 }
                             </div>
                             <div className="text-center px-4">
-                                <p className="text-sm font-semibold text-slate-300">
-                                    {isDragOver ? 'أفلت الملف هنا' : 'اسحب صورة أو PDF هنا'}
+                                <p className="text-sm font-semibold text-[var(--text-2)]">
+                                    {isDragOver ? t('ocr.dropFile') : t('ocr.dragFile')}
                                 </p>
-                                <p className="text-xs text-slate-500 mt-1">أو اضغط للاختيار يدويًا</p>
-                                <p className="text-[10px] text-slate-600 mt-2">JPG · PNG · WEBP · PDF</p>
+                                <p className="text-xs text-[var(--text-3)] mt-1">{t('ocr.orClickToSelect')}</p>
+                                <p className="text-[10px] text-[var(--text-3)] mt-2">JPG · PNG · WEBP · PDF</p>
                             </div>
                             <input
                                 id="ocr-file-input"
@@ -219,16 +221,16 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                         >
                             <div className="relative">
                                 <div className="absolute inset-0 bg-fuchsia-500 blur-2xl opacity-20 animate-pulse rounded-full" />
-                                <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-fuchsia-500/20 flex items-center justify-center relative">
+                                <div className="w-16 h-16 rounded-2xl bg-[var(--surface)] border border-fuchsia-500/20 flex items-center justify-center relative">
                                     <Loader2 className="w-8 h-8 text-fuchsia-400 animate-spin" />
                                 </div>
                             </div>
                             <div className="text-center">
-                                <p className="text-sm font-semibold text-slate-200">جاري استخراج النص…</p>
-                                <p className="text-xs text-slate-500 mt-1 max-w-[180px] mx-auto truncate" title={fileName}>
+                                <p className="text-sm font-semibold text-[var(--text)]">{t('ocr.extracting')}</p>
+                                <p className="text-xs text-[var(--text-3)] mt-1 max-w-[180px] mx-auto truncate" title={fileName}>
                                     {fileName}
                                 </p>
-                                <p className="text-[10px] text-slate-600 mt-1">يستغرق بضع ثوانٍ</p>
+                                <p className="text-[10px] text-[var(--text-3)] mt-1">{t('ocr.takesSeconds')}</p>
                             </div>
                         </motion.div>
                     )}
@@ -243,25 +245,25 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                             className="flex-1 flex flex-col gap-2 min-h-0"
                         >
                             {/* File badge */}
-                            <div className="flex items-center gap-2 px-2 py-1 bg-slate-800/60 rounded-lg border border-white/5 shrink-0">
+                            <div className="flex items-center gap-2 px-2 py-1 bg-[var(--surface)] rounded-lg border border-[var(--separator)] shrink-0">
                                 <FileIcon className="w-3 h-3 text-fuchsia-400 shrink-0" />
-                                <span className="text-[11px] text-slate-400 truncate">{fileName}</span>
+                                <span className="text-[11px] text-[var(--text-2)] truncate">{fileName}</span>
                             </div>
 
                             {/* Text area */}
-                            <div className="flex-1 relative rounded-xl bg-black/30 border border-white/5 overflow-hidden min-h-0">
+                            <div className="flex-1 relative rounded-xl bg-black/30 border border-[var(--separator)] overflow-hidden min-h-0">
                                 {extractedText.trim() ? (
                                     <textarea
                                         value={extractedText}
                                         onChange={e => setExtractedText(e.target.value)}
-                                        className="absolute inset-0 w-full h-full bg-transparent text-slate-200 text-xs leading-relaxed resize-none p-3 focus:outline-none font-mono"
+                                        className="absolute inset-0 w-full h-full bg-transparent text-[var(--text)] text-xs leading-relaxed resize-none p-3 focus:outline-none font-mono"
                                         dir="auto"
                                         spellCheck={false}
                                     />
                                 ) : (
                                     <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
-                                        <FileText className="w-8 h-8 text-slate-600 mb-2" />
-                                        <p className="text-xs text-slate-500">لم يُعثر على نص في هذا الملف</p>
+                                        <FileText className="w-8 h-8 text-[var(--text-3)] mb-2" />
+                                        <p className="text-xs text-[var(--text-3)]">{t('ocr.noTextFound')}</p>
                                     </div>
                                 )}
                             </div>
@@ -281,14 +283,14 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                                 <AlertCircle className="w-7 h-7 text-red-400" />
                             </div>
                             <div>
-                                <p className="text-sm font-semibold text-red-300">فشل الاستخراج</p>
-                                <p className="text-xs text-slate-500 mt-1 max-w-[200px]">{errorMsg}</p>
+                                <p className="text-sm font-semibold text-red-300">{t('ocr.failed')}</p>
+                                <p className="text-xs text-[var(--text-3)] mt-1 max-w-[200px]">{errorMsg}</p>
                             </div>
                             <button
                                 onClick={() => { setState('idle'); setErrorMsg(''); }}
-                                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors border border-white/5"
+                                className="px-4 py-2 bg-[var(--surface)] hover:bg-[var(--surface-3)] text-[var(--text-2)] text-xs rounded-lg transition-colors border border-[var(--separator)]"
                             >
-                                حاول مجددًا
+                                {t('ocr.tryAgain')}
                             </button>
                         </motion.div>
                     )}
@@ -310,8 +312,8 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                         }`}
                     >
                         {cancelHover
-                            ? <><Ban className="w-4 h-4" />إلغاء</>
-                            : <><Loader2 className="w-4 h-4 animate-spin" />جاري الاستخراج...</>
+                            ? <><Ban className="w-4 h-4" />{t('ocr.cancelBtn')}</>
+                            : <><Loader2 className="w-4 h-4 animate-spin" />{t('ocr.extractingBtn')}</>
                         }
                     </button>
                 ) : (
@@ -320,12 +322,12 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                         disabled={!hasResult}
                         className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${
                             !hasResult
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white'
                         }`}
                     >
                         <Download className="w-4 h-4" />
-                        تحميل
+                        {t('ocr.download')}
                     </button>
                 )}
 
@@ -336,17 +338,17 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                         disabled={!hasResult}
                         className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                             !hasResult
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
+                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]'
                         }`}
-                        title="نسخ النص"
+                        title={t('ocr.copyText')}
                     >
-                        {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                        {copied ? <Check className="w-4 h-4 text-[var(--green)]" /> : <Copy className="w-4 h-4" />}
                     </button>
                     <button
                         onClick={handlePaste}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white"
-                        title="لصق"
+                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]"
+                        title={t('ocr.paste')}
                     >
                         <ClipboardPaste className="w-4 h-4" />
                     </button>
@@ -355,10 +357,10 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                         disabled={state === 'idle' || state === 'processing'}
                         className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                             state === 'idle' || state === 'processing'
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'
+                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
                         }`}
-                        title="مسح"
+                        title={t('ocr.clear')}
                     >
                         <Trash2 className="w-4 h-4" />
                     </button>
@@ -367,8 +369,8 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
 
             {/* Drag-over overlay when processing (block drop) */}
             {state === 'processing' && isDragOver && (
-                <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center rounded-2xl pointer-events-none">
-                    <p className="text-sm text-slate-400">يُرجى الانتظار حتى اكتمال المعالجة</p>
+                <div className="absolute inset-0 bg-[var(--surface-2)] backdrop-blur-sm flex items-center justify-center rounded-2xl pointer-events-none">
+                    <p className="text-sm text-[var(--text-2)]">{t('ocr.waitProcessing')}</p>
                 </div>
             )}
         </div>

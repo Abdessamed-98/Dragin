@@ -3,6 +3,7 @@ import { SideDock } from './SideDock';
 import { ActiveSession, ToolId, SessionItem } from '../types';
 import { useElectron } from '../hooks/useElectron';
 import { dlog } from '../utils/dockLogger';
+import { useI18n } from '../i18n/I18nContext';
 import {
     removeBackground,
     compressImage,
@@ -15,9 +16,56 @@ import {
 
 
 
+// While dragging a file, the dock stays revealed only when the cursor is within
+// this margin (px) around the rail tongue's box, so it collapses when you drag
+// away from the tongue rather than across the whole wide window.
+const REVEAL_MARGIN = 100;
+// A file-drag reveals the dock only when it reaches this strip at the right edge
+// (matches the green debug zone / the main-process edge watcher).
+const EDGE_TRIGGER = 16;
+// Rail tongue geometry — must mirror SideDock's rail constants.
+const RAIL_TILE = 80, RAIL_PAD = 8, RAIL_GAP = 10;
+
 // Catch unhandled errors that could kill the dock
 window.addEventListener('error', (e) => dlog('UNCAUGHT', { message: e.message, filename: e.filename, line: e.lineno, col: e.colno }));
 window.addEventListener('unhandledrejection', (e) => dlog('UNHANDLED_PROMISE', { reason: String(e.reason) }));
+
+// Small wrapper for crash UI (class components can't use hooks)
+const CrashMessage: React.FC<{ error: Error }> = ({ error }) => {
+    let t: (key: string) => string;
+    try {
+        const i18n = useI18n();
+        t = i18n.t as any;
+    } catch {
+        // If context is broken, fall back to Arabic
+        t = (key: string) => {
+            const fallback: Record<string, string> = {
+                'dock.crashed': 'الشريط توقف عن العمل',
+                'dock.restart': 'إعادة تشغيل',
+            };
+            return fallback[key] || key;
+        };
+    }
+    return (
+        <div className="min-h-screen w-full flex items-center justify-end bg-transparent">
+            <div
+                className="w-[280px] mr-4 flex flex-col items-center gap-3 p-6 rounded-2xl bg-slate-900/95 border border-red-800/40 text-red-300 text-xs backdrop-blur-sm pointer-events-auto"
+                style={{ direction: 'rtl' }}
+            >
+                <span className="text-sm font-bold text-red-400">{t('dock.crashed')}</span>
+                <span className="text-red-300/70 text-center text-[11px] leading-relaxed max-w-[220px] break-words">
+                    {error.message}
+                </span>
+                <button
+                    onClick={() => window.location.reload()}
+                    className="mt-1 px-5 py-2 rounded-xl bg-red-800/40 hover:bg-red-700/50 text-red-200 text-xs font-bold transition-colors"
+                >
+                    {t('dock.restart')}
+                </button>
+            </div>
+        </div>
+    );
+};
 
 // ── Top-level Error Boundary ─────────────────────────────────────────────
 // Catches any unhandled render error in the entire dock tree.
@@ -46,32 +94,14 @@ class DockErrorBoundary extends Component<
 
     render() {
         if (this.state.error) {
-            return (
-                <div className="min-h-screen w-full flex items-center justify-end bg-transparent">
-                    <div
-                        className="w-[280px] mr-4 flex flex-col items-center gap-3 p-6 rounded-2xl bg-slate-900/95 border border-red-800/40 text-red-300 text-xs backdrop-blur-sm pointer-events-auto"
-                        style={{ direction: 'rtl' }}
-                    >
-                        <span className="text-sm font-bold text-red-400">الشريط توقف عن العمل</span>
-                        <span className="text-red-300/70 text-center text-[11px] leading-relaxed max-w-[220px] break-words">
-                            {this.state.error.message}
-                        </span>
-                        <button
-                            onClick={() => window.location.reload()}
-                            className="mt-1 px-5 py-2 rounded-xl bg-red-800/40 hover:bg-red-700/50 text-red-200 text-xs font-bold transition-colors"
-                        >
-                            إعادة تشغيل
-                        </button>
-                    </div>
-                </div>
-            );
+            return <CrashMessage error={this.state.error} />;
         }
         return this.props.children;
     }
 }
 
 const DockAppInner: React.FC = () => {
-    const { activeToolIds, isDockEnabled, isGalleryOpen, isDockPinned, dispatch, setIgnoreMouseEvents, openGallery, resizeDock, sendDockMode, onExternalToolDrag, onExternalToolDragMove, onExternalToolDragEnd, startDockToolDrag, endDockToolDrag, shelfSave, shelfLoad, shelfDelete } = useElectron();
+    const { activeToolIds, isDockEnabled, isGalleryOpen, isDockPinned, dispatch, setIgnoreMouseEvents, openGallery, resizeDock, sendDockMode, shelfSave, shelfLoad, shelfDelete } = useElectron();
 
     const [isDragging, setIsDragging] = useState(false);
     const [isToolDragging] = useState(false); // For internal reorder or from gallery (if across windows, tricky)
@@ -79,6 +109,8 @@ const DockAppInner: React.FC = () => {
     // Sessions stored locally in Dock Window (Processor)
     const [sessions, setSessions] = useState<Record<string, ActiveSession | undefined>>({});
     const [expandedToolId, setExpandedToolId] = useState<ToolId | null>(null);
+    const expandedToolIdRef = useRef<ToolId | null>(null);
+    useEffect(() => { expandedToolIdRef.current = expandedToolId; }, [expandedToolId]);
     const [lastFocusedItemId, setLastFocusedItemId] = useState<string | null>(null);
 
     // PDF tool: forward dropped files via props (PdfTool is self-contained)
@@ -127,10 +159,6 @@ const DockAppInner: React.FC = () => {
 
     const { onClearDataConfirmed } = useElectron();
 
-    // --- External Tool Drag State (Gallery → Dock) ---
-    const [externalDragId, setExternalDragId] = useState<ToolId | null>(null);
-    const [proposedIndex, setProposedIndex] = useState<number | null>(null);
-
     useEffect(() => {
         onClearDataConfirmed(() => {
             setSessions({});
@@ -161,28 +189,6 @@ const DockAppInner: React.FC = () => {
         });
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Listen for external tool drag events from gallery via main process
-    useEffect(() => {
-        onExternalToolDrag((data) => {
-            setExternalDragId(data.toolId as ToolId);
-            setProposedIndex(activeToolIds.length); // Default: end
-        });
-
-        onExternalToolDragMove((data) => {
-            if (data.proposedIndex !== null) {
-                setExternalDragId(data.toolId as ToolId);
-                setProposedIndex(data.proposedIndex);
-            } else {
-                setProposedIndex(null);
-            }
-        });
-
-        onExternalToolDragEnd(() => {
-            setExternalDragId(null);
-            setProposedIndex(null);
-        });
-    }, [onExternalToolDrag, onExternalToolDragMove, onExternalToolDragEnd, activeToolIds.length]);
-
     // --- Visibility Logic ---
     // The dock is visible if:
     // 1. A tool is expanded
@@ -194,14 +200,25 @@ const DockAppInner: React.FC = () => {
         session => session != null && session.items.length > 0
     );
     const [selfItemCounts, setSelfItemCounts] = useState<Partial<Record<string, number>>>({});
+    // Last self-tool counts, read inside the count callback without making it
+    // depend on (and re-subscribe to) those values.
+    const selfCountRef = useRef<Record<string, number>>({});
     const handleSelfItemCountChange = useCallback((toolId: string, count: number) => {
+        const prevCount = selfCountRef.current[toolId] ?? 0;
+        selfCountRef.current[toolId] = count;
         setSelfItemCounts(prev => {
             if (prev[toolId] === count) return prev; // no-op: skip re-render if unchanged
             return { ...prev, [toolId]: count };
         });
+        // Collapse back to the rail when a self-contained tool empties out while
+        // expanded (last item dragged out / cleared). Guard the initial-mount
+        // 0→0 report by requiring a real >0 → 0 transition.
+        if (count === 0 && prevCount > 0 && expandedToolIdRef.current === (toolId as ToolId)) {
+            setExpandedToolId(null);
+        }
     }, []);
     const anySelfHasFiles = Object.values(selfItemCounts).some(c => (c ?? 0) > 0);
-    const isInteractionActive = expandedToolId !== null || isDragging || hasAnyFiles || isGalleryOpen || isDockPinned || externalDragId !== null || anySelfHasFiles;
+    const isInteractionActive = expandedToolId !== null || isDragging || hasAnyFiles || isGalleryOpen || isDockPinned || anySelfHasFiles;
     const isVisible = isDockEnabled && isInteractionActive;
 
     // --- Dock diagnostics ---
@@ -209,7 +226,7 @@ const DockAppInner: React.FC = () => {
     if (prevVisibleRef.current !== isVisible) {
         dlog('visibility', {
             visible: isVisible,
-            reason: { isDockEnabled, expandedToolId, isDragging, hasAnyFiles, isGalleryOpen, externalDragId },
+            reason: { isDockEnabled, expandedToolId, isDragging, hasAnyFiles, isGalleryOpen },
         });
         prevVisibleRef.current = isVisible;
     }
@@ -246,30 +263,15 @@ const DockAppInner: React.FC = () => {
         }
     }, [isVisible, isDragging, expandedToolId, sendDockMode, setIgnoreMouseEvents]);
 
-    // --- Dynamic Window Resizing ---
-    const resizeTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-
+    // --- Fixed Window Width ---
+    // The window no longer shrinks when idle. Resizing between 16px and 540px
+    // caused a one-frame Windows setBounds position/size desync that flashed the
+    // edge-anchored content to the left. Since the tongue now reveals via scaleX
+    // (not by the window growing), the window can stay a constant width and is
+    // simply click-through when idle. Set once on mount.
     useEffect(() => {
-        let targetWidth: number;
-
-        if (!isVisible) {
-            // IDLE: 16px — enough for edge polling to detect drags
-            targetWidth = 16;
-        } else {
-            // ACTIVE: always use max width to avoid setBounds position+size
-            // desync on Windows which causes a one-frame alignment flash
-            targetWidth = 540;
-        }
-
-        if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
-        resizeTimerRef.current = setTimeout(() => {
-            resizeDock(targetWidth);
-        }, 16);
-
-        return () => {
-            if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
-        };
-    }, [isVisible, expandedToolId, isDragging, resizeDock]);
+        resizeDock(540);
+    }, [resizeDock]);
 
     // --- Interactive Islands ---
     const leaveTimerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -308,16 +310,34 @@ const DockAppInner: React.FC = () => {
         e.preventDefault();
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
 
+        // Reveal only when the drag reaches the edge strip. Once revealed, keep
+        // the rail alive while the drag stays within the tongue's box + margin;
+        // leaving that box collapses it. (So the keep-alive box only matters
+        // after the tongue is shown — mirrors the blue overlay appearing with red.)
+        const n = activeToolIds.length;
+        const tongueW = RAIL_TILE + RAIL_PAD * 2;
+        const tongueH = n > 0 ? n * RAIL_TILE + (n - 1) * RAIL_GAP + RAIL_PAD * 2 : RAIL_TILE + RAIL_PAD * 2;
+        const left = window.innerWidth - tongueW - REVEAL_MARGIN;       // right side is the screen edge
+        const top = (window.innerHeight - tongueH) / 2 - REVEAL_MARGIN;
+        const bottom = (window.innerHeight + tongueH) / 2 + REVEAL_MARGIN;
+
+        // Green = full-height edge strip: reveals AND keeps the tongue visible.
+        // Blue  = tongue box + margin: keeps the tongue visible (once revealed).
+        const inEdge = e.clientX >= window.innerWidth - EDGE_TRIGGER;
+        const inBox = e.clientX >= left && e.clientY >= top && e.clientY <= bottom;
+
+        // Reveal via the edge; stay alive while in the edge OR the box.
+        const active = inEdge || (isDragging && inBox);
+
         if (dragTimeoutRef.current) clearTimeout(dragTimeoutRef.current);
 
-        if (!isDragging) {
-            setIsDragging(true);
-        }
-
-        dragTimeoutRef.current = setTimeout(() => {
+        if (active) {
+            if (!isDragging) setIsDragging(true);
+            dragTimeoutRef.current = setTimeout(() => setIsDragging(false), 1500);
+        } else if (isDragging) {
             setIsDragging(false);
-        }, 1500);
-    }, [isDragging]);
+        }
+    }, [isDragging, activeToolIds.length]);
 
     const handleWindowDragLeave = useCallback((e: DragEvent) => {
         e.preventDefault();
@@ -684,16 +704,8 @@ const DockAppInner: React.FC = () => {
         dispatch('REORDER_TOOLS', newOrder);
     };
 
-    const handleAddTool = (toolId: ToolId, atIndex?: number) => {
-        if (atIndex !== undefined) {
-            const newOrder = [...activeToolIds];
-            if (!newOrder.includes(toolId)) {
-                newOrder.splice(atIndex, 0, toolId);
-                dispatch('REORDER_TOOLS', newOrder);
-            }
-        } else {
-            dispatch('ADD_TOOL', toolId);
-        }
+    const handleAddTool = (toolId: ToolId) => {
+        dispatch('ADD_TOOL', toolId);
     };
 
     const handleSelection = (toolId: ToolId, itemId: string, multiSelect: boolean, rangeSelect: boolean) => {
@@ -748,16 +760,6 @@ const DockAppInner: React.FC = () => {
                 isToolDragging={isToolDragging}
                 onReorderTools={handleReorderTools}
                 onAddTool={handleAddTool}
-                externalDragId={externalDragId}
-                proposedIndex={proposedIndex}
-                onProposeIndex={setProposedIndex}
-                onToolDragToGallery={(toolId) => {
-                    if (toolId) {
-                        startDockToolDrag(toolId);
-                    } else {
-                        endDockToolDrag();
-                    }
-                }}
                 onMouseEnter={handleInteractiveEnter}
                 onMouseLeave={handleInteractiveLeave}
                 onOpenGallery={openGallery}

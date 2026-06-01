@@ -15,19 +15,6 @@ contextBridge.exposeInMainWorld('electron', {
     ready: () => ipcRenderer.send('renderer-ready'),
     onClearDataConfirmed: (callback) => ipcRenderer.on('clear-data-confirmed', (e) => callback()),
 
-    // --- CROSS-WINDOW TOOL DRAG: Gallery → Dock ---
-    startToolDrag: (toolId) => ipcRenderer.send('tool-drag-start', toolId),
-    endToolDrag: () => ipcRenderer.send('tool-drag-end'),
-    onExternalToolDrag: (callback) => ipcRenderer.on('external-tool-drag', (e, data) => callback(data)),
-    onExternalToolDragMove: (callback) => ipcRenderer.on('external-tool-drag-move', (e, data) => callback(data)),
-    onExternalToolDragEnd: (callback) => ipcRenderer.on('external-tool-drag-end', (e) => callback()),
-
-    // --- CROSS-WINDOW TOOL DRAG: Dock → Gallery ---
-    startDockToolDrag: (toolId) => ipcRenderer.send('dock-tool-drag-start', toolId),
-    endDockToolDrag: () => ipcRenderer.send('dock-tool-drag-end'),
-    onDockToolDragActive: (callback) => ipcRenderer.on('dock-tool-drag-active', (e, data) => callback(data)),
-    onDockToolDragEnd: (callback) => ipcRenderer.on('dock-tool-drag-end', (e) => callback()),
-
     // --- SHELF PERSISTENCE ---
     shelfSave: (id, buffer, name) => ipcRenderer.invoke('shelf:save', id, buffer, name),
     shelfLoad: () => ipcRenderer.invoke('shelf:load'),
@@ -45,4 +32,10 @@ contextBridge.exposeInMainWorld('electron', {
 
     // --- LOGS ---
     openLogsFolder: () => ipcRenderer.invoke('OPEN_LOGS_FOLDER'),
+
+    // --- SETTINGS (language, etc.) ---
+    getSetting: (key) => ipcRenderer.invoke('get-setting', key),
+    setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),
+    onLanguageChange: (callback) => ipcRenderer.on('language-change', (_e, lang) => callback(lang)),
+    onSettingChange: (callback) => ipcRenderer.on('setting-change', (_e, data) => callback(data)),
 });

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Check, X, Loader2, Eraser, Paintbrush, Sparkles, Undo2, Redo2 } from 'lucide-react';
+import { useI18n } from '../../i18n/I18nContext';
 
 interface MagicBrushToolProps {
     originalImageSrc: string;
@@ -14,6 +15,7 @@ export const MagicBrushTool: React.FC<MagicBrushToolProps> = ({
     onSave,
     onCancel
 }) => {
+    const { t } = useI18n();
     // --- State ---
     const [brushMode, setBrushMode] = useState<'erase' | 'restore'>('erase');
     const [brushSize, setBrushSize] = useState(30);
@@ -554,22 +556,22 @@ export const MagicBrushTool: React.FC<MagicBrushToolProps> = ({
     return (
         <div className="absolute inset-0 flex flex-col z-[100] rounded-2xl overflow-hidden">
             {/* Top toolbar */}
-            <div className="h-10 bg-slate-900/90 border-b border-white/5 flex items-center justify-between px-3 shrink-0 z-20">
+            <div className="h-10 bg-[var(--surface)] border-b border-[var(--separator)] flex items-center justify-between px-3 shrink-0 z-20">
                 {/* Undo / Redo (icons only) */}
                 <div className="flex items-center gap-0.5">
                     <button
                         onClick={handleUndo}
                         disabled={undoCount === 0}
-                        className="p-1.5 rounded text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-slate-400 transition-colors"
-                        title="تراجع (Ctrl+Z)"
+                        className="p-1.5 rounded text-[var(--text-2)] hover:text-[var(--text)] hover:bg-[var(--surface-3)] disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[var(--text-2)] transition-colors"
+                        title={t('magicBrush.undo')}
                     >
                         <Undo2 className="w-3.5 h-3.5" />
                     </button>
                     <button
                         onClick={handleRedo}
                         disabled={redoCount === 0}
-                        className="p-1.5 rounded text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-slate-400 transition-colors"
-                        title="إعادة (Ctrl+Shift+Z)"
+                        className="p-1.5 rounded text-[var(--text-2)] hover:text-[var(--text)] hover:bg-[var(--surface-3)] disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[var(--text-2)] transition-colors"
+                        title={t('magicBrush.redo')}
                     >
                         <Redo2 className="w-3.5 h-3.5" />
                     </button>
@@ -579,18 +581,18 @@ export const MagicBrushTool: React.FC<MagicBrushToolProps> = ({
                 <div className="flex items-center gap-1.5">
                     <button
                         onClick={onCancel}
-                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
-                        title="إلغاء"
+                        className="p-1 rounded text-[var(--text-2)] hover:text-[var(--text)] hover:bg-[var(--surface-3)] transition-colors"
+                        title={t('magicBrush.cancel')}
                     >
                         <X className="w-3.5 h-3.5" />
                     </button>
                     <button
                         onClick={handleSave}
                         disabled={isLoading}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-[10px] font-bold shadow-sm transition-all active:scale-95"
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] disabled:opacity-40 text-white text-[10px] font-bold shadow-sm transition-all active:scale-95"
                     >
                         <Check className="w-3 h-3" />
-                        <span>حفظ</span>
+                        <span>{t('magicBrush.save')}</span>
                     </button>
                 </div>
             </div>
@@ -603,8 +605,8 @@ export const MagicBrushTool: React.FC<MagicBrushToolProps> = ({
             >
                 {isLoading ? (
                     <div className="flex flex-col items-center gap-3">
-                        <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
-                        <span className="text-xs text-slate-400">جاري التحميل...</span>
+                        <Loader2 className="w-8 h-8 text-[var(--accent)] animate-spin" />
+                        <span className="text-xs text-[var(--text-2)]">{t('magicBrush.loading')}</span>
                     </div>
                 ) : (
                     <>
@@ -652,12 +654,12 @@ export const MagicBrushTool: React.FC<MagicBrushToolProps> = ({
             </div>
 
             {/* Bottom controls */}
-            <div className="bg-slate-900/95 border-t border-white/5 px-3 py-2.5 shrink-0 space-y-2.5">
+            <div className="bg-[var(--surface)] border-t border-[var(--separator)] px-3 py-2.5 shrink-0 space-y-2.5">
                 {/* Brush size slider */}
                 <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">حجم الفرشاة</span>
-                        <span className="text-[10px] text-indigo-300 font-medium">{brushSize}px</span>
+                        <span className="text-[10px] font-bold text-[var(--text-2)] uppercase tracking-wider">{t('magicBrush.brushSize')}</span>
+                        <span className="text-[10px] text-[var(--accent)] font-medium">{brushSize}px</span>
                     </div>
                     <div className="relative">
                         <input
@@ -672,14 +674,14 @@ export const MagicBrushTool: React.FC<MagicBrushToolProps> = ({
                                 adjustTimeoutRef.current = setTimeout(() => setIsAdjustingSize(false), 400);
                             }}
                             className="w-full h-1.5 rounded-full appearance-none cursor-pointer
-                                bg-gradient-to-r from-slate-700 via-indigo-900/50 to-indigo-500
+                                bg-gradient-to-r from-[var(--surface-3)] via-[var(--accent-soft)] to-[var(--accent)]
                                 [&::-webkit-slider-thumb]:appearance-none
                                 [&::-webkit-slider-thumb]:w-3.5
                                 [&::-webkit-slider-thumb]:h-3.5
                                 [&::-webkit-slider-thumb]:rounded-full
                                 [&::-webkit-slider-thumb]:bg-white
                                 [&::-webkit-slider-thumb]:border-2
-                                [&::-webkit-slider-thumb]:border-indigo-500
+                                [&::-webkit-slider-thumb]:border-[var(--accent)]
                                 [&::-webkit-slider-thumb]:shadow-md
                                 [&::-webkit-slider-thumb]:shadow-indigo-500/30
                                 [&::-webkit-slider-thumb]:transition-transform
@@ -693,28 +695,28 @@ export const MagicBrushTool: React.FC<MagicBrushToolProps> = ({
                 {/* Erase/Restore toggle + Magic brush switch */}
                 <div className="flex items-center gap-2">
                     {/* Erase / Restore toggle */}
-                    <div className="flex items-center gap-px bg-slate-800/60 p-0.5 rounded-lg border border-white/5">
+                    <div className="flex items-center gap-px bg-[var(--surface-2)] p-0.5 rounded-lg border border-[var(--separator)]">
                         <button
                             onClick={() => setBrushMode('erase')}
                             className={`flex items-center justify-center gap-1 w-[72px] py-1 rounded-md text-[10px] font-bold transition-all ${
                                 brushMode === 'erase'
-                                    ? 'bg-indigo-500 text-white shadow-sm'
-                                    : 'text-slate-400 hover:bg-slate-700/50 hover:text-slate-200'
+                                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                                    : 'text-[var(--text-2)] hover:bg-[var(--surface-3)] hover:text-[var(--text)]'
                             }`}
                         >
                             <Eraser className="w-3 h-3" />
-                            مسح
+                            {t('magicBrush.erase')}
                         </button>
                         <button
                             onClick={() => setBrushMode('restore')}
                             className={`flex items-center justify-center gap-1 w-[72px] py-1 rounded-md text-[10px] font-bold transition-all ${
                                 brushMode === 'restore'
-                                    ? 'bg-indigo-500 text-white shadow-sm'
-                                    : 'text-slate-400 hover:bg-slate-700/50 hover:text-slate-200'
+                                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                                    : 'text-[var(--text-2)] hover:bg-[var(--surface-3)] hover:text-[var(--text)]'
                             }`}
                         >
                             <Paintbrush className="w-3 h-3" />
-                            استعادة
+                            {t('magicBrush.restore')}
                         </button>
                     </div>
 
@@ -723,10 +725,10 @@ export const MagicBrushTool: React.FC<MagicBrushToolProps> = ({
                         onClick={() => setIsMagicBrush(!isMagicBrush)}
                         className="flex items-center gap-1.5 ml-auto"
                     >
-                        <Sparkles className={`w-3 h-3 transition-colors ${isMagicBrush ? 'text-indigo-300' : 'text-slate-500'}`} />
-                        <span className={`text-[10px] font-bold transition-colors ${isMagicBrush ? 'text-indigo-200' : 'text-slate-500'}`}>فرشاة ذكية</span>
+                        <Sparkles className={`w-3 h-3 transition-colors ${isMagicBrush ? 'text-[var(--accent)]' : 'text-[var(--text-3)]'}`} />
+                        <span className={`text-[10px] font-bold transition-colors ${isMagicBrush ? 'text-[var(--accent)]' : 'text-[var(--text-3)]'}`}>{t('magicBrush.smartBrush')}</span>
                         <div className={`relative w-8 h-[18px] rounded-full transition-colors ${
-                            isMagicBrush ? 'bg-indigo-500' : 'bg-slate-600'
+                            isMagicBrush ? 'bg-[var(--accent)]' : 'bg-[var(--surface-3)]'
                         }`}>
                             <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${
                                 isMagicBrush ? 'translate-x-[14px]' : 'translate-x-[2px]'

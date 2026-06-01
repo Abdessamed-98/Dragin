@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { extractPalette, getFileThumbnail } from '../../services/api';
 import type { PaletteColor } from '../../services/api';
+import { useI18n } from '../../i18n/I18nContext';
 
 interface PaletteToolProps {
     onClose: () => void;
@@ -33,6 +34,7 @@ const isLightColor = (rgb: [number, number, number]): boolean => {
 export const PaletteTool: React.FC<PaletteToolProps> = ({
     onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0,
 }) => {
+    const { t } = useI18n();
     const [state, setState] = useState<PaletteState>('idle');
     const [colors, setColors] = useState<PaletteColor[]>([]);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -110,7 +112,7 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
             setColors(result);
             setState('done');
         } catch (err: any) {
-            setErrorMsg(err?.message || 'فشل استخراج الألوان');
+            setErrorMsg(err?.message || t('palette.extractionFailed'));
             setState('error');
         }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -200,13 +202,13 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-white/5 shrink-0">
+            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
                 <div className="flex items-center gap-2">
                     <Palette className="w-4 h-4 text-violet-400" />
-                    <span className="text-sm font-bold text-white">استخراج الألوان</span>
+                    <span className="text-sm font-bold text-[var(--text)]">{t('palette.headerTitle')}</span>
                 </div>
                 <div className="flex-1" />
-                <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
+                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
                     <X className="w-4 h-4" />
                 </button>
             </div>
@@ -227,22 +229,22 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
                                 border-2 border-dashed transition-all duration-200 cursor-pointer
                                 ${isDragOver
                                     ? 'border-violet-400 bg-violet-500/10 scale-[0.99]'
-                                    : 'border-slate-700 bg-slate-800/30 hover:border-slate-500 hover:bg-slate-800/50'
+                                    : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border)] hover:bg-[var(--surface)]'
                                 }
                             `}
                         >
-                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-violet-500/20' : 'bg-slate-800'}`}>
+                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-violet-500/20' : 'bg-[var(--surface)]'}`}>
                                 {isDragOver
                                     ? <Upload className="w-8 h-8 text-violet-400" />
-                                    : <Palette className="w-8 h-8 text-slate-500" />
+                                    : <Palette className="w-8 h-8 text-[var(--text-3)]" />
                                 }
                             </div>
                             <div className="text-center px-4">
-                                <p className="text-sm font-semibold text-slate-300">
-                                    {isDragOver ? 'أفلت الصورة هنا' : 'اسحب صورة هنا لاستخراج الألوان'}
+                                <p className="text-sm font-semibold text-[var(--text-2)]">
+                                    {isDragOver ? t('palette.dropImage') : t('palette.dragImage')}
                                 </p>
-                                <p className="text-xs text-slate-500 mt-1">استخراج الألوان السائدة مع أكواد HEX</p>
-                                <p className="text-[10px] text-slate-600 mt-2">صور: JPG · PNG · WEBP · BMP · TIFF · GIF</p>
+                                <p className="text-xs text-[var(--text-3)] mt-1">{t('palette.subHint')}</p>
+                                <p className="text-[10px] text-[var(--text-3)] mt-2">{t('palette.formatHint')}</p>
                             </div>
                             <input id="palette-file-input" type="file" accept={FILE_ACCEPT} className="sr-only" onChange={handleFileInput} />
                         </motion.label>
@@ -258,7 +260,7 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
                             className="flex-1 flex flex-col items-center justify-center gap-3"
                         >
                             <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
-                            <p className="text-xs text-slate-400">جاري استخراج الألوان...</p>
+                            <p className="text-xs text-[var(--text-2)]">{t('palette.extracting')}</p>
                         </motion.div>
                     )}
 
@@ -271,12 +273,12 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
                             exit={{ opacity: 0 }}
                             className="flex-1 flex flex-col items-center justify-center gap-3"
                         >
-                            <p className="text-xs text-red-400">{errorMsg}</p>
+                            <p className="text-xs text-[var(--red)]">{errorMsg}</p>
                             <button
                                 onClick={resetState}
-                                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors border border-white/5"
+                                className="px-4 py-2 bg-[var(--surface)] hover:bg-[var(--surface-3)] text-[var(--text-2)] text-xs rounded-lg transition-colors border border-[var(--separator)]"
                             >
-                                حاول مجددًا
+                                {t('palette.tryAgain')}
                             </button>
                         </motion.div>
                     )}
@@ -292,7 +294,7 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
                         >
                             {/* Image preview — fills remaining space */}
                             {previewUrl && (
-                                <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-slate-900/60 border border-white/5 flex items-center justify-center p-2">
+                                <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-[var(--surface)] border border-[var(--separator)] flex items-center justify-center p-2">
                                     <img src={previewUrl} alt={fileName} className="max-w-full max-h-full object-contain rounded-lg" />
                                 </div>
                             )}
@@ -309,7 +311,7 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
                                     >
                                         <span className="absolute inset-0 flex items-center justify-center text-[9px] font-mono font-bold opacity-0 group-hover:opacity-100 transition-opacity"
                                             style={{ color: isLightColor(color.rgb) ? '#000' : '#fff', textShadow: isLightColor(color.rgb) ? 'none' : '0 1px 3px rgba(0,0,0,0.5)' }}>
-                                            {copiedIdx === i ? '✓ تم' : color.hex}
+                                            {copiedIdx === i ? t('palette.copied') : color.hex}
                                         </span>
                                     </button>
                                 ))}
@@ -324,27 +326,27 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
                 {state === 'processing' ? (
                     <button disabled className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-violet-600/50 text-white/60">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري الاستخراج...
+                        {t('palette.processingBtn')}
                     </button>
                 ) : state === 'done' ? (
                     <button onClick={handleCopyAll} disabled={isCopyingAll} className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50">
                         {isCopyingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopyAllSuccess ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        {showCopyAllSuccess ? 'تم النسخ' : 'نسخ الكل'}
+                        {showCopyAllSuccess ? t('palette.allCopied') : t('palette.copyAll')}
                     </button>
                 ) : (
-                    <button disabled className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-slate-800/50 text-slate-600 cursor-not-allowed">
+                    <button disabled className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed">
                         <Palette className="w-4 h-4" />
-                        استخراج الألوان
+                        {t('palette.defaultBtn')}
                     </button>
                 )}
                 <div className="flex-1 flex items-center gap-1">
-                    <button onClick={handleCopyAll} disabled={isCopyingAll || state !== 'done'} className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed" title="نسخ">
-                        {isCopyingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopyAllSuccess ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                    <button onClick={handleCopyAll} disabled={isCopyingAll || state !== 'done'} className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed" title={t('palette.copy')}>
+                        {isCopyingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopyAllSuccess ? <Check className="w-4 h-4 text-[var(--green)]" /> : <Copy className="w-4 h-4" />}
                     </button>
-                    <button onClick={handlePaste} className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white" title="لصق">
+                    <button onClick={handlePaste} className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]" title={t('palette.paste')}>
                         <ClipboardPaste className="w-4 h-4" />
                     </button>
-                    <button onClick={handleClear} disabled={state === 'processing'} className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${state === 'processing' ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed' : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'}`} title="مسح">
+                    <button onClick={handleClear} disabled={state === 'processing'} className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${state === 'processing' ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed' : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'}`} title={t('palette.clear')}>
                         <Trash2 className="w-4 h-4" />
                     </button>
                 </div>

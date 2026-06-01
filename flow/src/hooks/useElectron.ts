@@ -25,19 +25,6 @@ interface ElectronBridge {
     ready: () => void;
     onClearDataConfirmed: (callback: () => void) => void;
 
-    // Cross-window tool drag: Gallery → Dock
-    startToolDrag: (toolId: string) => void;
-    endToolDrag: () => void;
-    onExternalToolDrag: (callback: (data: { toolId: string }) => void) => void;
-    onExternalToolDragMove: (callback: (data: { toolId: string; proposedIndex: number | null }) => void) => void;
-    onExternalToolDragEnd: (callback: () => void) => void;
-
-    // Cross-window tool drag: Dock → Gallery
-    startDockToolDrag: (toolId: string) => void;
-    endDockToolDrag: () => void;
-    onDockToolDragActive: (callback: (data: { toolId: string }) => void) => void;
-    onDockToolDragEnd: (callback: () => void) => void;
-
     // Shelf persistence
     shelfSave: (id: string, buffer: ArrayBuffer, name: string) => Promise<string>;
     shelfLoad: () => Promise<Array<{ id: string; name: string; url: string }>>;
@@ -52,6 +39,12 @@ interface ElectronBridge {
 
     // Logs
     openLogsFolder: () => Promise<void>;
+
+    // Settings (language, etc.)
+    getSetting: (key: string) => Promise<any>;
+    setSetting: (key: string, value: any) => Promise<void>;
+    onLanguageChange: (callback: (lang: string) => void) => void;
+    onSettingChange: (callback: (data: { key: string; value: any }) => void) => void;
 }
 
 declare global {
@@ -123,44 +116,6 @@ export const useElectron = () => {
         window.electron?.onClearDataConfirmed(callback);
     }, []);
 
-    // --- Cross-window tool drag: Gallery → Dock ---
-    const startToolDrag = useCallback((toolId: string) => {
-        window.electron?.startToolDrag(toolId);
-    }, []);
-
-    const endToolDrag = useCallback(() => {
-        window.electron?.endToolDrag();
-    }, []);
-
-    const onExternalToolDrag = useCallback((callback: (data: { toolId: string }) => void) => {
-        window.electron?.onExternalToolDrag(callback);
-    }, []);
-
-    const onExternalToolDragMove = useCallback((callback: (data: { toolId: string; proposedIndex: number | null }) => void) => {
-        window.electron?.onExternalToolDragMove(callback);
-    }, []);
-
-    const onExternalToolDragEnd = useCallback((callback: () => void) => {
-        window.electron?.onExternalToolDragEnd(callback);
-    }, []);
-
-    // --- Cross-window tool drag: Dock → Gallery ---
-    const startDockToolDrag = useCallback((toolId: string) => {
-        window.electron?.startDockToolDrag(toolId);
-    }, []);
-
-    const endDockToolDrag = useCallback(() => {
-        window.electron?.endDockToolDrag();
-    }, []);
-
-    const onDockToolDragActive = useCallback((callback: (data: { toolId: string }) => void) => {
-        window.electron?.onDockToolDragActive(callback);
-    }, []);
-
-    const onDockToolDragEnd = useCallback((callback: () => void) => {
-        window.electron?.onDockToolDragEnd(callback);
-    }, []);
-
     // --- Shelf persistence ---
     const shelfSave = useCallback((id: string, buffer: ArrayBuffer, name: string): Promise<string> => {
         if (window.electron?.shelfSave) return window.electron.shelfSave(id, buffer, name);
@@ -191,17 +146,6 @@ export const useElectron = () => {
         resizeDock,
         sendDockMode,
         onClearDataConfirmed,
-        // Gallery → Dock
-        startToolDrag,
-        endToolDrag,
-        onExternalToolDrag,
-        onExternalToolDragMove,
-        onExternalToolDragEnd,
-        // Dock → Gallery
-        startDockToolDrag,
-        endDockToolDrag,
-        onDockToolDragActive,
-        onDockToolDragEnd,
         // Shelf
         shelfSave,
         shelfLoad,

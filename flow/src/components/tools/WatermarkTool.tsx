@@ -2,13 +2,14 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Stamp, Upload, Loader2, Download, Trash2, AlertCircle,
+    Copyright, Upload, Loader2, Download, Trash2, AlertCircle,
     X, Check, ClipboardPaste, Type, Droplets, Maximize2, CornerRightDown,
     Ban, Copy
 } from 'lucide-react';
 import { addWatermark, getFileThumbnail } from '../../services/api';
 import type { WatermarkOptions } from '../../services/api';
 import JSZip from 'jszip';
+import { useI18n } from '../../i18n/I18nContext';
 
 interface WatermarkToolProps {
     onClose: () => void;
@@ -49,13 +50,14 @@ const isAccepted = (file: File): boolean => {
 
 type WatermarkStyle = 'diagonal' | 'center' | 'corner';
 
-const STYLE_OPTIONS: { id: WatermarkStyle; label: string; Icon: React.FC<{ className?: string }> }[] = [
-    { id: 'diagonal', label: 'تكرار', Icon: Maximize2 },
-    { id: 'center', label: 'وسط', Icon: Type },
-    { id: 'corner', label: 'زاوية', Icon: CornerRightDown },
+const STYLE_OPTIONS: { id: WatermarkStyle; labelKey: 'watermark.styleDiagonal' | 'watermark.styleCenter' | 'watermark.styleCorner'; Icon: React.FC<{ className?: string }> }[] = [
+    { id: 'diagonal', labelKey: 'watermark.styleDiagonal', Icon: Maximize2 },
+    { id: 'center', labelKey: 'watermark.styleCenter', Icon: Type },
+    { id: 'corner', labelKey: 'watermark.styleCorner', Icon: CornerRightDown },
 ];
 
 export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
+    const { t } = useI18n();
     const [files, setFiles] = useState<WatermarkFileItem[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
@@ -290,16 +292,16 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-white/5 shrink-0">
+            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
                 <div className="flex items-center gap-2">
-                    <Stamp className="w-4 h-4 text-cyan-400" />
-                    <span className="text-sm font-bold text-white">علامة مائية</span>
+                    <Copyright className="w-4 h-4 text-cyan-400" />
+                    <span className="text-sm font-bold text-[var(--text)]">{t('watermark.title')}</span>
                     {hasFiles && (
-                        <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full text-slate-300">{files.length}</span>
+                        <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{files.length}</span>
                     )}
                 </div>
                 <div className="flex-1" />
-                <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
+                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
                     <X className="w-4 h-4" />
                 </button>
             </div>
@@ -308,14 +310,14 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
             <div className="flex-1 flex flex-col min-h-0 p-3 gap-2">
                 {/* Settings panel — always visible when there are files */}
                 {hasFiles && (
-                    <div className="shrink-0 space-y-2 p-2.5 bg-slate-800/60 rounded-xl border border-white/5">
+                    <div className="shrink-0 space-y-2 p-2.5 bg-[var(--surface)] rounded-xl border border-[var(--separator)]">
                         {/* Text input */}
                         <input
                             type="text"
                             value={text}
                             onChange={e => setText(e.target.value)}
-                            placeholder="نص العلامة المائية..."
-                            className="w-full bg-slate-900/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50"
+                            placeholder={t('watermark.textPlaceholder')}
+                            className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-cyan-500/50"
                             dir="auto"
                         />
 
@@ -328,11 +330,11 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                                     className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
                                         style === s.id
                                             ? 'bg-cyan-600/30 border border-cyan-500/50 text-cyan-300'
-                                            : 'bg-slate-700/50 border border-white/5 text-slate-400 hover:text-white'
+                                            : 'bg-[var(--surface-3)] border border-[var(--separator)] text-[var(--text-2)] hover:text-[var(--text)]'
                                     }`}
                                 >
                                     <s.Icon className="w-3 h-3" />
-                                    {s.label}
+                                    {t(s.labelKey)}
                                 </button>
                             ))}
                         </div>
@@ -340,7 +342,7 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                         {/* Opacity + font size + color */}
                         <div className="flex items-center gap-2">
                             <div className="flex-1 flex items-center gap-1.5">
-                                <Droplets className="w-3 h-3 text-slate-500 shrink-0" />
+                                <Droplets className="w-3 h-3 text-[var(--text-3)] shrink-0" />
                                 <input
                                     type="range"
                                     min={5}
@@ -349,14 +351,14 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                                     onChange={e => setOpacity(Number(e.target.value))}
                                     className="flex-1 h-1 accent-cyan-500"
                                 />
-                                <span className="text-[10px] text-slate-500 w-7 text-left">{opacity}%</span>
+                                <span className="text-[10px] text-[var(--text-3)] w-7 text-left">{opacity}%</span>
                             </div>
                             <div className="flex items-center gap-1.5">
-                                <Type className="w-3 h-3 text-slate-500 shrink-0" />
+                                <Type className="w-3 h-3 text-[var(--text-3)] shrink-0" />
                                 <select
                                     value={fontSize}
                                     onChange={e => setFontSize(Number(e.target.value))}
-                                    className="bg-slate-700/80 border border-white/10 rounded text-[10px] text-slate-300 px-1.5 py-0.5 focus:outline-none"
+                                    className="bg-[var(--surface-3)] border border-[var(--border)] rounded text-[10px] text-[var(--text-2)] px-1.5 py-0.5 focus:outline-none"
                                 >
                                     {[16, 24, 36, 48, 64, 80].map(s => (
                                         <option key={s} value={s}>{s}px</option>
@@ -367,8 +369,8 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                                 type="color"
                                 value={color}
                                 onChange={e => setColor(e.target.value)}
-                                className="w-6 h-6 rounded border border-white/10 cursor-pointer bg-transparent"
-                                title="لون العلامة"
+                                className="w-6 h-6 rounded border border-[var(--border)] cursor-pointer bg-transparent"
+                                title={t('watermark.colorLabel')}
                             />
                         </div>
                     </div>
@@ -388,26 +390,26 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                                 border-2 border-dashed transition-all duration-200 cursor-pointer
                                 ${isDragOver
                                     ? 'border-cyan-400 bg-cyan-500/10 scale-[0.99]'
-                                    : 'border-slate-700 bg-slate-800/30 hover:border-slate-500 hover:bg-slate-800/50'
+                                    : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border)] hover:bg-[var(--surface)]'
                                 }
                             `}
                         >
-                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-cyan-500/20' : 'bg-slate-800'}`}>
+                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-cyan-500/20' : 'bg-[var(--surface)]'}`}>
                                 {isDragOver
                                     ? <Upload className="w-8 h-8 text-cyan-400" />
-                                    : <Stamp className="w-8 h-8 text-slate-500" />
+                                    : <Copyright className="w-8 h-8 text-[var(--text-3)]" />
                                 }
                             </div>
                             <div className="text-center px-4">
-                                <p className="text-sm font-semibold text-slate-300">
-                                    {isDragOver ? 'أفلت الملفات هنا' : 'اسحب ملفات هنا لإضافة علامة مائية'}
+                                <p className="text-sm font-semibold text-[var(--text-2)]">
+                                    {isDragOver ? t('watermark.dropFiles') : t('watermark.dragFiles')}
                                 </p>
-                                <p className="text-xs text-slate-500 mt-1">إضافة نص على الصور وملفات PDF</p>
-                                <p className="text-[10px] text-slate-600 mt-2">
-                                    صور: JPG · PNG · WEBP · BMP · TIFF · GIF
+                                <p className="text-xs text-[var(--text-3)] mt-1">{t('watermark.subHint')}</p>
+                                <p className="text-[10px] text-[var(--text-3)] mt-2">
+                                    {t('watermark.formatImages')}
                                 </p>
-                                <p className="text-[10px] text-slate-600">
-                                    مستندات: PDF
+                                <p className="text-[10px] text-[var(--text-3)]">
+                                    {t('watermark.formatDocs')}
                                 </p>
                             </div>
                             <input
@@ -433,27 +435,27 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                             {files.map(item => (
                                 <div
                                     key={item.id}
-                                    className="flex items-center gap-2 px-2.5 py-2 bg-slate-800/60 rounded-lg border border-white/5 shrink-0 group"
+                                    className="flex items-center gap-2 px-2.5 py-2 bg-[var(--surface)] rounded-lg border border-[var(--separator)] shrink-0 group"
                                 >
                                     {/* Thumbnail */}
                                     {item.previewUrl ? (
-                                        <div className="w-8 h-8 rounded overflow-hidden bg-slate-900 shrink-0">
+                                        <div className="w-8 h-8 rounded overflow-hidden bg-[var(--surface)] shrink-0">
                                             <img src={item.previewUrl} className="w-full h-full object-cover" alt="" />
                                         </div>
                                     ) : (
-                                        <Stamp className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                        <Copyright className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                                     )}
 
                                     {/* Name + size */}
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-[11px] text-slate-300 truncate">{item.name}</p>
-                                        <p className="text-[10px] text-slate-600">{formatSize(item.sizeBytes)}</p>
+                                        <p className="text-[11px] text-[var(--text-2)] truncate">{item.name}</p>
+                                        <p className="text-[10px] text-[var(--text-3)]">{formatSize(item.sizeBytes)}</p>
                                     </div>
 
                                     {/* Status */}
                                     <div className="w-14 text-right shrink-0">
                                         {item.status === 'idle' && (
-                                            <span className="text-[10px] text-slate-600">—</span>
+                                            <span className="text-[10px] text-[var(--text-3)]">—</span>
                                         )}
                                         {item.status === 'processing' && (
                                             <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin inline-block" />
@@ -475,7 +477,7 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                                     <button
                                         onClick={() => removeFile(item.id)}
                                         disabled={item.status === 'processing'}
-                                        className="shrink-0 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-30"
+                                        className="shrink-0 text-[var(--text-3)] hover:text-[var(--red)] transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-30"
                                     >
                                         <X className="w-3.5 h-3.5" />
                                     </button>
@@ -488,11 +490,11 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                                 className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed cursor-pointer transition-colors shrink-0 ${
                                     isDragOver
                                         ? 'border-cyan-400 bg-cyan-500/10'
-                                        : 'border-slate-700 hover:border-slate-500 bg-slate-800/20'
+                                        : 'border-[var(--border)] hover:border-[var(--border)] bg-[var(--surface-2)]'
                                 }`}
                             >
-                                <Upload className="w-3.5 h-3.5 text-slate-500" />
-                                <span className="text-[11px] text-slate-500">إضافة ملفات</span>
+                                <Upload className="w-3.5 h-3.5 text-[var(--text-3)]" />
+                                <span className="text-[11px] text-[var(--text-3)]">{t('watermark.addFiles')}</span>
                                 <input
                                     id="watermark-add-input"
                                     type="file"
@@ -520,32 +522,32 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                                 : 'bg-cyan-600/50 text-white/60'
                         }`}
                     >
-                        {cancelHover ? <><Ban className="w-4 h-4" />إلغاء</> : <><Loader2 className="w-4 h-4 animate-spin" />جاري المعالجة...</>}
+                        {cancelHover ? <><Ban className="w-4 h-4" />{t('watermark.cancel')}</> : <><Loader2 className="w-4 h-4 animate-spin" />{t('watermark.processing')}</>}
                     </button>
                 ) : allDone ? (
                     <button
                         onClick={handleDownload}
                         disabled={isDownloading}
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white disabled:opacity-50"
                     >
                         {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                        تحميل
+                        {t('watermark.download')}
                     </button>
                 ) : canProcess ? (
                     <button
                         onClick={processAll}
                         className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-cyan-600 hover:bg-cyan-500 text-white"
                     >
-                        <Stamp className="w-4 h-4" />
-                        تطبيق
+                        <Copyright className="w-4 h-4" />
+                        {t('watermark.apply')}
                     </button>
                 ) : (
                     <button
                         disabled
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-slate-800/50 text-slate-600 cursor-not-allowed"
+                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed"
                     >
-                        <Stamp className="w-4 h-4" />
-                        {hasFiles && !text.trim() ? 'أدخل النص أولاً' : 'علامة مائية'}
+                        <Copyright className="w-4 h-4" />
+                        {hasFiles && !text.trim() ? t('watermark.enterTextFirst') : t('watermark.title')}
                     </button>
                 )}
 
@@ -553,15 +555,15 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                     <button
                         onClick={handleCopy}
                         disabled={isCopying || !files.some(f => f.status === 'done')}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                        title="نسخ"
+                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={t('watermark.copy')}
                     >
                         {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopySuccess ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
                     </button>
                     <button
                         onClick={handlePaste}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white"
-                        title="لصق"
+                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]"
+                        title={t('watermark.paste')}
                     >
                         <ClipboardPaste className="w-4 h-4" />
                     </button>
@@ -570,10 +572,10 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                         disabled={!hasFiles || isProcessing}
                         className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                             !hasFiles || isProcessing
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'
+                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
                         }`}
-                        title="مسح الكل"
+                        title={t('watermark.clearAll')}
                     >
                         <Trash2 className="w-4 h-4" />
                     </button>

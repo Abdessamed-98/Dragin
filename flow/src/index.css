@@ -2,27 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   GRAPHITE design tokens — Apple-clean, light + dark.
+   :root = light; html[data-theme="dark"] = dark.
+   Components read these via inline styles / bg-[var(--token)].
+   ============================================================ */
+:root {
+  --bg:#ececef; --surface:#ffffff; --surface-2:#f5f5f7; --surface-3:#e8e8ec; --tint:#fbfbfd;
+  --text:#1d1d1f; --text-2:#6e6e73; --text-3:#86868b; --on-accent:#ffffff;
+  --border:rgba(0,0,0,0.08); --border-2:rgba(0,0,0,0.13); --separator:rgba(0,0,0,0.06);
+  --accent:#5e5ce6; --accent-hover:#4b49d6; --accent-press:#4240bf; --accent-soft:rgba(94,92,230,0.12); --focus-ring:rgba(94,92,230,0.35);
+  --green:#34c759; --orange:#ff9f0a; --red:#ff3b30;
+  --r-sm:8px; --r-md:12px; --r-lg:18px; --r-xl:22px; --r-pill:980px;
+  /* dock tongue — opaque in both modes (white in light, pitch black in dark) */
+  --glass:#ffffff; --glass-strong:#ffffff;
+  --tile:#ffffff; --tile-hover:#f0f0f3;
+  --tongue-shadow:drop-shadow(-3px 0 8px rgba(0,0,0,0.10));
+  --e1:0 1px 2px rgba(0,0,0,0.06); --e2:0 6px 18px -6px rgba(0,0,0,0.16);
+  --scrollbar:rgba(0,0,0,0.22); --scrollbar-hover:rgba(0,0,0,0.4);
+}
+
+html[data-theme="dark"] {
+  --bg:#1c1c1e; --surface:#2c2c2e; --surface-2:#3a3a3c; --surface-3:#48484a; --tint:#363638;
+  --text:#f5f5f7; --text-2:rgba(235,235,245,0.6); --text-3:rgba(235,235,245,0.32); --on-accent:#ffffff;
+  --border:rgba(255,255,255,0.10); --border-2:rgba(255,255,255,0.18); --separator:rgba(255,255,255,0.08);
+  --accent:#7d7aff; --accent-hover:#928fff; --accent-press:#6e6bf0; --accent-soft:rgba(125,122,255,0.18); --focus-ring:rgba(125,122,255,0.4);
+  --green:#30d158; --orange:#ff9f0a; --red:#ff453a;
+  /* dock tongue — pitch black: reads as the screen-edge darkness extending inward */
+  --glass:#000; --glass-strong:#000;
+  --tile:#1f1f22; --tile-hover:#2a2a2e;
+  --tongue-shadow:drop-shadow(-3px 0 10px rgba(0,0,0,0.4));
+  --e1:0 1px 2px rgba(0,0,0,0.4); --e2:0 8px 22px -8px rgba(0,0,0,0.6);
+  --scrollbar:rgba(255,255,255,0.22); --scrollbar-hover:rgba(255,255,255,0.42);
+}
+
 @layer base {
   body {
+    /* dock window must stay transparent; gallery sets its own bg */
     @apply bg-transparent text-slate-200 overflow-hidden;
     font-family: 'Tajawal', sans-serif;
   }
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: #1e293b;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #475569;
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
-}
+/* Thin, Apple-style overlay scrollbars (theme-aware) */
+* { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }

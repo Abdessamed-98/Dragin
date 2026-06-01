@@ -8,6 +8,7 @@ import {
 import { scrubMetadata, getFileThumbnail } from '../../services/api';
 import type { ScrubResult } from '../../services/api';
 import JSZip from 'jszip';
+import { useI18n } from '../../i18n/I18nContext';
 
 interface MetadataToolProps {
     onClose: () => void;
@@ -49,6 +50,7 @@ const isAccepted = (file: File): boolean => {
 };
 
 export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
+    const { t } = useI18n();
     const [files, setFiles] = useState<MetaFileItem[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
@@ -268,16 +270,16 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-white/5 shrink-0">
+            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
                 <div className="flex items-center gap-2">
                     <ShieldAlert className="w-4 h-4 text-red-400" />
-                    <span className="text-sm font-bold text-white">حذف البيانات</span>
+                    <span className="text-sm font-bold text-[var(--text)]">{t('metadata.headerTitle')}</span>
                     {hasFiles && (
-                        <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full text-slate-300">{files.length}</span>
+                        <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{files.length}</span>
                     )}
                 </div>
                 <div className="flex-1" />
-                <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
+                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
                     <X className="w-4 h-4" />
                 </button>
             </div>
@@ -298,26 +300,26 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                                 border-2 border-dashed transition-all duration-200 cursor-pointer
                                 ${isDragOver
                                     ? 'border-red-400 bg-red-500/10 scale-[0.99]'
-                                    : 'border-slate-700 bg-slate-800/30 hover:border-slate-500 hover:bg-slate-800/50'
+                                    : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border)] hover:bg-[var(--surface)]'
                                 }
                             `}
                         >
-                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-red-500/20' : 'bg-slate-800'}`}>
+                            <div className={`p-4 rounded-2xl transition-colors ${isDragOver ? 'bg-red-500/20' : 'bg-[var(--surface)]'}`}>
                                 {isDragOver
                                     ? <Upload className="w-8 h-8 text-red-400" />
-                                    : <ShieldAlert className="w-8 h-8 text-slate-500" />
+                                    : <ShieldAlert className="w-8 h-8 text-[var(--text-3)]" />
                                 }
                             </div>
                             <div className="text-center px-4">
-                                <p className="text-sm font-semibold text-slate-300">
-                                    {isDragOver ? 'أفلت الملفات هنا' : 'اسحب ملفات هنا لحذف البيانات'}
+                                <p className="text-sm font-semibold text-[var(--text-2)]">
+                                    {isDragOver ? t('metadata.dropFiles') : t('metadata.dragFiles')}
                                 </p>
-                                <p className="text-xs text-slate-500 mt-1">إزالة EXIF والموقع ومعلومات الكاميرا</p>
-                                <p className="text-[10px] text-slate-600 mt-2">
-                                    صور: JPG · PNG · WEBP · BMP · TIFF · GIF
+                                <p className="text-xs text-[var(--text-3)] mt-1">{t('metadata.subHint')}</p>
+                                <p className="text-[10px] text-[var(--text-3)] mt-2">
+                                    {t('metadata.formatImages')}
                                 </p>
-                                <p className="text-[10px] text-slate-600">
-                                    مستندات: PDF
+                                <p className="text-[10px] text-[var(--text-3)]">
+                                    {t('metadata.formatDocs')}
                                 </p>
                             </div>
                             <input
@@ -342,10 +344,10 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                         >
                             {files.map(item => (
                                 <div key={item.id} className="shrink-0">
-                                    <div className="flex items-center gap-2 px-2.5 py-2 bg-slate-800/60 rounded-lg border border-white/5 group">
+                                    <div className="flex items-center gap-2 px-2.5 py-2 bg-[var(--surface)] rounded-lg border border-[var(--separator)] group">
                                         {/* Thumbnail */}
                                         {item.previewUrl ? (
-                                            <div className="w-8 h-8 rounded overflow-hidden bg-slate-900 shrink-0">
+                                            <div className="w-8 h-8 rounded overflow-hidden bg-[var(--surface)] shrink-0">
                                                 <img src={item.previewUrl} className="w-full h-full object-cover" alt="" />
                                             </div>
                                         ) : (
@@ -354,14 +356,14 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
 
                                         {/* Name + size */}
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-[11px] text-slate-300 truncate">{item.name}</p>
-                                            <p className="text-[10px] text-slate-600">{formatSize(item.sizeBytes)}</p>
+                                            <p className="text-[11px] text-[var(--text-2)] truncate">{item.name}</p>
+                                            <p className="text-[10px] text-[var(--text-3)]">{formatSize(item.sizeBytes)}</p>
                                         </div>
 
                                         {/* Status */}
                                         <div className="w-16 text-right shrink-0">
                                             {item.status === 'idle' && (
-                                                <span className="text-[10px] text-slate-600">—</span>
+                                                <span className="text-[10px] text-[var(--text-3)]">—</span>
                                             )}
                                             {item.status === 'processing' && (
                                                 <Loader2 className="w-3.5 h-3.5 text-red-400 animate-spin inline-block" />
@@ -372,7 +374,7 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                                                     className="flex items-center gap-0.5 text-green-400 hover:text-green-300 transition-colors"
                                                 >
                                                     <Check className="w-3 h-3" />
-                                                    <span className="text-[10px]">{Object.keys(item.removedFields || {}).length} حقل</span>
+                                                    <span className="text-[10px]">{Object.keys(item.removedFields || {}).length} {t('metadata.field')}</span>
                                                     {item.showDetails ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
                                                 </button>
                                             )}
@@ -385,7 +387,7 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                                         <button
                                             onClick={() => removeFile(item.id)}
                                             disabled={item.status === 'processing'}
-                                            className="shrink-0 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-30"
+                                            className="shrink-0 text-[var(--text-3)] hover:text-[var(--red)] transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-30"
                                         >
                                             <X className="w-3.5 h-3.5" />
                                         </button>
@@ -393,12 +395,12 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
 
                                     {/* Expanded metadata details */}
                                     {item.showDetails && item.removedFields && Object.keys(item.removedFields).length > 0 && (
-                                        <div className="mx-2 mt-1 mb-1 p-2 bg-slate-900/60 rounded-md border border-white/5">
+                                        <div className="mx-2 mt-1 mb-1 p-2 bg-[var(--surface)] rounded-md border border-[var(--separator)]">
                                             <div className="space-y-0.5 max-h-24 overflow-y-auto">
                                                 {Object.entries(item.removedFields).map(([key, value]) => (
                                                     <div key={key} className="flex items-start gap-2 text-[10px]">
                                                         <span className="text-red-400/70 shrink-0">{key}</span>
-                                                        <span className="text-slate-500 truncate">{value}</span>
+                                                        <span className="text-[var(--text-3)] truncate">{value}</span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -413,11 +415,11 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                                 className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed cursor-pointer transition-colors shrink-0 ${
                                     isDragOver
                                         ? 'border-red-400 bg-red-500/10'
-                                        : 'border-slate-700 hover:border-slate-500 bg-slate-800/20'
+                                        : 'border-[var(--border)] hover:border-[var(--border)] bg-[var(--surface-2)]'
                                 }`}
                             >
-                                <Upload className="w-3.5 h-3.5 text-slate-500" />
-                                <span className="text-[11px] text-slate-500">إضافة ملفات</span>
+                                <Upload className="w-3.5 h-3.5 text-[var(--text-3)]" />
+                                <span className="text-[11px] text-[var(--text-3)]">{t('metadata.addFiles')}</span>
                                 <input
                                     id="metadata-add-input"
                                     type="file"
@@ -446,27 +448,27 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                         }`}
                     >
                         {cancelHover ? (
-                            <><Ban className="w-4 h-4" />إلغاء</>
+                            <><Ban className="w-4 h-4" />{t('metadata.cancel')}</>
                         ) : (
-                            <><Loader2 className="w-4 h-4 animate-spin" />جاري المعالجة...</>
+                            <><Loader2 className="w-4 h-4 animate-spin" />{t('metadata.processing')}</>
                         )}
                     </button>
                 ) : allDone ? (
                     <button
                         onClick={handleDownload}
                         disabled={isDownloading}
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white disabled:opacity-50"
                     >
                         {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                        {totalRemoved > 0 ? `تحميل (${totalRemoved} حقل محذوف)` : 'تحميل'}
+                        {totalRemoved > 0 ? t('metadata.downloadWithCount', { count: totalRemoved }) : t('metadata.download')}
                     </button>
                 ) : (
                     <button
                         disabled
-                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-slate-800/50 text-slate-600 cursor-not-allowed"
+                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed"
                     >
                         <ShieldAlert className="w-4 h-4" />
-                        حذف البيانات
+                        {t('metadata.defaultBtn')}
                     </button>
                 )}
 
@@ -476,10 +478,10 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                         disabled={!files.some(f => f.status === 'done' && f.resultUrl) || isCopying}
                         className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                             !files.some(f => f.status === 'done' && f.resultUrl)
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
+                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]'
                         }`}
-                        title="نسخ"
+                        title={t('metadata.copy')}
                     >
                         {isCopying ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -491,8 +493,8 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                     </button>
                     <button
                         onClick={handlePaste}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white"
-                        title="لصق"
+                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]"
+                        title={t('metadata.paste')}
                     >
                         <ClipboardPaste className="w-4 h-4" />
                     </button>
@@ -501,10 +503,10 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                         disabled={!hasFiles || isProcessing}
                         className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                             !hasFiles || isProcessing
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'
+                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
                         }`}
-                        title="مسح الكل"
+                        title={t('metadata.clearAll')}
                     >
                         <Trash2 className="w-4 h-4" />
                     </button>

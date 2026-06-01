@@ -1,133 +1,146 @@
 
-import { Wand2, Minimize2, Archive, ArrowRightLeft, PenTool, ScanText, Palette, Crop, ImagePlus, FileText, ShieldAlert, Stamp, Layers } from 'lucide-react';
+import { Sparkles, Minimize2, Archive, ArrowRightLeft, PenTool, ScanText, Palette, Crop, Maximize2, FileText, ShieldAlert, Copyright, Layers } from 'lucide-react';
 import { ToolDefinition } from '../types';
+import type { TranslationKey } from '../i18n';
+import type { LucideIcon } from 'lucide-react';
 
-export const ALL_TOOLS: ToolDefinition[] = [
+export interface ToolDefinitionRaw {
+  id: ToolDefinition['id'];
+  titleKey: TranslationKey;
+  descriptionKey: TranslationKey;
+  icon: LucideIcon;
+  colorClass: string;
+  emptyHintKey: TranslationKey;
+  emptySubHintKey: TranslationKey;
+  formatLinesKeys: TranslationKey[];
+}
+
+export const ALL_TOOLS_RAW: ToolDefinitionRaw[] = [
   // --- Core Tools ---
   {
     id: 'remover',
-    title: 'حذف الخلفية',
-    description: 'إزالة خلفية الصورة بذكاء',
-    icon: Wand2,
+    titleKey: 'tool.remover.title',
+    descriptionKey: 'tool.remover.description',
+    icon: Sparkles,
     colorClass: 'indigo',
-    emptyHint: 'اسحب صور هنا لحذف الخلفية',
-    emptySubHint: 'إزالة الخلفية بالذكاء الاصطناعي',
-    formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF'],
+    emptyHintKey: 'tool.remover.emptyHint',
+    emptySubHintKey: 'tool.remover.emptySubHint',
+    formatLinesKeys: ['tool.remover.formatLines.0'],
   },
   {
     id: 'compressor',
-    title: 'ضغط الصورة',
-    description: 'تصغير حجم الملف',
+    titleKey: 'tool.compressor.title',
+    descriptionKey: 'tool.compressor.description',
     icon: Minimize2,
     colorClass: 'emerald',
-    emptyHint: 'اسحب صور هنا للضغط',
-    emptySubHint: 'تصغير حجم الملف مع الحفاظ على الجودة',
-    formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF · GIF'],
+    emptyHintKey: 'tool.compressor.emptyHint',
+    emptySubHintKey: 'tool.compressor.emptySubHint',
+    formatLinesKeys: ['tool.compressor.formatLines.0'],
   },
   {
     id: 'shelf',
-    title: 'الدرج المؤقت',
-    description: 'حفظ واسترجاع الصور',
+    titleKey: 'tool.shelf.title',
+    descriptionKey: 'tool.shelf.description',
     icon: Archive,
     colorClass: 'amber',
-    emptyHint: 'اسحب ملفات هنا للحفظ المؤقت',
-    emptySubHint: 'حفظ واسترجاع أي ملفات',
-    formatLines: ['جميع أنواع الملفات مدعومة'],
+    emptyHintKey: 'tool.shelf.emptyHint',
+    emptySubHintKey: 'tool.shelf.emptySubHint',
+    formatLinesKeys: ['tool.shelf.formatLines.0'],
   },
 
   // --- AI Enhancement ---
   {
     id: 'upscaler',
-    title: 'رفع الدقة',
-    description: 'تحسين جودة الصور 4X',
-    icon: ImagePlus,
+    titleKey: 'tool.upscaler.title',
+    descriptionKey: 'tool.upscaler.description',
+    icon: Maximize2,
     colorClass: 'pink',
-    emptyHint: 'اسحب صور هنا لرفع الدقة',
-    emptySubHint: 'تحسين جودة الصور 4X بالذكاء الاصطناعي',
-    formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF'],
+    emptyHintKey: 'tool.upscaler.emptyHint',
+    emptySubHintKey: 'tool.upscaler.emptySubHint',
+    formatLinesKeys: ['tool.upscaler.formatLines.0'],
   },
   {
     id: 'pdf',
-    title: 'أدوات PDF',
-    description: 'دمج وتنظيم وضغط ملفات PDF',
+    titleKey: 'tool.pdf.title',
+    descriptionKey: 'tool.pdf.description',
     icon: FileText,
     colorClass: 'red',
-    emptyHint: 'اسحب ملفات PDF هنا',
-    emptySubHint: 'دمج وتنظيم وضغط ملفات PDF',
-    formatLines: ['مستندات: PDF'],
+    emptyHintKey: 'tool.pdf.emptyHint',
+    emptySubHintKey: 'tool.pdf.emptySubHint',
+    formatLinesKeys: ['tool.pdf.formatLines.0'],
   },
 
   // --- Utilities ---
   {
     id: 'converter',
-    title: 'تحويل الصيغة',
-    description: 'تحويل صيغ الصور والفيديو والصوت',
+    titleKey: 'tool.converter.title',
+    descriptionKey: 'tool.converter.description',
     icon: ArrowRightLeft,
     colorClass: 'blue',
-    emptyHint: 'اسحب ملفات هنا للتحويل',
-    emptySubHint: 'تحويل صيغ الصور والفيديو والصوت',
-    formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF · PSD · AI', 'فيديو: MP4 · WEBM · MOV · AVI · MKV · GIF', 'صوت: MP3 · WAV · OGG'],
+    emptyHintKey: 'tool.converter.emptyHint',
+    emptySubHintKey: 'tool.converter.emptySubHint',
+    formatLinesKeys: ['tool.converter.formatLines.0', 'tool.converter.formatLines.1', 'tool.converter.formatLines.2'],
   },
   {
     id: 'metadata',
-    title: 'حذف البيانات',
-    description: 'إزالة بيانات الموقع والخصوصية',
+    titleKey: 'tool.metadata.title',
+    descriptionKey: 'tool.metadata.description',
     icon: ShieldAlert,
     colorClass: 'orange',
-    emptyHint: 'اسحب ملفات هنا لحذف البيانات',
-    emptySubHint: 'إزالة EXIF ومعلومات الكاميرا والموقع',
-    formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF · GIF', 'مستندات: PDF'],
+    emptyHintKey: 'tool.metadata.emptyHint',
+    emptySubHintKey: 'tool.metadata.emptySubHint',
+    formatLinesKeys: ['tool.metadata.formatLines.0', 'tool.metadata.formatLines.1'],
   },
   {
     id: 'watermark',
-    title: 'علامة مائية',
-    description: 'إضافة ختم الحقوق',
-    icon: Stamp,
+    titleKey: 'tool.watermark.title',
+    descriptionKey: 'tool.watermark.description',
+    icon: Copyright,
     colorClass: 'cyan',
-    emptyHint: 'اسحب ملفات هنا لإضافة علامة مائية',
-    emptySubHint: 'إضافة نص على الصور وملفات PDF',
-    formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF · GIF', 'مستندات: PDF'],
+    emptyHintKey: 'tool.watermark.emptyHint',
+    emptySubHintKey: 'tool.watermark.emptySubHint',
+    formatLinesKeys: ['tool.watermark.formatLines.0', 'tool.watermark.formatLines.1'],
   },
 
   // --- Advanced ---
   {
     id: 'vectorizer',
-    title: 'تحويل لـ Vector',
-    description: 'تحويل الصورة لـ SVG',
+    titleKey: 'tool.vectorizer.title',
+    descriptionKey: 'tool.vectorizer.description',
     icon: PenTool,
     colorClass: 'rose',
-    emptyHint: 'اسحب صورة هنا للتحويل',
-    emptySubHint: 'تحويل الصورة لرسم متجه SVG',
-    formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF'],
+    emptyHintKey: 'tool.vectorizer.emptyHint',
+    emptySubHintKey: 'tool.vectorizer.emptySubHint',
+    formatLinesKeys: ['tool.vectorizer.formatLines.0'],
   },
   {
     id: 'ocr',
-    title: 'استخراج النص',
-    description: 'قراءة النصوص من الصور',
+    titleKey: 'tool.ocr.title',
+    descriptionKey: 'tool.ocr.description',
     icon: ScanText,
     colorClass: 'fuchsia',
-    emptyHint: 'اسحب صورة أو PDF لاستخراج النص',
-    emptySubHint: 'قراءة النصوص من الصور والمستندات',
-    formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF', 'مستندات: PDF'],
+    emptyHintKey: 'tool.ocr.emptyHint',
+    emptySubHintKey: 'tool.ocr.emptySubHint',
+    formatLinesKeys: ['tool.ocr.formatLines.0', 'tool.ocr.formatLines.1'],
   },
   {
     id: 'palette',
-    title: 'استخراج الألوان',
-    description: 'استخراج الألوان من الصور',
+    titleKey: 'tool.palette.title',
+    descriptionKey: 'tool.palette.description',
     icon: Palette,
     colorClass: 'violet',
-    emptyHint: 'اسحب صورة هنا لاستخراج الألوان',
-    emptySubHint: 'استخراج الألوان السائدة مع أكواد HEX',
-    formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF · GIF'],
+    emptyHintKey: 'tool.palette.emptyHint',
+    emptySubHintKey: 'tool.palette.emptySubHint',
+    formatLinesKeys: ['tool.palette.formatLines.0'],
   },
   {
     id: 'cropper',
-    title: 'قص الصورة',
-    description: 'تعديل أبعاد الصورة',
+    titleKey: 'tool.cropper.title',
+    descriptionKey: 'tool.cropper.description',
     icon: Crop,
     colorClass: 'orange',
-    emptyHint: 'اسحب صورة هنا للقص',
-    emptySubHint: 'تعديل أبعاد الصورة',
-    formatLines: ['صور: JPG · PNG · WEBP · BMP · TIFF'],
+    emptyHintKey: 'tool.cropper.emptyHint',
+    emptySubHintKey: 'tool.cropper.emptySubHint',
+    formatLinesKeys: ['tool.cropper.formatLines.0'],
   }
 ];

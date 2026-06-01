@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, MouseEvent as ReactMouseEvent } from 'react';
 import { Check, X, Square, Monitor, Smartphone, GripHorizontal } from 'lucide-react';
+import { useI18n } from '../../i18n/I18nContext';
 
 interface CropperToolProps {
     imageSrc: string;
@@ -28,6 +29,8 @@ export const CropperTool: React.FC<CropperToolProps> = ({ imageSrc, onSave, onCa
         startY: number,
         startCrop: typeof crop
     }>({ active: false, type: null, startX: 0, startY: 0, startCrop: { ...crop } });
+
+    const { t } = useI18n();
 
     // Measure image position relative to the canvas container
     const updateImageLayout = useCallback(() => {
@@ -276,7 +279,7 @@ export const CropperTool: React.FC<CropperToolProps> = ({ imageSrc, onSave, onCa
     };
 
     const aspectOptions = [
-        { id: 'free', icon: <GripHorizontal className="w-3 h-3" />, label: 'حر' },
+        { id: 'free', icon: <GripHorizontal className="w-3 h-3" />, label: t('cropper.free') },
         { id: '1:1', icon: <Square className="w-3 h-3" />, label: '1:1' },
         { id: '16:9', icon: <Monitor className="w-3 h-3" />, label: '16:9' },
         { id: '4:3', icon: <Monitor className="w-2.5 h-2.5" />, label: '4:3' },
@@ -290,8 +293,8 @@ export const CropperTool: React.FC<CropperToolProps> = ({ imageSrc, onSave, onCa
         // except to possibly stop propagation if needed, but we used window listeners.
         >
             {/* Compact Toolbar */}
-            <div className="h-9 bg-slate-900/90 border-b border-white/5 flex items-center justify-between px-2 shrink-0 z-20">
-                <div className="flex items-center gap-px bg-slate-800/60 p-0.5 rounded-md border border-white/5">
+            <div className="h-9 bg-[var(--surface)] border-b border-[var(--separator)] flex items-center justify-between px-2 shrink-0 z-20">
+                <div className="flex items-center gap-px bg-[var(--surface-2)] p-0.5 rounded-md border border-[var(--separator)]">
                     {aspectOptions.map(opt => (
                         <button
                             key={opt.id}
@@ -299,8 +302,8 @@ export const CropperTool: React.FC<CropperToolProps> = ({ imageSrc, onSave, onCa
                             className={`
                                 flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium transition-all
                                 ${aspect === opt.id
-                                    ? 'bg-orange-500 text-white shadow-sm'
-                                    : 'text-slate-400 hover:bg-slate-700/50 hover:text-slate-200'
+                                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                                    : 'text-[var(--text-2)] hover:bg-[var(--surface-3)] hover:text-[var(--text)]'
                                 }
                             `}
                             title={opt.label}
@@ -313,17 +316,17 @@ export const CropperTool: React.FC<CropperToolProps> = ({ imageSrc, onSave, onCa
                 <div className="flex items-center gap-1">
                     <button
                         onClick={onCancel}
-                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
-                        title="إلغاء"
+                        className="p-1 rounded text-[var(--text-2)] hover:text-[var(--text)] hover:bg-[var(--surface-3)] transition-colors"
+                        title={t('cropper.cancel')}
                     >
                         <X className="w-3.5 h-3.5" />
                     </button>
                     <button
                         onClick={handleSave}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-[10px] font-bold shadow-sm transition-all active:scale-95"
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-[10px] font-bold shadow-sm transition-all active:scale-95"
                     >
                         <Check className="w-3 h-3" />
-                        <span>قص</span>
+                        <span>{t('cropper.crop')}</span>
                     </button>
                 </div>
             </div>
