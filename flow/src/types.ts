@@ -3,6 +3,7 @@ import { LucideIcon } from 'lucide-react';
 
 export type ToolId =
   | 'remover'
+  | 'remover2'   // Background Remover (BEN2) — higher-quality, on-demand
   | 'compressor'
   | 'shelf'
   | 'converter'

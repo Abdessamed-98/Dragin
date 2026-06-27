@@ -4,14 +4,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     FileText, Upload, Loader2, Download, Trash2, AlertCircle,
     GripVertical, X, Plus, Layers, LayoutGrid, Minimize2, Check, FileOutput,
-    Copy, ClipboardPaste, Ban
+    Copy, ClipboardPaste, Ban, FileSearch
 } from 'lucide-react';
-import { getPdfThumbnails, mergePdfs, organizePdf, compressPdf, convertPdfToWord, convertPdfToPptx } from '../../services/api';
+import { getPdfThumbnails, mergePdfs, organizePdf, compressPdf, convertPdfToWord, convertPdfToPptx, makePdfSearchable } from '../../services/api';
 import type { PdfCompressPreset } from '../../services/api';
 import JSZip from 'jszip';
 import { useI18n } from '../../i18n/I18nContext';
 
-type PdfSubtool = 'merge' | 'organize' | 'compress' | 'convert' | null;
+type PdfSubtool = 'merge' | 'organize' | 'compress' | 'convert' | 'searchable' | null;
 
 interface PdfFileItem {
     id: string;
@@ -324,6 +324,36 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
             setShowDownload(true);
         } catch (err: any) {
             setError(err?.message || t('pdf.convertFailed'));
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    // ── Make searchable (OCR text layer) ─────────────────────────────────
+    const handleSearchable = async () => {
+        setIsProcessing(true);
+        setError(null);
+        try {
+            const newFiles: PdfFileItem[] = [];
+            for (let i = 0; i < pdfFiles.length; i++) {
+                setProcessingLabel(t('pdf.searchableFile', { current: String(i + 1), total: String(pdfFiles.length) }));
+                const result = await makePdfSearchable(pdfFiles[i].file);
+                const blob = await (await fetch(result.dataUrl)).blob();
+                const searchable = new File([blob], pdfFiles[i].name, { type: 'application/pdf' });
+                newFiles.push({
+                    id: genId(),
+                    file: searchable,
+                    name: pdfFiles[i].name,
+                    pageCount: pdfFiles[i].pageCount,
+                    sizeBytes: blob.size,
+                    thumbnailUrl: pdfFiles[i].thumbnailUrl,
+                });
+            }
+            setPdfFiles(newFiles);
+            setActiveSubtool(null);
+            setShowDownload(true);
+        } catch (err: any) {
+            setError(err?.message || t('pdf.searchableFailed'));
         } finally {
             setIsProcessing(false);
         }
@@ -721,25 +751,40 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                             exit={{ opacity: 0 }}
                             className="flex-1 flex flex-col gap-2 min-h-0"
                         >
-                            {/* Service selector row */}
-                            <div className="flex gap-1.5 shrink-0">
+                            {/* Service selector row — icon-only; label slides in for the active one */}
+                            <div className="flex gap-1.5 shrink-0 justify-center">
                                 {([
                                     { id: 'merge' as PdfSubtool, label: t('pdf.merge'), Icon: Layers },
                                     { id: 'organize' as PdfSubtool, label: t('pdf.organize'), Icon: LayoutGrid },
                                     { id: 'compress' as PdfSubtool, label: t('pdf.compress'), Icon: Minimize2 },
                                     { id: 'convert' as PdfSubtool, label: t('pdf.convert'), Icon: FileOutput },
+                                    { id: 'searchable' as PdfSubtool, label: t('pdf.searchable'), Icon: FileSearch },
                                 ]).map(s => (
                                     <button
                                         key={s.id}
                                         onClick={() => { setActiveSubtool(s.id); setShowDownload(false); }}
-                                        className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                                        title={s.label}
+                                        className={`flex items-center justify-center px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border overflow-hidden ${
                                             activeSubtool === s.id
                                                 ? 'bg-red-600/20 text-red-300 border-red-500/30'
                                                 : 'bg-[var(--surface)] text-[var(--text-2)] hover:text-[var(--text)] border-[var(--separator)] hover:border-[var(--border)]'
                                         }`}
                                     >
-                                        <s.Icon className="w-3.5 h-3.5" />
-                                        {s.label}
+                                        <s.Icon className="w-3.5 h-3.5 shrink-0" />
+                                        <AnimatePresence initial={false}>
+                                            {activeSubtool === s.id && (
+                                                <motion.span
+                                                    key="label"
+                                                    initial={{ width: 0, opacity: 0, marginLeft: 0 }}
+                                                    animate={{ width: 'auto', opacity: 1, marginLeft: 6 }}
+                                                    exit={{ width: 0, opacity: 0, marginLeft: 0 }}
+                                                    transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                                                    className="overflow-hidden whitespace-nowrap"
+                                                >
+                                                    {s.label}
+                                                </motion.span>
+                                            )}
+                                        </AnimatePresence>
                                     </button>
                                 ))}
                             </div>
@@ -945,6 +990,14 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                         >
                             <FileOutput className="w-4 h-4" />
                             {t('pdf.convertFiles')}
+                        </button>
+                    ) : hasFiles && activeSubtool === 'searchable' ? (
+                        <button
+                            onClick={handleSearchable}
+                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-red-600 hover:bg-red-500 text-white"
+                        >
+                            <FileSearch className="w-4 h-4" />
+                            {t('pdf.makeSearchable')}
                         </button>
                     ) : (
                         <button
@@ -1172,6 +1225,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                 { id: 'organize' as PdfSubtool, label: t('pdf.organize'), Icon: LayoutGrid },
                                 { id: 'compress' as PdfSubtool, label: t('pdf.compress'), Icon: Minimize2 },
                                 { id: 'convert' as PdfSubtool, label: t('pdf.convert'), Icon: FileOutput },
+                                { id: 'searchable' as PdfSubtool, label: t('pdf.makeSearchable'), Icon: FileSearch },
                             ]).map(s => (
                                 <button
                                     key={s.id}

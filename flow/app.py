@@ -160,6 +160,123 @@ def unload_models():
     _unload_models()
     return jsonify({"ok": True})
 
+
+# ── BEN2 background remover (on-demand, single model, no modes) ──────
+# BEN2 (Background Erase Network 2) — higher-quality matting via the `ben2`
+# PyTorch package. Point the HuggingFace cache at the downloaded tool dir so
+# the weights load offline.
+if TOOLS_DIR:
+    _ben2_dir = os.path.join(TOOLS_DIR, 'remover2')
+    if os.path.isdir(_ben2_dir):
+        os.environ.setdefault('HF_HOME', os.path.join(_ben2_dir, 'hf'))
+
+_ben2_model = None              # (model, device) tuple once loaded
+_ben2_lock = threading.Lock()
+_ben2_last_used = 0.0
+
+def _load_ben2():
+    """Lazy-load the BEN2 model. Raises ImportError if ben2/torch not installed."""
+    global _ben2_model, _ben2_last_used
+    with _ben2_lock:
+        _ben2_last_used = time.time()
+        if _ben2_model is None:
+            import torch
+            from ben2 import BEN_Base
+            print("[BEN2] Loading model ...")
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            m = BEN_Base.from_pretrained("PramaLLC/BEN2")
+            m.to(device).eval()
+            _ben2_model = (m, device)
+            print(f"[BEN2] Model ready on {device}.")
+        return _ben2_model
+
+def _unload_ben2():
+    """Free the cached BEN2 model to reclaim memory."""
+    global _ben2_model
+    with _ben2_lock:
+        if _ben2_model is not None:
+            _ben2_model = None
+            import gc; gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+            print("[BEN2] Unloaded model — memory freed")
+
+def _ben2_idle_watcher():
+    """Background thread: unload BEN2 after idle timeout."""
+    global _ben2_model
+    while True:
+        time.sleep(60)
+        with _ben2_lock:
+            if _ben2_model is not None and _ben2_last_used > 0:
+                if time.time() - _ben2_last_used >= _MODEL_IDLE_TIMEOUT:
+                    _ben2_model = None
+                    import gc; gc.collect()
+                    print("[BEN2] Auto-unloaded after idle")
+
+threading.Thread(target=_ben2_idle_watcher, daemon=True).start()
+
+
+@app.route('/ben2/process', methods=['POST'])
+def ben2_process():
+    global _ben2_last_used
+    try:
+        model, device = _load_ben2()
+    except ImportError:
+        return jsonify({"error": "BEN2 not installed. Install 'Background Remover (BEN2)' from Store."}), 503
+
+    if 'images' not in request.files:
+        return jsonify({"error": "No images"}), 400
+
+    files = request.files.getlist('images')
+    results = []
+    req_start = time.perf_counter()
+
+    for file in files:
+        t0 = time.perf_counter()
+        input_image = Image.open(io.BytesIO(file.read())).convert("RGB")
+        w, h = input_image.size
+        t_load = time.perf_counter() - t0
+
+        t1 = time.perf_counter()
+        # refine_foreground is an iterative full-res matte refine — very slow on CPU,
+        # so keep it off for the CPU path (the base BEN2 matte is already high quality).
+        foreground = model.inference(input_image, refine_foreground=False)
+        t_infer = time.perf_counter() - t1
+
+        t2 = time.perf_counter()
+        buffered = io.BytesIO()
+        foreground.save(buffered, format="PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        t_encode = time.perf_counter() - t2
+
+        print(f"[BEN2] {file.filename} ({w}x{h}) device={device} | "
+              f"load={t_load:.2f}s infer={t_infer:.2f}s encode={t_encode:.2f}s")
+
+        results.append({"name": file.filename, "data": img_str})
+
+    _ben2_last_used = time.time()  # keep alive across long batches
+    print(f"[BEN2] Request done: {len(files)} file(s) in {time.perf_counter()-req_start:.2f}s")
+    return jsonify({"results": results})
+
+
+@app.route('/ben2/model-status', methods=['GET'])
+def ben2_model_status():
+    """Check whether the BEN2 model is already loaded."""
+    with _ben2_lock:
+        loaded = _ben2_model is not None
+    return jsonify({"loaded": loaded, "model": "BEN2"})
+
+
+@app.route('/ben2/unload', methods=['POST'])
+def ben2_unload():
+    """Explicitly free the cached BEN2 model to reclaim RAM."""
+    _unload_ben2()
+    return jsonify({"ok": True})
+
 @app.route('/compress', methods=['POST'])
 def compress():
     if 'image' not in request.files:
@@ -275,12 +392,21 @@ def vectorize():
 
     file = request.files['image']
     colormode = request.form.get('colormode', 'color')  # 'color' or 'binary'
+    mode = request.form.get('mode', 'spline')            # 'spline' | 'polygon' | 'none'
+    hierarchical = request.form.get('hierarchical', 'stacked')  # 'stacked' | 'cutout'
+    layer_difference = int(request.form.get('layer_difference', 16))
     corner_threshold = int(request.form.get('corner_threshold', 60))
     length_threshold = float(request.form.get('length_threshold', 4.0))
     splice_threshold = int(request.form.get('splice_threshold', 45))
     filter_speckle = int(request.form.get('filter_speckle', 4))
     color_precision = int(request.form.get('color_precision', 6))
     path_precision = int(request.form.get('path_precision', 8))
+
+    # Validate enums so a bad value can't crash vtracer
+    if mode not in ('spline', 'polygon', 'none'):
+        mode = 'spline'
+    if hierarchical not in ('stacked', 'cutout'):
+        hierarchical = 'stacked'
 
     try:
         raw_bytes = file.read()
@@ -310,10 +436,11 @@ def vectorize():
             png_bytes,
             img_format='png',
             colormode=colormode,
-            hierarchical='stacked',
-            mode='spline',
+            hierarchical=hierarchical,
+            mode=mode,
             filter_speckle=filter_speckle,
             color_precision=color_precision,
+            layer_difference=layer_difference,
             corner_threshold=corner_threshold,
             length_threshold=length_threshold,
             splice_threshold=splice_threshold,
@@ -685,6 +812,125 @@ def pdf_compress():
         return jsonify({"error": str(e)}), 500
 
 
+# Cache the Unicode font path used for the (invisible) OCR text layer.
+_ocr_layer_font = None
+
+def _get_ocr_layer_font():
+    """Register a Unicode TTF (Arabic+Latin) for the searchable text layer.
+    Returns the reportlab font name; falls back to 'Helvetica' (Latin only)."""
+    global _ocr_layer_font
+    if _ocr_layer_font is not None:
+        return _ocr_layer_font
+    _ocr_layer_font = 'Helvetica'
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        candidates = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'ocr', 'ocr_layer.ttf'),
+            r'C:\Windows\Fonts\arial.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+            '/Library/Fonts/Arial Unicode.ttf',
+        ]
+        for fp in candidates:
+            if os.path.isfile(fp):
+                pdfmetrics.registerFont(TTFont('ocrlayer', fp))
+                _ocr_layer_font = 'ocrlayer'
+                break
+    except Exception as e:
+        print(f"[PDF Searchable] font register skipped: {e}")
+    return _ocr_layer_font
+
+
+@app.route('/pdf/searchable', methods=['POST'])
+def pdf_searchable():
+    """Add an invisible OCR text layer so a scanned PDF becomes selectable/searchable.
+    Permissive stack: pypdfium2 (render) + RapidOCR (ocr) + reportlab (overlay) + pypdf (merge)."""
+    if 'pdf' not in request.files:
+        return jsonify({"error": "No PDF provided"}), 400
+    try:
+        get_ocr_reader()
+    except ImportError:
+        return jsonify({"error": "OCR engine not available."}), 503
+
+    file = request.files['pdf']
+    raw = file.read()
+
+    try:
+        import pypdfium2 as pdfium
+        from reportlab.pdfgen import canvas as rl_canvas
+        from pypdf import PdfReader, PdfWriter
+
+        engine = get_ocr_reader()
+        font_name = _get_ocr_layer_font()
+        DPI = 200
+        scale = DPI / 72.0
+
+        # 1) Build an invisible text overlay (one page per source page).
+        overlay_buf = io.BytesIO()
+        c = rl_canvas.Canvas(overlay_buf)
+        src = pdfium.PdfDocument(raw)
+        n_pages = len(src)
+        for i in range(n_pages):
+            page = src[i]
+            w_pt, h_pt = page.get_size()  # PDF points
+            c.setPageSize((w_pt, h_pt))
+
+            pil = page.render(scale=scale).to_pil().convert('RGB')
+            result, _ = engine(np.array(pil))
+
+            for line in (result or []):
+                box, text = line[0], line[1]
+                if not text or not text.strip():
+                    continue
+                text = _fix_arabic_line(text)
+                xs = [p[0] for p in box]; ys = [p[1] for p in box]
+                x_pt = min(xs) / scale
+                box_w = max(1.0, (max(xs) - min(xs)) / scale)
+                box_h = max(1.0, (max(ys) - min(ys)) / scale)
+                baseline = h_pt - (max(ys) / scale)
+                fs = box_h * 0.9
+                to = c.beginText()
+                to.setTextRenderMode(3)  # 3 = invisible
+                to.setFont(font_name, fs)
+                try:
+                    sw = c.stringWidth(text, font_name, fs)
+                    if sw > 0:
+                        to.setHorizScale(100.0 * box_w / sw)  # stretch to align with glyphs
+                except Exception:
+                    pass
+                to.setTextOrigin(x_pt, baseline)
+                to.textLine(text)
+                c.drawText(to)
+
+            c.showPage()
+        c.save()
+        src.close()
+        overlay_buf.seek(0)
+
+        # 2) Stamp the text layer onto the original pages (keeps original visuals intact).
+        reader = PdfReader(io.BytesIO(raw))
+        overlay = PdfReader(overlay_buf)
+        writer = PdfWriter()
+        for i, pg in enumerate(reader.pages):
+            if i < len(overlay.pages):
+                try:
+                    pg.merge_page(overlay.pages[i])
+                except Exception:
+                    pass
+            writer.add_page(pg)
+
+        out = io.BytesIO()
+        writer.write(out)
+        out_bytes = out.getvalue()
+        b64 = base64.b64encode(out_bytes).decode('utf-8')
+        return jsonify({"data": b64, "size": len(out_bytes), "pages": n_pages})
+
+    except Exception as e:
+        print(f"[PDF Searchable] Error: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/pdf/to-word', methods=['POST'])
 def pdf_to_word():
     if 'pdf' not in request.files:
@@ -826,7 +1072,14 @@ FFMPEG_PRESETS = {
     'wav':  ['-vn', '-c:a', 'pcm_s16le'],
     'ogg':  ['-vn', '-c:a', 'libvorbis', '-q:a', '5'],
     'gif':  ['-vf', 'fps=15,scale=480:-1:flags=lanczos', '-loop', '0'],
+    # AV1 (modern, ~30% smaller than HEVC). Software libaom at cpu-used 8 + row-mt
+    # keeps CPU encoding tolerable; muxed into an MP4 container.
+    'av1':  ['-c:v', 'libaom-av1', '-crf', '30', '-b:v', '0', '-cpu-used', '8',
+             '-row-mt', '1', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart'],
 }
+
+# Targets that are a codec living in a different container → real output extension.
+OUTPUT_CONTAINER = {'av1': 'mp4'}
 
 def run_ffmpeg_job(job_id, ffmpeg_path, ffprobe_path, input_path, output_path, target_format):
     """Background thread: run FFmpeg and track progress."""
@@ -870,7 +1123,7 @@ def run_ffmpeg_job(job_id, ffmpeg_path, ffprobe_path, input_path, output_path, t
             out_bytes = f.read()
 
         mime_map = {
-            'mp4': 'video/mp4', 'webm': 'video/webm', 'mov': 'video/quicktime',
+            'mp4': 'video/mp4', 'av1': 'video/mp4', 'webm': 'video/webm', 'mov': 'video/quicktime',
             'avi': 'video/x-msvideo', 'mkv': 'video/x-matroska',
             'mp3': 'audio/mpeg', 'wav': 'audio/wav', 'ogg': 'audio/ogg',
             'gif': 'image/gif',
@@ -916,7 +1169,7 @@ def convert_image():
     file = request.files['file']
     target = request.form.get('format', 'png').lower()
 
-    allowed = {'jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff'}
+    allowed = {'jpg', 'jpeg', 'png', 'webp', 'avif', 'bmp', 'tiff'}
     if target not in allowed:
         return jsonify({'error': f'Unsupported format: {target}'}), 400
 
@@ -937,13 +1190,13 @@ def convert_image():
             img = Image.open(io.BytesIO(raw))
 
         # Map target to Pillow format name
-        fmt_map = {'jpg': 'JPEG', 'jpeg': 'JPEG', 'png': 'PNG', 'webp': 'WEBP', 'bmp': 'BMP', 'tiff': 'TIFF'}
+        fmt_map = {'jpg': 'JPEG', 'jpeg': 'JPEG', 'png': 'PNG', 'webp': 'WEBP', 'avif': 'AVIF', 'bmp': 'BMP', 'tiff': 'TIFF'}
         pil_format = fmt_map[target]
 
         # Handle mode conversion
         if pil_format == 'JPEG' and img.mode in ('RGBA', 'P', 'LA'):
             img = img.convert('RGB')
-        elif pil_format in ('PNG', 'WEBP') and img.mode not in ('RGB', 'RGBA'):
+        elif pil_format in ('PNG', 'WEBP', 'AVIF') and img.mode not in ('RGB', 'RGBA'):
             img = img.convert('RGBA')
         elif pil_format in ('BMP', 'TIFF') and img.mode not in ('RGB', 'RGBA'):
             img = img.convert('RGB')
@@ -954,6 +1207,8 @@ def convert_image():
             save_kwargs = {'quality': 90, 'optimize': True}
         elif pil_format == 'WEBP':
             save_kwargs = {'quality': 90, 'method': 4}
+        elif pil_format == 'AVIF':
+            save_kwargs = {'quality': 80, 'speed': 6}  # AV1 image: ~30-50% smaller than JPEG
         elif pil_format == 'PNG':
             save_kwargs = {'optimize': True}
 
@@ -961,7 +1216,7 @@ def convert_image():
         out_bytes = buf.getvalue()
 
         mime_map = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
-                    'webp': 'image/webp', 'bmp': 'image/bmp', 'tiff': 'image/tiff'}
+                    'webp': 'image/webp', 'avif': 'image/avif', 'bmp': 'image/bmp', 'tiff': 'image/tiff'}
         mime = mime_map[target]
         b64 = base64.b64encode(out_bytes).decode('utf-8')
 
@@ -1001,7 +1256,7 @@ def convert_video():
         input_path = os.path.join(tmp_dir, f'input{in_ext}')
         file.save(input_path)
 
-        output_path = os.path.join(tmp_dir, f'output.{target}')
+        output_path = os.path.join(tmp_dir, f'output.{OUTPUT_CONTAINER.get(target, target)}')
 
         with convert_jobs_lock:
             convert_jobs[job_id] = {
@@ -1631,6 +1886,10 @@ def tools_status():
         status['remover'] = True
     except ImportError:
         status['remover'] = False
+
+    # Remover (BEN2): check if the ben2 package is present (without importing torch)
+    import importlib.util
+    status['remover2'] = importlib.util.find_spec('ben2') is not None
 
     # OCR: check if rapidocr is importable
     try:

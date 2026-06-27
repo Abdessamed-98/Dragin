@@ -11,6 +11,10 @@ opencv-python-headless>=4.10
 PyMuPDF>=1.27
 pdf2docx==0.5.9
 python-pptx>=1.0
+# Searchable-PDF (OCR text layer) — permissive stack (BSD/Apache/MPL)
+pypdfium2>=4.30
+reportlab>=4.0
+pypdf>=5.0
 vtracer>=0.6
 rembg>=2.0
 onnxruntime>=1.24

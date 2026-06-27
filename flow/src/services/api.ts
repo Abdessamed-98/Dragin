@@ -74,6 +74,49 @@ export const unloadRemoverModels = async (): Promise<void> => {
   await fetch(`${BASE_URL}/process/unload`, { method: 'POST' }).catch(() => {});
 };
 
+// 1.b Background Remover (BEN2) — single high-quality model, no modes.
+export const removeBackgroundBen2 = async (file: File): Promise<string> => {
+  const results = await removeBackgroundBen2Batch([file]);
+  return results[0];
+};
+
+/** Batch BEN2 background removal — one request, data-URLs returned in order. */
+export const removeBackgroundBen2Batch = async (files: File[]): Promise<string[]> => {
+  try {
+    const formData = new FormData();
+    files.forEach(f => formData.append('images', f));
+
+    const res = await fetch(`${BASE_URL}/ben2/process`, { method: 'POST', body: formData });
+    if (!res.ok) throw new Error(`Server error: ${res.status}`);
+
+    const data = await res.json();
+    if (data.results && data.results.length > 0) {
+      return data.results.map((r: { data: string }) => `data:image/png;base64,${r.data}`);
+    }
+    throw new Error('No results from server');
+  } catch (err) {
+    console.error('BEN2 background removal failed:', err);
+    throw err;
+  }
+};
+
+/** Check whether the BEN2 model is already loaded in memory. */
+export const checkBen2ModelLoaded = async (): Promise<boolean> => {
+  try {
+    const res = await fetch(`${BASE_URL}/ben2/model-status`);
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.loaded === true;
+  } catch {
+    return false;
+  }
+};
+
+/** Tell the backend to free the cached BEN2 model. */
+export const unloadBen2Model = async (): Promise<void> => {
+  await fetch(`${BASE_URL}/ben2/unload`, { method: 'POST' }).catch(() => {});
+};
+
 // 1.1 Remove Empty Space (Trim Transparency - Canvas API)
 export const trimTransparency = async (dataUrl: string): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -92,19 +135,27 @@ export const trimTransparency = async (dataUrl: string): Promise<string> => {
 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
-      let top = null, bottom = null, left = null, right = null;
+      const W = canvas.width, H = canvas.height;
 
-      for (let y = 0; y < canvas.height; y++) {
-        for (let x = 0; x < canvas.width; x++) {
-          const alpha = data[(y * canvas.width + x) * 4 + 3];
-          if (alpha > 30) {
-            if (top === null) top = y;
-            if (left === null || x < left) left = x;
-            if (right === null || x > right) right = x;
-            if (bottom === null || y > bottom) bottom = y;
-          }
+      // Count opaque pixels per row/column instead of using "any single pixel".
+      // AI matters (BEN2) leave faint scattered residue in the background; a few
+      // stray pixels above a low threshold would otherwise keep the bounding box
+      // at full size. Requiring a minimum run of solid pixels per row/column
+      // rejects that noise so the crop hugs the actual subject.
+      const ALPHA_T = 48;                                  // must be clearly opaque to count
+      const minRun = Math.max(2, Math.round(Math.min(W, H) * 0.005)); // ~0.5% noise floor
+      const rowCount = new Uint32Array(H);
+      const colCount = new Uint32Array(W);
+      for (let y = 0; y < H; y++) {
+        const base = y * W * 4;
+        for (let x = 0; x < W; x++) {
+          if (data[base + x * 4 + 3] > ALPHA_T) { rowCount[y]++; colCount[x]++; }
         }
       }
+
+      let top = null, bottom = null, left = null, right = null;
+      for (let y = 0; y < H; y++) if (rowCount[y] >= minRun) { if (top === null) top = y; bottom = y; }
+      for (let x = 0; x < W; x++) if (colCount[x] >= minRun) { if (left === null) left = x; right = x; }
 
       if (top !== null && left !== null && right !== null && bottom !== null) {
         const trimWidth = right - left + 1;
@@ -323,6 +374,9 @@ export const addWatermark = async (file: File, options: WatermarkOptions): Promi
 // 9. Vectorizer (vtracer backend)
 export interface VectorizeOptions {
   colormode: 'color' | 'binary';
+  mode: 'spline' | 'polygon' | 'none';   // curve fit: smooth / straight / pixel
+  hierarchical: 'stacked' | 'cutout';    // layered vs non-overlapping regions
+  layer_difference: number;   // color delta to merge layers (higher = flatter)
   corner_threshold: number;   // 0-180, higher = smoother
   length_threshold: number;   // path segment smoothing
   splice_threshold: number;   // 0-180, curve splice threshold
@@ -341,6 +395,9 @@ export const vectorizeImage = async (
   // Apply defaults then user overrides
   const defaults: VectorizeOptions = {
     colormode: 'color',
+    mode: 'spline',
+    hierarchical: 'stacked',
+    layer_difference: 16,
     corner_threshold: 60,
     length_threshold: 4.0,
     splice_threshold: 45,
@@ -471,6 +528,26 @@ export const compressPdf = async (
   };
 };
 
+// 9.4 Make PDF searchable — adds an invisible OCR text layer (RapidOCR + reportlab).
+export const makePdfSearchable = async (
+  file: File
+): Promise<{ dataUrl: string; size: number; pages: number }> => {
+  const formData = new FormData();
+  formData.append('pdf', file);
+
+  const res = await fetch(`${BASE_URL}/pdf/searchable`, { method: 'POST', body: formData });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(err.error || `Server error: ${res.status}`);
+  }
+  const data = await res.json();
+  return {
+    dataUrl: `data:application/pdf;base64,${data.data}`,
+    size: data.size,
+    pages: data.pages,
+  };
+};
+
 // 9.5 PDF to Word (pdf2docx)
 export const convertPdfToWord = async (file: File): Promise<{ dataUrl: string; size: number }> => {
   const formData = new FormData();
@@ -531,8 +608,8 @@ export const extractText = async (file: File): Promise<{ text: string; pages: nu
 
 // --- Format Converter ---
 
-export type ImageFormat = 'jpg' | 'png' | 'webp' | 'bmp' | 'tiff';
-export type VideoFormat = 'mp4' | 'webm' | 'mov' | 'avi' | 'mkv';
+export type ImageFormat = 'jpg' | 'png' | 'webp' | 'avif' | 'bmp' | 'tiff';
+export type VideoFormat = 'mp4' | 'webm' | 'mov' | 'avi' | 'mkv' | 'av1';
 export type AudioFormat = 'mp3' | 'wav' | 'ogg';
 export type ConvertFormat = ImageFormat | VideoFormat | AudioFormat | 'gif';
 

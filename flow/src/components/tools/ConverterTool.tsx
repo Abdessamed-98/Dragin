@@ -40,8 +40,10 @@ interface ConvertFileItem {
     error?: string;
 }
 
-const IMAGE_FORMATS: ConvertFormat[] = ['jpg', 'png', 'webp', 'bmp', 'tiff'];
-const VIDEO_FORMATS: ConvertFormat[] = ['mp4', 'webm', 'mov', 'avi', 'mkv', 'gif'];
+const IMAGE_FORMATS: ConvertFormat[] = ['jpg', 'png', 'webp', 'avif', 'bmp', 'tiff'];
+const VIDEO_FORMATS: ConvertFormat[] = ['mp4', 'av1', 'webm', 'mov', 'avi', 'mkv', 'gif'];
+// Some targets are a codec in a different container — map to the real file extension.
+const fileExt = (f: ConvertFormat): string => (f === 'av1' ? 'mp4' : f);
 const AUDIO_FORMATS: ConvertFormat[] = ['mp3', 'wav', 'ogg'];
 const GIF_OUTPUT_FORMATS: ConvertFormat[] = ['mp4', 'webm'];
 
@@ -90,8 +92,8 @@ const getAvailableFormats = (type: FileType, currentFormat: string, ffmpegAvaila
 };
 
 const FORMAT_LABELS: Record<string, string> = {
-    jpg: 'JPG', png: 'PNG', webp: 'WebP', bmp: 'BMP', tiff: 'TIFF',
-    mp4: 'MP4', webm: 'WebM', mov: 'MOV', avi: 'AVI', mkv: 'MKV',
+    jpg: 'JPG', png: 'PNG', webp: 'WebP', avif: 'AVIF', bmp: 'BMP', tiff: 'TIFF',
+    mp4: 'MP4', av1: 'AV1', webm: 'WebM', mov: 'MOV', avi: 'AVI', mkv: 'MKV',
     mp3: 'MP3', wav: 'WAV', ogg: 'OGG', gif: 'GIF',
 };
 
@@ -273,7 +275,7 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
             const item = completed[0];
             const link = document.createElement('a');
             link.href = item.resultDataUrl!;
-            link.download = `${item.name.replace(/\.[^.]+$/, '')}.${item.targetFormat}`;
+            link.download = `${item.name.replace(/\.[^.]+$/, '')}.${fileExt(item.targetFormat)}`;
             link.click();
             return;
         }
@@ -283,7 +285,7 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
             await Promise.all(completed.map(async (item) => {
                 const res = await fetch(item.resultDataUrl!);
                 const blob = await res.blob();
-                zip.file(`${item.name.replace(/\.[^.]+$/, '')}.${item.targetFormat}`, blob);
+                zip.file(`${item.name.replace(/\.[^.]+$/, '')}.${fileExt(item.targetFormat)}`, blob);
             }));
             const content = await zip.generateAsync({ type: 'blob' });
             const link = document.createElement('a');
@@ -330,7 +332,7 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
                     reader.readAsDataURL(blob);
                 });
                 const base = item.name.replace(/\.[^.]+$/, '');
-                return { dataUrl, name: `${base}.${item.targetFormat}` };
+                return { dataUrl, name: `${base}.${fileExt(item.targetFormat)}` };
             }));
             if ((window as any).electron?.clipboardWrite) {
                 await (window as any).electron.clipboardWrite(clipItems);

@@ -323,11 +323,12 @@ const savedSettings = loadSettings();
 // Default tool IDs (lightweight, ship with app)
 const DEFAULT_TOOL_IDS = ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadata', 'watermark', 'palette', 'shelf'];
 // All known tool IDs (for migration)
-const ALL_TOOL_IDS = ['remover', 'compressor', 'shelf', 'converter', 'vectorizer', 'ocr', 'palette', 'cropper', 'upscaler', 'pdf', 'metadata', 'watermark'];
+const ALL_TOOL_IDS = ['remover', 'remover2', 'compressor', 'shelf', 'converter', 'vectorizer', 'ocr', 'palette', 'cropper', 'upscaler', 'pdf', 'metadata', 'watermark'];
 
 // Download URLs for on-demand tools (mirrors toolRegistry.ts for main process)
 const TOOL_DOWNLOAD_URLS = {
     remover:   'https://github.com/Abdessamed-98/flow-tools/releases/download/remover-v1/remover-win-x64.zip',
+    remover2:  'https://github.com/Abdessamed-98/flow-tools/releases/download/remover2-v1/remover2-win-x64.zip',
     upscaler:  'https://github.com/Abdessamed-98/flow-tools/releases/download/upscaler-v1/upscaler-win-x64.zip',
     ocr:       'https://github.com/Abdessamed-98/flow-tools/releases/download/ocr-v1/ocr-win-x64.zip',
     converter: 'https://github.com/Abdessamed-98/flow-tools/releases/download/converter-v1/converter-win-x64.zip',
@@ -485,9 +486,104 @@ function extractZip(zipPath, targetDir, onProgress) {
 // --- TOOL INSTALLATION (real download + extract) ---
 let activeInstalls = {}; // { [toolId]: AbortController }
 
+// Tools whose runtime is a Python package installed into the backend env (pip)
+// rather than a downloadable zip bundle. Installing runs pip instead of fetching.
+const PIP_TOOLS = {
+    remover2: {
+        steps: [
+            { label: 'PyTorch (CPU)', args: ['torch', '--index-url', 'https://download.pytorch.org/whl/cpu'] },
+            { label: 'BEN2', args: ['git+https://github.com/PramaLLC/BEN2.git'] },
+        ],
+    },
+};
+
+// The Python interpreter the backend runs on (dev venv, else system python).
+function getBackendPython() {
+    if (!app.isPackaged) {
+        const venvPy = process.platform === 'win32'
+            ? path.join(__dirname, 'venv', 'Scripts', 'python.exe')
+            : path.join(__dirname, 'venv', 'bin', 'python');
+        if (fs.existsSync(venvPy)) return venvPy;
+    }
+    return process.platform === 'win32' ? 'python.exe' : 'python';
+}
+
+// Run `python -m pip install <args>`, streaming logs; rejects on non-zero / abort.
+function runPip(py, pkgArgs, signal) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(py, ['-m', 'pip', 'install', ...pkgArgs], { windowsHide: true });
+        let stderr = '';
+        const onAbort = () => { try { child.kill(); } catch {} reject(new Error('cancelled')); };
+        if (signal) signal.addEventListener('abort', onAbort, { once: true });
+        child.stdout.on('data', d => log.info(`[pip] ${String(d).trim()}`));
+        child.stderr.on('data', d => { stderr += String(d); log.info(`[pip] ${String(d).trim()}`); });
+        child.on('error', reject);
+        child.on('close', code => {
+            if (signal) signal.removeEventListener('abort', onAbort);
+            if (code === 0) resolve();
+            else reject(new Error(`pip exited ${code}: ${stderr.slice(-200)}`));
+        });
+    });
+}
+
+async function handlePipInstall(toolId) {
+    const spec = PIP_TOOLS[toolId];
+    const py = getBackendPython();
+    const toolDir = getToolDir(toolId);
+    const abortController = new AbortController();
+    activeInstalls[toolId] = abortController;
+
+    state.installProgress[toolId] = { toolId, status: 'installing', progress: 0, step: mt('install.preparing') };
+    broadcastState();
+
+    try {
+        if (!fs.existsSync(toolDir)) fs.mkdirSync(toolDir, { recursive: true });
+
+        for (let i = 0; i < spec.steps.length; i++) {
+            const step = spec.steps[i];
+            state.installProgress[toolId] = {
+                toolId, status: 'installing',
+                progress: Math.round((i / spec.steps.length) * 90),
+                step: `Installing ${step.label}…`,
+            };
+            broadcastState();
+            await runPip(py, step.args, abortController.signal);
+        }
+
+        // Marker so isToolDownloaded()/startup verification treat it as installed.
+        fs.writeFileSync(path.join(toolDir, 'version.json'), JSON.stringify({
+            toolId, version: 'pip', method: 'pip',
+            installedAt: new Date().toISOString(),
+            platform: process.platform, arch: process.arch,
+        }, null, 2), 'utf-8');
+
+        state.installedToolIds.push(toolId);
+        state.installProgress[toolId] = { toolId, status: 'installed', progress: 100, step: mt('install.complete') };
+        persistSettings();
+        broadcastState();
+        setTimeout(() => { delete state.installProgress[toolId]; broadcastState(); }, 2000);
+    } catch (err) {
+        log.error(`[Install] pip install failed for ${toolId}:`, err.message);
+        if (fs.existsSync(toolDir)) { try { fs.rmSync(toolDir, { recursive: true, force: true }); } catch {} }
+        const isCancelled = err.message === 'cancelled';
+        state.installProgress[toolId] = {
+            toolId, status: 'error', progress: 0,
+            step: isCancelled ? mt('install.cancelled') : undefined,
+            error: isCancelled ? mt('install.cancelledError') : (err.message || mt('install.failed')),
+        };
+        broadcastState();
+        if (isCancelled) setTimeout(() => { delete state.installProgress[toolId]; broadcastState(); }, 2000);
+    } finally {
+        delete activeInstalls[toolId];
+    }
+}
+
 async function handleToolInstall(toolId) {
     if (state.installedToolIds.includes(toolId)) return;
     if (activeInstalls[toolId]) return;
+
+    // pip-package tools (e.g. BEN2) install into the backend env, not via a zip.
+    if (PIP_TOOLS[toolId]) return handlePipInstall(toolId);
 
     const downloadUrl = TOOL_DOWNLOAD_URLS[toolId];
     if (!downloadUrl) {
@@ -609,9 +705,42 @@ function persistToolOrder() {
 let dockWindow = null;
 let galleryWindow = null;
 
+// Which screen edge the dock is attached to. Persisted as the `dockEdge` setting.
+let dockEdge = 'right';
+const DOCK_STRIP = 600; // perpendicular extent of the dock window (room for the expanded panel)
+
+// Position + size the dock window as a full-length strip along the chosen edge.
+function applyDockBounds(edge) {
+    if (!dockWindow || dockWindow.isDestroyed()) return;
+    const wa = screen.getPrimaryDisplay().workArea; // { x, y, width, height }
+    let b;
+    switch (edge) {
+        case 'left':   b = { x: wa.x, y: wa.y, width: DOCK_STRIP, height: wa.height }; break;
+        case 'top':    b = { x: wa.x, y: wa.y, width: wa.width, height: DOCK_STRIP }; break;
+        case 'bottom': b = { x: wa.x, y: wa.y + wa.height - DOCK_STRIP, width: wa.width, height: DOCK_STRIP }; break;
+        case 'right':
+        default:       b = { x: wa.x + wa.width - DOCK_STRIP, y: wa.y, width: DOCK_STRIP, height: wa.height }; break;
+    }
+    dockWindow.setBounds(b, false); // false = no animation, avoids a position/size desync flash
+}
+
+// Force the dock to the very front. setAlwaysOnTop(true) is a no-op when the flag
+// is already true (so it won't win a z-order tie), hence moveTop(). We call this
+// ONLY at user-relevant moments — never on a timer — so the dock doesn't climb back
+// over transient system overlays (Snipping Tool, Win+Shift+S, screen recorders).
+function raiseDock() {
+    if (!dockWindow || dockWindow.isDestroyed() || !dockWindow.isVisible()) return;
+    dockWindow.setAlwaysOnTop(true, 'screen-saver');
+    dockWindow.moveTop();
+}
+
 const createDockWindow = () => {
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.workAreaSize;
+
+    // Restore the saved edge before placing the window.
+    const savedEdge = (loadSettings() || {}).dockEdge;
+    if (savedEdge) dockEdge = savedEdge;
 
     dockWindow = new BrowserWindow({
         width: 600, // Reduced from 800 to minimize footprint
@@ -644,34 +773,18 @@ const createDockWindow = () => {
         dockWindow.loadFile(prodPath, { search: 'window=dock' });
     }
 
-    // Highest z-order so the dock stays above other always-on-top windows
+    // Topmost so the dock stays above normal windows.
     dockWindow.setAlwaysOnTop(true, 'screen-saver');
 
-    // Re-raise above any *other* topmost windows. setAlwaysOnTop(true) is a no-op
-    // when the flag is already true, so it won't win a z-order tie against another
-    // topmost window — moveTop() forces the dock back to the very front.
-    const raiseDock = () => {
-        if (!dockWindow || dockWindow.isDestroyed() || !dockWindow.isVisible()) return;
-        dockWindow.setAlwaysOnTop(true, 'screen-saver');
-        dockWindow.moveTop();
-    };
-
-    // Re-assert on-top after Windows steals it (e.g. fullscreen apps, UAC dialogs)
+    // Re-assert ONLY if Windows actually clears our always-on-top flag (fullscreen
+    // apps, UAC). This fires for OUR window's state — not when another overlay merely
+    // draws above us — so it won't fight transient overlays like screenshot tools.
     dockWindow.on('always-on-top-changed', (_e, isOnTop) => {
         if (!isOnTop) raiseDock();
     });
-    // Another window grabbing focus is the usual moment the dock gets buried
-    dockWindow.on('blur', raiseDock);
 
-    // Periodic re-assertion — Windows can silently drop top z-order without firing
-    // an event (a newly-opened topmost window slips above us between ticks).
-    const alwaysOnTopInterval = setInterval(() => {
-        if (dockWindow && !dockWindow.isDestroyed()) {
-            raiseDock();
-        } else {
-            clearInterval(alwaysOnTopInterval);
-        }
-    }, 1000);
+    // Place the window on the saved edge.
+    applyDockBounds(dockEdge);
 
     // Start in click-through mode
     dockWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -695,16 +808,29 @@ const createDockWindow = () => {
 // ============================================================
 let dockMode = 'idle';   // 'idle' or 'active' — set by renderer via IPC
 let isMouseDown = false; // Global mouse button state
+let edgeArmed = false;   // already raised the dock for the current edge approach?
 
-function checkAndEnableEdge(x) {
+function checkAndEnableEdge(x, y) {
     if (!dockWindow || dockWindow.isDestroyed() || dockMode !== 'idle') return;
 
-    const display = screen.getPrimaryDisplay();
-    const rightEdge = display.workAreaSize.width;
+    const wa = screen.getPrimaryDisplay().workArea; // { x, y, width, height }
+    const T = 16; // trigger band thickness
 
-    // Is cursor within 16px of the right screen edge?
-    if (x >= rightEdge - 16) {
+    // Is the cursor within the trigger band of the dock's edge?
+    const near = dockEdge === 'left'   ? x <= wa.x + T
+        : dockEdge === 'top'    ? y <= wa.y + T
+        : dockEdge === 'bottom' ? y >= wa.y + wa.height - T
+        : /* right */             x >= wa.x + wa.width - T;
+
+    if (near) {
         dockWindow.setIgnoreMouseEvents(false);
+        // Bring the dock to the very front so it reliably catches the drag — even if
+        // Windows has silently shuffled it below another window since the last raise.
+        // Once per approach (edgeArmed) so we don't spam moveTop; gated on a drag
+        // reaching THIS edge, so it won't climb over screenshots/other overlays.
+        if (!edgeArmed) { edgeArmed = true; raiseDock(); }
+    } else {
+        edgeArmed = false;
     }
 }
 
@@ -896,11 +1022,12 @@ uIOhook.on('mousemove', () => {
     // getBounds() and workAreaSize on every DPI setting. uIOhook e.x/e.y are
     // physical pixels on high-DPI displays which would cause coordinate mismatches.
     const cursor = screen.getCursorScreenPoint();
-    checkAndEnableEdge(cursor.x);
+    checkAndEnableEdge(cursor.x, cursor.y);
 });
 
 uIOhook.on('mouseup', () => {
     isMouseDown = false;
+    edgeArmed = false; // re-arm so the next drag-to-edge raises the dock again
 
     // Restore click-through if dock is in idle mode
     if (dockMode === 'idle' && dockWindow && !dockWindow.isDestroyed()) {
@@ -929,37 +1056,28 @@ ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
 
 // Dock mode IPC: renderer tells us when it's active vs idle
 ipcMain.on('dock-mode', (event, mode) => {
+    const prev = dockMode;
     dockMode = mode;
     if (mode === 'idle') {
         // Idle: restore click-through, uiohook handles edge detection
         if (dockWindow && !dockWindow.isDestroyed()) {
             dockWindow.setIgnoreMouseEvents(true, { forward: true });
         }
+    } else if (mode === 'active' && prev !== 'active') {
+        // Interaction began (drag / tool expanded / gallery): the dock must be
+        // frontmost now. Raise once on the transition — not repeatedly — so we
+        // don't climb over overlays while simply sitting active.
+        raiseDock();
     }
-    // For 'active': renderer controls via interactive islands
 });
 
-ipcMain.on('resize-dock', (event, width) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return;
-
-    const currentBounds = win.getBounds();
-
-    // Skip if width hasn't meaningfully changed (prevents jitter)
-    if (Math.abs(currentBounds.width - width) < 2) return;
-
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const workArea = primaryDisplay.workAreaSize;
-
-    // Position always anchored to right edge of screen
-    const newX = workArea.width - width;
-
-    win.setBounds({
-        x: newX,
-        y: 0,
-        width: width,
-        height: currentBounds.height
-    }, false); // false = no animation, prevents shaking
+ipcMain.on('resize-dock', (event, _width) => {
+    // The dock window is now sized by the main process as a fixed strip along the
+    // active edge (see applyDockBounds). The renderer no longer drives its size, so
+    // we just (re-)assert the edge bounds — keeps the crash-recovery path working.
+    if (dockWindow && !dockWindow.isDestroyed() && BrowserWindow.fromWebContents(event.sender) === dockWindow) {
+        applyDockBounds(dockEdge);
+    }
 });
 
 ipcMain.on('dispatch-action', (event, action) => {
@@ -1203,6 +1321,12 @@ ipcMain.handle('set-setting', (_event, key, value) => {
     BrowserWindow.getAllWindows().forEach(win => {
         try { win.webContents.send('setting-change', { key, value }); } catch (_) {}
     });
+
+    // Move the dock window to the newly chosen edge.
+    if (key === 'dockEdge' && value) {
+        dockEdge = value;
+        applyDockBounds(dockEdge);
+    }
 
     // Broadcast language change to all windows
     if (key === 'language') {

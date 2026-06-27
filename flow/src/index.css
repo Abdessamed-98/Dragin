@@ -17,7 +17,11 @@
   /* dock tongue — opaque in both modes (white in light, pitch black in dark) */
   --glass:#ffffff; --glass-strong:#ffffff;
   --tile:#ffffff; --tile-hover:#f0f0f3;
-  --tongue-shadow:drop-shadow(-3px 0 8px rgba(0,0,0,0.10));
+  /* directional: shadow falls toward the screen centre (inner side) per edge — thin & subtle */
+  --tongue-shadow-right:drop-shadow(-1px 0 2px rgba(0,0,0,0.05));
+  --tongue-shadow-left:drop-shadow(1px 0 2px rgba(0,0,0,0.05));
+  --tongue-shadow-top:drop-shadow(0 1px 2px rgba(0,0,0,0.05));
+  --tongue-shadow-bottom:drop-shadow(0 -1px 2px rgba(0,0,0,0.05));
   --e1:0 1px 2px rgba(0,0,0,0.06); --e2:0 6px 18px -6px rgba(0,0,0,0.16);
   --scrollbar:rgba(0,0,0,0.22); --scrollbar-hover:rgba(0,0,0,0.4);
 }
@@ -31,7 +35,11 @@ html[data-theme="dark"] {
   /* dock tongue — pitch black: reads as the screen-edge darkness extending inward */
   --glass:#000; --glass-strong:#000;
   --tile:#1f1f22; --tile-hover:#2a2a2e;
-  --tongue-shadow:drop-shadow(-3px 0 10px rgba(0,0,0,0.4));
+  /* directional: shadow falls toward the screen centre (inner side) per edge — thin & subtle */
+  --tongue-shadow-right:drop-shadow(-1px 0 2px rgba(0,0,0,0.22));
+  --tongue-shadow-left:drop-shadow(1px 0 2px rgba(0,0,0,0.22));
+  --tongue-shadow-top:drop-shadow(0 1px 2px rgba(0,0,0,0.22));
+  --tongue-shadow-bottom:drop-shadow(0 -1px 2px rgba(0,0,0,0.22));
   --e1:0 1px 2px rgba(0,0,0,0.4); --e2:0 8px 22px -8px rgba(0,0,0,0.6);
   --scrollbar:rgba(255,255,255,0.22); --scrollbar-hover:rgba(255,255,255,0.42);
 }

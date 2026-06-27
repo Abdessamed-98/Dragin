@@ -46,9 +46,12 @@ class ToolErrorBoundary extends Component<
   }
 }
 
+export type DockEdge = 'right' | 'left' | 'top' | 'bottom';
+
 interface SideDockProps {
   contentRef?: React.RefObject<HTMLDivElement | null>;
   isVisible: boolean;
+  edge?: DockEdge;
   activeToolIds: ToolId[];
   sessions: Record<string, ActiveSession | undefined>;
   expandedToolId: ToolId | null;
@@ -87,6 +90,7 @@ interface SideDockProps {
   onRecompress?: (quality: number) => void;
   removerOptions?: import('../services/api').RemoverOptions;
   removerModelLoading?: boolean;
+  ben2ModelLoading?: boolean;
   onRemoverModeChange?: (mode: import('../services/api').RemoverMode) => void;
   onSelfItemCountChange?: (toolId: ToolId, count: number) => void;
 }
@@ -94,6 +98,7 @@ interface SideDockProps {
 export const SideDock: React.FC<SideDockProps> = ({
   contentRef,
   isVisible,
+  edge = 'right',
   activeToolIds,
   sessions,
   expandedToolId,
@@ -132,6 +137,7 @@ export const SideDock: React.FC<SideDockProps> = ({
   onRecompress,
   removerOptions,
   removerModelLoading,
+  ben2ModelLoading,
   onRemoverModeChange,
   onSelfItemCountChange,
 }) => {
@@ -177,77 +183,103 @@ export const SideDock: React.FC<SideDockProps> = ({
     });
   }, []);
 
-  // ── TONGUE PANEL GEOMETRY ───────────────────────────────────────────────────
-  // The dock is one edge-attached "tongue" panel. In rail mode it holds the
-  // stacked tool tiles; when a tool is active it grows to host that tool's UI.
+  // ── TONGUE PANEL GEOMETRY (edge-generalized) ─────────────────────────────────
+  // The dock is one edge-attached "tongue" panel that can live on any screen edge.
+  // We reason in two axes relative to the edge instead of fixed width/height:
+  //   • PERP  = perpendicular to the edge — the reveal/grow axis (0 → full).
+  //   • LEN   = along the edge — where the rail tiles stack.
+  // For left/right edges PERP maps to width and LEN to height; for top/bottom they
+  // swap. Everything below is written once in perp/len terms, then mapped at the end.
+  const isVertical = edge === 'right' || edge === 'left';
   const PAD = 8;          // padding around the rail tiles
-  const GAP = 10;         // vertical gap between rail tiles
+  const GAP = 10;         // gap between rail tiles (along LEN)
   const TILE = 80;        // rail tile size
   const OUTER_R = 24;     // "corner value" R = tile radius (16) + PAD (8) → concentric with tiles
+  const R = OUTER_R;
 
   const tileCount = activeTools.length;
-  const railW = TILE + PAD * 2;
-  const railH = tileCount > 0
+  const railThickness = TILE + PAD * 2;            // PERP extent of the rail
+  const railLength = tileCount > 0                 // LEN extent of the rail
     ? tileCount * TILE + (tileCount - 1) * GAP + PAD * 2
     : TILE + PAD * 2;
-  const expW = Math.min(420, window.innerWidth - 20);
-  const expH = Math.round(expW * 5 / 4);
+  // Expanded tool panel stays portrait (420×525) in SCREEN space on every edge.
+  const PANEL_W = Math.min(420, window.innerWidth - 20);
+  const PANEL_H = Math.min(Math.round(PANEL_W * 5 / 4), window.innerHeight - 20);
+  const ONE_TOOL_LEN = TILE + PAD * 2;             // LEN at one-tool reveal start
+  const perpExpanded = isVertical ? PANEL_W : PANEL_H;
+  const lenExpanded = isVertical ? PANEL_H : PANEL_W;
 
-  const panelW = expandedToolId ? expW : railW;
-  const panelH = expandedToolId ? expH : railH;
+  const perpTarget = expandedToolId ? perpExpanded : railThickness;
+  const lenTarget = expandedToolId ? lenExpanded : railLength;
 
-  // ── Width-driven reveal ─────────────────────────────────────────────────────
-  // Animate the panel WIDTH via a motion value. The neck (concave fillet) size is
-  // derived from the live width: 0 until the left cap completes (width = R), then
-  // grows to full (R) by width = 2R, then stays pinned — exactly the 3-phase
-  // behaviour. The left cap radius clamps itself via CSS as the body narrows.
-  const R = OUTER_R;
-  const ONE_TOOL_H = TILE + PAD * 2; // tongue height with a single tool (reveal start height)
+  // ── PERP-driven reveal ────────────────────────────────────────────────────────
+  // The neck (concave fillet) size is derived from the live PERP value: 0 until the
+  // rounded cap completes (perp = R), then grows to full (R) by perp = 2R, then
+  // stays pinned — the 3-phase behaviour, now edge-agnostic.
   const REVEAL_DUR = 0.45;           // tongue open/close duration
   const REVEAL_EASE = [0.22, 1, 0.36, 1] as const; // smooth ease-out (snappy open, soft settle)
-  const wMV = useMotionValue(isVisible ? panelW : 0);
+  const perpMV = useMotionValue(isVisible ? perpTarget : 0);
   useEffect(() => {
-    const cw = animate(wMV, isVisible ? panelW : 0, { duration: REVEAL_DUR, ease: REVEAL_EASE });
-    return () => cw.stop();
-  }, [isVisible, panelW]); // eslint-disable-line react-hooks/exhaustive-deps
-  const neckMV = useTransform(wMV, (v) => Math.min(Math.max((v - R) / R, 0), 1) * R);
-  // Height has its OWN tween (see effect below) rather than being derived from the
-  // live width. Deriving it made height JUMP whenever expandedToolId toggled — the
-  // branch returned a new constant instantly, so the frame snapped to full height
-  // while the width was still growing (the "weird" expand). A dedicated animation
-  // keeps width + height growing together for smooth expand/collapse.
-  const hMV = useMotionValue(isVisible ? panelH : ONE_TOOL_H);
+    const c = animate(perpMV, isVisible ? perpTarget : 0, { duration: REVEAL_DUR, ease: REVEAL_EASE });
+    return () => c.stop();
+  }, [isVisible, perpTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+  const neckMV = useTransform(perpMV, (v) => Math.min(Math.max((v - R) / R, 0), 1) * R);
+  // LEN has its OWN tween (see effect below) so it grows/shrinks *with* perp on
+  // expand/collapse instead of snapping.
+  const lenMV = useMotionValue(isVisible ? lenTarget : ONE_TOOL_LEN);
 
-  // Stagger gated on the HEIGHT timeline: a tile waits until the height has grown
-  // enough to fit its row. Height only starts growing once the cap completes
-  // (at tCap), expanding from the middle outward to full at REVEAL_DUR. So the
-  // middle tile starts at tCap and the OUTERMOST tile starts at REVEAL_DUR (its
-  // slide therefore *ends after* the tongue finishes).
-  const tCap = (R / Math.max(1, panelW)) * REVEAL_DUR; // time the left cap completes
+  // Stagger gated on the LEN timeline: a tile waits until the rail has grown enough
+  // to fit its row. LEN only starts growing once the cap completes (at tCap),
+  // expanding from the middle outward to full at REVEAL_DUR.
+  const tCap = (R / Math.max(1, perpTarget)) * REVEAL_DUR; // time the rounded cap completes
   const STAGGER_GAP = 0.045;         // delay between successive tiles (smaller = tighter)
-  // Tile slide duration: long enough that even the FIRST tile (starts at tCap)
-  // ends after the tongue (REVEAL_DUR).
   const TILE_POP = (REVEAL_DUR - tCap) + REVEAL_DUR * 0.35;
 
-  // ── HEIGHT ANIMATION ────────────────────────────────────────────────────────
-  // Tween height explicitly so it grows/shrinks *with* the width on expand and
-  // collapse (same duration + ease → they move together, no snap). On a fresh
-  // reveal we still lag it by tCap so it begins exactly when the concave necks
-  // start appearing — matching the tile stagger.
+  // ── LEN ANIMATION ─────────────────────────────────────────────────────────────
   const prevVisibleRef = React.useRef(isVisible);
   useEffect(() => {
     const justRevealed = isVisible && !prevVisibleRef.current;
     prevVisibleRef.current = isVisible;
-    let target = ONE_TOOL_H, duration = REVEAL_DUR, delay = 0;
+    let target = ONE_TOOL_LEN, duration = REVEAL_DUR, delay = 0;
     if (isVisible && expandedToolId) {
-      target = expH;                                                    // expand/collapse
+      target = lenExpanded;                                             // expand/collapse
     } else if (isVisible) {
-      target = railH;
+      target = railLength;
       if (justRevealed) { delay = tCap; duration = REVEAL_DUR - tCap; } // reveal lag only
     }
-    const ctrl = animate(hMV, target, { duration, delay, ease: REVEAL_EASE });
+    const ctrl = animate(lenMV, target, { duration, delay, ease: REVEAL_EASE });
     return () => ctrl.stop();
-  }, [isVisible, expandedToolId, railH, expH]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isVisible, expandedToolId, railLength, lenExpanded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── EDGE → CSS MAPPING ──────────────────────────────────────────────────────
+  // Map perp/len motion values onto width/height, plus the per-edge anchor, body
+  // corner radii, neck fillet placement, tile slide direction and rail flex axis.
+  const sizeStyle = isVertical ? { width: perpMV, height: lenMV } : { width: lenMV, height: perpMV };
+  const containerAlign = ({
+    right: 'justify-end items-center',
+    left: 'justify-start items-center',
+    top: 'justify-center items-start',
+    bottom: 'justify-center items-end',
+  } as const)[edge];
+  const bodyRadius = ({
+    right: { borderTopLeftRadius: OUTER_R, borderBottomLeftRadius: OUTER_R },
+    left: { borderTopRightRadius: OUTER_R, borderBottomRightRadius: OUTER_R },
+    top: { borderBottomLeftRadius: OUTER_R, borderBottomRightRadius: OUTER_R },
+    bottom: { borderTopLeftRadius: OUTER_R, borderTopRightRadius: OUTER_R },
+  } as const)[edge];
+  // Two neck fillets sit at the panel's outer-edge corners, extending past each end
+  // along LEN. `pos` anchors the fillet; `corner` is the radial-gradient origin of
+  // the concave cut (transparent quarter facing the screen centre).
+  const neckSpecs: { pos: React.CSSProperties; corner: string }[] = {
+    right: [{ pos: { right: 0, bottom: '100%' }, corner: 'top left' }, { pos: { right: 0, top: '100%' }, corner: 'bottom left' }],
+    left: [{ pos: { left: 0, bottom: '100%' }, corner: 'top right' }, { pos: { left: 0, top: '100%' }, corner: 'bottom right' }],
+    top: [{ pos: { top: 0, right: '100%' }, corner: 'bottom left' }, { pos: { top: 0, left: '100%' }, corner: 'bottom right' }],
+    bottom: [{ pos: { bottom: 0, right: '100%' }, corner: 'top left' }, { pos: { bottom: 0, left: '100%' }, corner: 'top right' }],
+  }[edge];
+  // Tiles slide IN from the screen edge (perpendicular). +dir = from right/bottom.
+  const slideAxis: 'x' | 'y' = isVertical ? 'x' : 'y';
+  const slideDist = railThickness * (edge === 'right' || edge === 'bottom' ? 1 : -1);
+  const railFlex = isVertical ? 'flex-col' : 'flex-row';
 
   // ── REORDER HANDLERS ──────────────────────────────────────────────────────
   const handleDragStart = (e: React.DragEvent, toolId: ToolId) => {
@@ -276,7 +308,9 @@ export const SideDock: React.FC<SideDockProps> = ({
     // Insert-based (not swap-based) so behaviour is identical dragging up or down.
     if (!localOrder || draggingId === targetToolId) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const insertAfter = e.clientY > rect.top + rect.height / 2;
+    const insertAfter = isVertical
+      ? e.clientY > rect.top + rect.height / 2
+      : e.clientX > rect.left + rect.width / 2;
     const withoutDragged = localOrder.filter(id => id !== draggingId);
     const insertAt = withoutDragged.indexOf(targetToolId);
     if (insertAt === -1) return;
@@ -337,31 +371,24 @@ export const SideDock: React.FC<SideDockProps> = ({
     backdropFilter: 'blur(20px)',
     WebkitBackdropFilter: 'blur(20px)',
   };
-  // Inverted-corner fillets: a glass square with a transparent quarter-circle
-  // cut, leaving an L that hugs the edge line + the panel and presents a
-  // concave arc — so the panel "necks" into the line. Top cuts the top-left
-  // quarter; bottom cuts the bottom-left quarter.
-  // Size-independent (farthest-side) masks, so the fillet scales with neckMV.
-  const filletMaskTop = 'radial-gradient(circle farthest-side at top left, #0000 98.5%, #000 99.5%)';
-  const filletMaskBottom = 'radial-gradient(circle farthest-side at bottom left, #0000 98.5%, #000 99.5%)';
+  // Inverted-corner fillet: a glass square with a transparent quarter-circle cut
+  // (origin = `corner`), leaving an L that hugs the edge line + the panel and
+  // presents a concave arc — so the panel "necks" into the line. Size-independent
+  // (farthest-side) so the fillet scales with neckMV.
+  const filletMask = (corner: string) => `radial-gradient(circle farthest-side at ${corner}, #0000 98.5%, #000 99.5%)`;
 
   return (
-    // dir="ltr" overrides document dir="rtl" (Arabic) so flex layout is left→right as expected
-    <div ref={contentRef} dir="ltr" className="fixed inset-0 flex flex-col items-end justify-center z-50 pointer-events-none">
+    // dir="ltr" overrides document dir="rtl" (Arabic) so flex layout is predictable
+    <div ref={contentRef} dir="ltr" className={`fixed inset-0 flex z-50 pointer-events-none ${containerAlign}`}>
 
-      {/* DEBUG SENSING ZONES (toggled from Settings → off by default) */}
+      {/* DEBUG SENSING ZONES (toggled from Settings → off by default; right-edge layout) */}
       {showZones && (<>
-        {/* BLUE — reveal/keep-alive box = rail tongue + margin (right side is the
-            screen edge). Only shown while the tongue is revealed (with red). The
-            margin here (100) must match REVEAL_MARGIN in DockApp. */}
         {isVisible && (
           <div
             className="absolute pointer-events-none"
-            style={{ zIndex: 1, right: 0, top: '50%', transform: 'translateY(-50%)', width: railW + 100, height: railH + 200, background: 'rgba(59,130,246,0.14)', outline: '2px dashed #3b82f6', outlineOffset: -2 }}
+            style={{ zIndex: 1, right: 0, top: '50%', transform: 'translateY(-50%)', width: railThickness + 100, height: railLength + 200, background: 'rgba(59,130,246,0.14)', outline: '2px dashed #3b82f6', outlineOffset: -2 }}
           />
         )}
-        {/* GREEN — full-height 16px edge strip: reveals AND keeps the tongue
-            visible (keep-alive = this green OR the blue box). */}
         <div className="absolute top-0 right-0 bottom-0 pointer-events-none" style={{ zIndex: 2, width: 16, background: 'rgba(34,197,94,0.40)' }} />
       </>)}
 
@@ -371,20 +398,20 @@ export const SideDock: React.FC<SideDockProps> = ({
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
         data-interactive
-        // Width-driven reveal via motion values; necks (neckMV) track the width.
+        // PERP-driven reveal via motion values; necks (neckMV) track the perp axis.
         className="relative pointer-events-auto"
-        style={{ width: wMV, height: hMV, willChange: 'width, height' }}
+        style={{ ...sizeStyle, willChange: 'width, height' }}
       >
-        {/* Background surface: glass body (rounded outer corners, flush right)
+        {/* Background surface: glass body (rounded inner corners, flush to the edge)
             + two concave neck fillets molding it into the edge line. The whole
             group shares one drop-shadow so the necks cast shadow too. */}
-        <div className="absolute inset-0" style={{ zIndex: 0, filter: 'var(--tongue-shadow)' }}>
-          {/* main body — square right edge sits flush against the line */}
-          <div className="absolute inset-0" style={{ ...glass, borderTopLeftRadius: OUTER_R, borderBottomLeftRadius: OUTER_R }} />
-          {/* top neck fillet — size = neckMV (0 → R → pinned), tracks the width */}
-          <motion.div style={{ position: 'absolute', right: 0, bottom: '100%', width: neckMV, height: neckMV, ...glass, WebkitMaskImage: filletMaskTop, maskImage: filletMaskTop }} />
-          {/* bottom neck fillet */}
-          <motion.div style={{ position: 'absolute', right: 0, top: '100%', width: neckMV, height: neckMV, ...glass, WebkitMaskImage: filletMaskBottom, maskImage: filletMaskBottom }} />
+        <div className="absolute inset-0" style={{ zIndex: 0, filter: `var(--tongue-shadow-${edge})` }}>
+          {/* main body — the outer edge sits flush against the screen edge line */}
+          <div className="absolute inset-0" style={{ ...glass, ...bodyRadius }} />
+          {/* two neck fillets at the outer-edge corners (size = neckMV) */}
+          {neckSpecs.map((n, idx) => (
+            <motion.div key={idx} style={{ position: 'absolute', ...n.pos, width: neckMV, height: neckMV, ...glass, WebkitMaskImage: filletMask(n.corner), maskImage: filletMask(n.corner) }} />
+          ))}
         </div>
 
         {/* RED — the tongue's interactive/sensing hit area (debug, toggled from Settings) */}
@@ -394,7 +421,7 @@ export const SideDock: React.FC<SideDockProps> = ({
 
         {/* Content: clipped to the panel + faded, so the retracting frame never shows squashed/clipped tiles */}
         <div
-          className="absolute inset-0 overflow-hidden flex flex-col items-center justify-center"
+          className={`absolute inset-0 overflow-hidden flex ${railFlex} items-center justify-center`}
           style={{ gap: GAP, padding: expandedToolId ? 0 : PAD }}
         >
         <AnimatePresence mode='popLayout'>
@@ -406,17 +433,17 @@ export const SideDock: React.FC<SideDockProps> = ({
             const mid = (activeTools.length - 1) / 2;
             const distFromMid = Math.abs(i - mid);
             const revealDelay = isVisible && !expandedToolId ? tCap + distFromMid * STAGGER_GAP : 0;
-            // Tiles SLIDE in horizontally from the screen edge (right). No scale, no centre-slide.
-            const slideFrom = railW; // start fully off past the right edge → slide to 0
+            // Tiles SLIDE in from the screen edge (perpendicular). No scale, no centre-slide.
+            // slideAxis/slideDist flip per edge so they always enter from outside.
 
             return (
               <motion.div
                 layout={localOrder ? "position" : false}
                 key={tool.id}
-                initial={{ opacity: 0, x: slideFrom }}
+                initial={{ opacity: 0, [slideAxis]: slideDist }}
                 animate={{
                   opacity: !isVisible ? 0 : (draggingId === tool.id ? 0.4 : 1),
-                  x: !isVisible ? slideFrom : 0,
+                  [slideAxis]: !isVisible ? slideDist : 0,
                 }}
                 exit={{ opacity: 0, scale: 0.5, transition: { duration: 0.2 } }}
                 transition={localOrder
@@ -500,7 +527,7 @@ export const SideDock: React.FC<SideDockProps> = ({
                   compressorQuality={tool.id === 'compressor' ? compressorQuality : undefined}
                   onRecompress={tool.id === 'compressor' ? onRecompress : undefined}
                   removerOptions={tool.id === 'remover' ? removerOptions : undefined}
-                  isModelLoading={tool.id === 'remover' ? removerModelLoading : undefined}
+                  isModelLoading={tool.id === 'remover' ? removerModelLoading : tool.id === 'remover2' ? ben2ModelLoading : undefined}
                   onRemoverModeChange={tool.id === 'remover' ? onRemoverModeChange : undefined}
                   onSelfItemCountChange={(count) => onSelfItemCountChange?.(tool.id, count)}
                 />

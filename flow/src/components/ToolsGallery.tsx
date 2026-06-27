@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutGrid, Settings, Info, Eraser, Plus, Power, Minus, Store, Download, Loader2, AlertCircle, X, FolderOpen, Globe, Eye, Sun, Moon } from 'lucide-react';
+import { LayoutGrid, Settings, Info, Eraser, Plus, Power, Minus, Store, Download, Loader2, AlertCircle, X, FolderOpen, Globe, Eye, Sun, Moon, PanelLeft, PanelRight, PanelTop, PanelBottom } from 'lucide-react';
 import { useLocalizedTools } from '../i18n/useLocalizedTools';
 import { useI18n } from '../i18n/I18nContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -86,16 +86,23 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
 
     // --- Debug "sensing zones" overlay toggle (synced to the dock window) ---
     const [debugZones, setDebugZones] = useState(false);
+    const [dockEdge, setDockEdge] = useState<string>('right');
     useEffect(() => {
         window.electron?.getSetting?.('debugZones').then((v: any) => setDebugZones(!!v));
+        window.electron?.getSetting?.('dockEdge').then((v: any) => { if (v) setDockEdge(v); });
         window.electron?.onSettingChange?.(({ key, value }) => {
             if (key === 'debugZones') setDebugZones(!!value);
+            if (key === 'dockEdge' && value) setDockEdge(value);
         });
     }, []);
     const toggleDebugZones = () => {
         const next = !debugZones;
         setDebugZones(next);
         window.electron?.setSetting?.('debugZones', next);
+    };
+    const changeDockEdge = (v: string) => {
+        setDockEdge(v);
+        window.electron?.setSetting?.('dockEdge', v);
     };
 
     // Only show tools that are NOT currently in the dock
@@ -310,6 +317,22 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
                                     title={t('gallery.settings.dockStatus')}
                                     subtitle={t('gallery.settings.dockStatusDesc')}
                                     control={<SettingSwitch on={isDockEnabled} onClick={onToggleDock} />}
+                                />
+                                <SettingRow
+                                    icon={<PanelRight className="w-[18px] h-[18px]" />}
+                                    iconBg="var(--accent)"
+                                    title={t('gallery.settings.dockPosition')}
+                                    subtitle={t('gallery.settings.dockPositionDesc')}
+                                    control={<SettingSeg
+                                        value={dockEdge}
+                                        onChange={changeDockEdge}
+                                        options={[
+                                            { value: 'left', label: <PanelLeft className="w-3.5 h-3.5" /> },
+                                            { value: 'right', label: <PanelRight className="w-3.5 h-3.5" /> },
+                                            { value: 'top', label: <PanelTop className="w-3.5 h-3.5" /> },
+                                            { value: 'bottom', label: <PanelBottom className="w-3.5 h-3.5" /> },
+                                        ]}
+                                    />}
                                 />
                                 <SettingRow
                                     icon={theme === 'dark' ? <Moon className="w-[18px] h-[18px]" /> : <Sun className="w-[18px] h-[18px]" />}

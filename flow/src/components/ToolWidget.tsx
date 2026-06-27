@@ -210,8 +210,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     ocrDroppedFiles,
     ocrDropGen,
     clearGen,
-    compressorQuality,
-    onRecompress,
     removerOptions,
     isModelLoading,
     onRemoverModeChange,
@@ -499,6 +497,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     // Map tool IDs to descriptive filename suffixes
     const toolSuffixMap: Record<string, string> = {
         remover: 'BGremoved',
+        remover2: 'BGremoved',
         compressor: 'compressed',
         shelf: 'shelved',
         cropper: 'cropped',
@@ -522,6 +521,28 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
         if (toolId === 'vectorizer') return `${baseName}-${suffix}.svg`;
         const ext = originalName.substring(lastDot);
         return `${baseName}-${suffix}${ext}`;
+    };
+
+    // Auto-crop: trim transparent margins off completed item(s). Shared by the
+    // bg-remover and the cropper tool.
+    const handleAutoCrop = async () => {
+        if (!onUpdateItem) return;
+        setIsTrimming(true);
+        try {
+            const { trimTransparency } = await import('../services/api');
+            const itemsToTrim = focusedItem?.status === 'completed'
+                ? [focusedItem]
+                : items.filter(i => i.status === 'completed');
+            await Promise.all(itemsToTrim.map(async (item) => {
+                if (!item.processedUrl) return;
+                const trimmed = await trimTransparency(item.processedUrl);
+                onUpdateItem(item.id, { processedUrl: trimmed });
+            }));
+        } catch (err) {
+            console.error('Failed to trim:', err);
+        } finally {
+            setIsTrimming(false);
+        }
     };
 
     const handleDownload = async () => {
@@ -658,8 +679,8 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         </div>
                     )}
 
-                    {/* Magic Brush overlay — remover-specific */}
-                    {id === 'remover' && isBrushing && focusedItem?.status === 'completed' && focusedItem.processedUrl && (
+                    {/* Magic Brush overlay — remover-specific (both remover variants) */}
+                    {(id === 'remover' || id === 'remover2') && isBrushing && focusedItem?.status === 'completed' && focusedItem.processedUrl && (
                         <div className="absolute inset-0 z-50 rounded-2xl overflow-hidden">
                             <MagicBrushTool
                                 originalImageSrc={focusedItem.originalUrl}
@@ -692,7 +713,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     {/* Hide ToolWidget content when an overlay tool covers it */}
                     {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark', 'vectorizer', 'palette'].includes(id)
                         || (id === 'cropper' && isCropping)
-                        || (id === 'remover' && isBrushing)) && (<>
+                        || ((id === 'remover' || id === 'remover2') && isBrushing)) && (<>
                     <div className="flex items-center pb-3 border-b border-[var(--separator)] mb-3 shrink-0">
                         {/* Left: Title + count */}
                         <div className="flex items-center gap-2">
@@ -865,7 +886,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     {/* Actions Footer */}
                     <div className="flex flex-col gap-1.5 shrink-0 w-full px-1">
                         {/* Row 1: Extra tool-specific buttons (only when present) */}
-                        {id === 'remover' && (
+                        {(id === 'remover' || id === 'remover2') && (
                             <>
                             <div className="flex items-center gap-1.5 w-full">
                                 <button
@@ -893,25 +914,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                     <Brush className="w-4 h-4" />
                                 </button>
                                 <button
-                                    onClick={async () => {
-                                        if (!onUpdateItem) return;
-                                        setIsTrimming(true);
-                                        try {
-                                            const { trimTransparency } = await import('../services/api');
-                                            const itemsToTrim = focusedItem?.status === 'completed'
-                                                ? [focusedItem]
-                                                : items.filter(i => i.status === 'completed');
-                                            await Promise.all(itemsToTrim.map(async (item) => {
-                                                if (!item.processedUrl) return;
-                                                const trimmed = await trimTransparency(item.processedUrl);
-                                                onUpdateItem(item.id, { processedUrl: trimmed });
-                                            }));
-                                        } catch (err) {
-                                            console.error('Failed to trim:', err);
-                                        } finally {
-                                            setIsTrimming(false);
-                                        }
-                                    }}
+                                    onClick={handleAutoCrop}
                                     disabled={!hasCompleted || showOriginal || isTrimming}
                                     className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
                                         !hasCompleted || showOriginal
@@ -928,6 +931,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         {showSplit && (
                             <div className="flex items-center gap-1.5 w-full">
                                 {id === 'cropper' && (
+                                    <>
                                     <button
                                         onClick={() => setIsCropping(true)}
                                         className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-orange-600 hover:bg-orange-500 text-white"
@@ -935,29 +939,23 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                         <CropIcon className="w-4 h-4" />
                                         {t('widget.crop')}
                                     </button>
+                                    {/* Auto-crop: trim transparent margins (e.g. after a bg removal) */}
+                                    <button
+                                        onClick={handleAutoCrop}
+                                        disabled={!hasCompleted || showOriginal || isTrimming}
+                                        className={`shrink-0 w-12 flex items-center justify-center h-10 rounded-xl transition-colors ${
+                                            !hasCompleted || showOriginal
+                                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
+                                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]'
+                                        }`}
+                                        title={t('widget.autoCrop')}
+                                    >
+                                        {isTrimming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scissors className="w-4 h-4" />}
+                                    </button>
+                                    </>
                                 )}
                             </div>
                         )}
-                        {/* Compressor: quality slider + re-compress */}
-                        {id === 'compressor' && items.length > 0 && (
-                            <div className="flex items-center gap-2 w-full">
-                                <span className="text-[10px] text-[var(--text-3)] shrink-0 w-8 text-center">{compressorQuality ?? 70}%</span>
-                                <input
-                                    type="range"
-                                    min={10}
-                                    max={95}
-                                    step={5}
-                                    value={compressorQuality ?? 70}
-                                    onChange={e => onRecompress?.(Number(e.target.value))}
-                                    className="flex-1 accent-[var(--accent)] cursor-pointer h-1"
-                                    disabled={anyProcessing}
-                                />
-                                <span className="text-[10px] text-[var(--text-3)] shrink-0">
-                                    {(compressorQuality ?? 70) >= 85 ? t('widget.qualityHigh') : (compressorQuality ?? 70) >= 65 ? t('widget.qualityMedium') : (compressorQuality ?? 70) >= 40 ? t('widget.qualityLow') : t('widget.qualityVeryLow')}
-                                </span>
-                            </div>
-                        )}
-
                         {/* Row 2: [Main button] | [Copy][Paste][Delete] */}
                         <div className="flex items-center gap-1.5 w-full">
                             {/* Left half: Main action / download */}

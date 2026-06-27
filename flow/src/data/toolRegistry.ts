@@ -40,6 +40,16 @@ export const TOOL_REGISTRY: ToolManifest[] = [
         downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/remover-v1/remover-win-x64.zip',
     },
     {
+        id: 'remover2',
+        default: false,
+        deps: [
+            { label: 'PyTorch (CPU)', sizeBytes: 200_000_000 },
+            { label: 'BEN2 model weights', sizeBytes: 380_000_000 },
+        ],
+        totalSizeBytes: 580_000_000,
+        downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/remover2-v1/remover2-win-x64.zip',
+    },
+    {
         id: 'upscaler',
         default: false,
         deps: [

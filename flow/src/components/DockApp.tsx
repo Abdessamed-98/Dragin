@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, Component, ErrorInfo } from 'react';
-import { SideDock } from './SideDock';
+import { SideDock, DockEdge } from './SideDock';
 import { ActiveSession, ToolId, SessionItem } from '../types';
 import { useElectron } from '../hooks/useElectron';
 import { dlog } from '../utils/dockLogger';
@@ -10,6 +10,9 @@ import {
     cropImage,
     unloadRemoverModels,
     checkRemoverModelLoaded,
+    removeBackgroundBen2,
+    checkBen2ModelLoaded,
+    unloadBen2Model,
     RemoverOptions,
     RemoverMode,
 } from '../services/api';
@@ -106,6 +109,13 @@ const DockAppInner: React.FC = () => {
     const [isDragging, setIsDragging] = useState(false);
     const [isToolDragging] = useState(false); // For internal reorder or from gallery (if across windows, tricky)
 
+    // Which screen edge the dock lives on (synced from the gallery via settings).
+    const [edge, setEdge] = useState<DockEdge>('right');
+    useEffect(() => {
+        window.electron?.getSetting?.('dockEdge').then((v: any) => { if (v) setEdge(v); });
+        window.electron?.onSettingChange?.(({ key, value }) => { if (key === 'dockEdge' && value) setEdge(value); });
+    }, []);
+
     // Sessions stored locally in Dock Window (Processor)
     const [sessions, setSessions] = useState<Record<string, ActiveSession | undefined>>({});
     const [expandedToolId, setExpandedToolId] = useState<ToolId | null>(null);
@@ -153,6 +163,8 @@ const DockAppInner: React.FC = () => {
     const removerCacheRef = useRef<Record<string, Partial<Record<RemoverMode, string>>>>({});
     // Whether the remover model is currently being loaded (first inference)
     const [removerModelLoading, setRemoverModelLoading] = useState(false);
+    // Whether the BEN2 model is currently being loaded (first inference)
+    const [ben2ModelLoading, setBen2ModelLoading] = useState(false);
 
     // Clear signal for self-contained tools
     const [clearGen, setClearGen] = useState(0);
@@ -312,19 +324,30 @@ const DockAppInner: React.FC = () => {
 
         // Reveal only when the drag reaches the edge strip. Once revealed, keep
         // the rail alive while the drag stays within the tongue's box + margin;
-        // leaving that box collapses it. (So the keep-alive box only matters
-        // after the tongue is shown — mirrors the blue overlay appearing with red.)
+        // leaving that box collapses it. Edge-generalized: the strip + box flip to
+        // whichever edge the dock lives on.
         const n = activeToolIds.length;
-        const tongueW = RAIL_TILE + RAIL_PAD * 2;
-        const tongueH = n > 0 ? n * RAIL_TILE + (n - 1) * RAIL_GAP + RAIL_PAD * 2 : RAIL_TILE + RAIL_PAD * 2;
-        const left = window.innerWidth - tongueW - REVEAL_MARGIN;       // right side is the screen edge
-        const top = (window.innerHeight - tongueH) / 2 - REVEAL_MARGIN;
-        const bottom = (window.innerHeight + tongueH) / 2 + REVEAL_MARGIN;
+        const railThickness = RAIL_TILE + RAIL_PAD * 2;                 // perpendicular to edge
+        const railLength = n > 0 ? n * RAIL_TILE + (n - 1) * RAIL_GAP + RAIL_PAD * 2 : RAIL_TILE + RAIL_PAD * 2;
+        const W = window.innerWidth, H = window.innerHeight, m = REVEAL_MARGIN;
+        const isVertical = edge === 'right' || edge === 'left';
 
-        // Green = full-height edge strip: reveals AND keeps the tongue visible.
-        // Blue  = tongue box + margin: keeps the tongue visible (once revealed).
-        const inEdge = e.clientX >= window.innerWidth - EDGE_TRIGGER;
-        const inBox = e.clientX >= left && e.clientY >= top && e.clientY <= bottom;
+        // Tongue rect in window coords (rail size, centred along the edge).
+        let x0: number, x1: number, y0: number, y1: number;
+        if (isVertical) {
+            y0 = (H - railLength) / 2; y1 = (H + railLength) / 2;
+            if (edge === 'right') { x0 = W - railThickness; x1 = W; } else { x0 = 0; x1 = railThickness; }
+        } else {
+            x0 = (W - railLength) / 2; x1 = (W + railLength) / 2;
+            if (edge === 'top') { y0 = 0; y1 = railThickness; } else { y0 = H - railThickness; y1 = H; }
+        }
+        const inBox = e.clientX >= x0 - m && e.clientX <= x1 + m && e.clientY >= y0 - m && e.clientY <= y1 + m;
+
+        // Edge strip: reveals AND keeps the tongue visible. Box: keeps it alive once shown.
+        const inEdge = edge === 'right' ? e.clientX >= W - EDGE_TRIGGER
+            : edge === 'left' ? e.clientX <= EDGE_TRIGGER
+            : edge === 'top' ? e.clientY <= EDGE_TRIGGER
+            : e.clientY >= H - EDGE_TRIGGER;
 
         // Reveal via the edge; stay alive while in the edge OR the box.
         const active = inEdge || (isDragging && inBox);
@@ -337,7 +360,7 @@ const DockAppInner: React.FC = () => {
         } else if (isDragging) {
             setIsDragging(false);
         }
-    }, [isDragging, activeToolIds.length]);
+    }, [isDragging, activeToolIds.length, edge]);
 
     const handleWindowDragLeave = useCallback((e: DragEvent) => {
         e.preventDefault();
@@ -474,9 +497,31 @@ const DockAppInner: React.FC = () => {
         if (toolId === 'remover') {
             newItems.forEach(item => updateItemStatus(toolId, sessionId, item.id, { status: 'processing' }));
             processRemoverBatch(sessionId, newItems, removerOptions);
+        } else if (toolId === 'remover2') {
+            newItems.forEach(item => updateItemStatus(toolId, sessionId, item.id, { status: 'processing' }));
+            processBen2Batch(sessionId, newItems);
         } else {
             newItems.forEach(item => processItem(sessionId, item.id, item.file, toolId));
         }
+    };
+
+    /** Process BEN2 items one-by-one (single model, no modes). */
+    const processBen2Batch = async (sessionId: string, items: SessionItem[]) => {
+        const modelReady = await checkBen2ModelLoaded();
+        if (!modelReady) setBen2ModelLoading(true);
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            try {
+                const url = await removeBackgroundBen2(item.file);
+                if (i === 0 && !modelReady) setBen2ModelLoading(false);
+                updateItemStatus('remover2', sessionId, item.id, { processedUrl: url, status: 'completed' });
+            } catch {
+                if (i === 0 && !modelReady) setBen2ModelLoading(false);
+                updateItemStatus('remover2', sessionId, item.id, { status: 'error' });
+            }
+        }
+        setBen2ModelLoading(false);
+        checkSessionCompletion('remover2', sessionId);
     };
 
     /** Process remover items one-by-one so each result appears immediately.
@@ -678,12 +723,14 @@ const DockAppInner: React.FC = () => {
             if (!hasSelection) {
                 if (expandedToolId === toolId) setExpandedToolId(null);
                 if (toolId === 'remover') unloadRemoverModels();
+                if (toolId === 'remover2') unloadBen2Model();
                 return { ...prev, [toolId]: undefined };
             } else {
                 const newItems = session.items.filter(item => !session.selectedItemIds.includes(item.id));
                 if (newItems.length === 0) {
                     if (expandedToolId === toolId) setExpandedToolId(null);
                     if (toolId === 'remover') unloadRemoverModels();
+                    if (toolId === 'remover2') unloadBen2Model();
                     return { ...prev, [toolId]: undefined };
                 }
                 return { ...prev, [toolId]: { ...session, items: newItems, selectedItemIds: [] } };
@@ -698,6 +745,7 @@ const DockAppInner: React.FC = () => {
         dispatch('REMOVE_TOOL', id);
         if (expandedToolId === id) setExpandedToolId(null);
         if (id === 'remover') unloadRemoverModels();
+        if (id === 'remover2') unloadBen2Model();
     };
 
     const handleReorderTools = (newOrder: ToolId[]) => {
@@ -747,6 +795,7 @@ const DockAppInner: React.FC = () => {
         <div className="min-h-screen w-full relative overflow-hidden bg-transparent pointer-events-none">
             <SideDock
                 isVisible={isVisible}
+                edge={edge}
                 activeToolIds={activeToolIds}
                 sessions={sessions}
                 expandedToolId={expandedToolId}
@@ -786,6 +835,7 @@ const DockAppInner: React.FC = () => {
                 onRecompress={handleRecompress}
                 removerOptions={removerOptions}
                 removerModelLoading={removerModelLoading}
+                ben2ModelLoading={ben2ModelLoading}
                 onRemoverModeChange={handleRemoverModeChange}
                 onSelfItemCountChange={handleSelfItemCountChange}
             />

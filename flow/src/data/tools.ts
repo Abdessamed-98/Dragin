@@ -1,5 +1,5 @@
 
-import { Sparkles, Minimize2, Archive, ArrowRightLeft, PenTool, ScanText, Palette, Crop, Maximize2, FileText, ShieldAlert, Copyright, Layers } from 'lucide-react';
+import { Sparkles, Wand2, Minimize2, Archive, ArrowRightLeft, PenTool, ScanText, Palette, Crop, Maximize2, FileText, ShieldAlert, Copyright, Layers } from 'lucide-react';
 import { ToolDefinition } from '../types';
 import type { TranslationKey } from '../i18n';
 import type { LucideIcon } from 'lucide-react';
@@ -26,6 +26,16 @@ export const ALL_TOOLS_RAW: ToolDefinitionRaw[] = [
     emptyHintKey: 'tool.remover.emptyHint',
     emptySubHintKey: 'tool.remover.emptySubHint',
     formatLinesKeys: ['tool.remover.formatLines.0'],
+  },
+  {
+    id: 'remover2',
+    titleKey: 'tool.remover2.title',
+    descriptionKey: 'tool.remover2.description',
+    icon: Wand2,
+    colorClass: 'violet',
+    emptyHintKey: 'tool.remover2.emptyHint',
+    emptySubHintKey: 'tool.remover2.emptySubHint',
+    formatLinesKeys: ['tool.remover2.formatLines.0'],
   },
   {
     id: 'compressor',

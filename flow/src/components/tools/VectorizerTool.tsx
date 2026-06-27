@@ -3,6 +3,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
     PenTool, Sliders, Palette, Upload, Loader2, Download,
     Trash2, X, Check, ClipboardPaste, Ban, AlertCircle, Copy, CheckCircle2,
+    Image as ImageIcon, Shapes, PenLine, LayoutGrid,
 } from 'lucide-react';
 import { vectorizeImage, getFileThumbnail } from '../../services/api';
 import type { VectorizeOptions } from '../../services/api';
@@ -32,6 +33,24 @@ interface VecFileItem {
 
 const genId = () => Math.random().toString(36).substring(2, 11);
 
+// VTracer tuning presets per content type. Each sets the engine params that
+// matter for that kind of image (curve mode, layering, color depth, noise floor).
+type VecPreset = 'photo' | 'logo' | 'sketch' | 'pixel';
+const PRESETS: Record<VecPreset, {
+    colormode: 'color' | 'binary'; colorPrecision: number; smoothness: number;
+    mode: 'spline' | 'polygon' | 'none'; hierarchical: 'stacked' | 'cutout';
+    layer_difference: number; filter_speckle: number;
+}> = {
+    // Photo: many colors, detailed, smooth curves.
+    photo:  { colormode: 'color',  colorPrecision: 7, smoothness: 50, mode: 'spline',  hierarchical: 'stacked', layer_difference: 16, filter_speckle: 4 },
+    // Logo / flat art: few colors, aggressive layer merge, clean (denoise), smooth.
+    logo:   { colormode: 'color',  colorPrecision: 4, smoothness: 75, mode: 'spline',  hierarchical: 'stacked', layer_difference: 32, filter_speckle: 12 },
+    // Sketch / line art: black & white, smooth.
+    sketch: { colormode: 'binary', colorPrecision: 1, smoothness: 55, mode: 'spline',  hierarchical: 'stacked', layer_difference: 16, filter_speckle: 6 },
+    // Pixel art: crisp straight edges, keep every pixel, no smoothing.
+    pixel:  { colormode: 'color',  colorPrecision: 8, smoothness: 0,  mode: 'polygon', hierarchical: 'cutout',  layer_difference: 0,  filter_speckle: 0 },
+};
+
 
 const ACCEPTED_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif']);
 const isAccepted = (file: File) => {
@@ -47,6 +66,7 @@ export const VectorizerTool: React.FC<VectorizerToolProps> = ({
     const [smoothness, setSmoothness] = useState(0);
     const [colorMode, setColorMode] = useState<'color' | 'binary'>('binary');
     const [colorPrecision, setColorPrecision] = useState(3);
+    const [preset, setPreset] = useState<VecPreset | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
     const [cancelHover, setCancelHover] = useState(false);
@@ -95,16 +115,32 @@ export const VectorizerTool: React.FC<VectorizerToolProps> = ({
 
     const getVtracerOptions = useCallback((): Partial<VectorizeOptions> => {
         const t = smoothness / 100;
+        const ex = preset ? PRESETS[preset] : null;
         return {
             colormode: colorMode,
+            mode: ex?.mode ?? 'spline',
+            hierarchical: ex?.hierarchical ?? 'stacked',
+            layer_difference: ex?.layer_difference ?? 16,
             corner_threshold: Math.round(5 + t * 115),
             splice_threshold: Math.round(5 + t * 95),
             length_threshold: 1.0 + t * 5.0,
-            filter_speckle: Math.round(1 + t * 4),
+            // Presets pin the speckle (noise) floor; freehand mode derives it from smoothness.
+            filter_speckle: ex ? ex.filter_speckle : Math.round(1 + t * 4),
             color_precision: colorMode === 'binary' ? 1 : colorPrecision,
             path_precision: 8,
         };
-    }, [smoothness, colorMode, colorPrecision]);
+    }, [smoothness, colorMode, colorPrecision, preset]);
+
+    // Apply a preset: set the visible sliders + the hidden engine params, then re-run.
+    const applyPreset = useCallback((name: VecPreset) => {
+        const p = PRESETS[name];
+        setPreset(name);
+        setColorMode(p.colormode);
+        setColorPrecision(p.colorPrecision);
+        setSmoothness(p.smoothness);
+        setFiles(prev => prev.map(f => f.status === 'done' ? { ...f, status: 'idle' as const } : f));
+        setTimeout(() => handleVectorizeRef.current(), 0);
+    }, []);
 
     const addFiles = useCallback(async (newFiles: File[]) => {
         const items: VecFileItem[] = [];
@@ -333,6 +369,30 @@ const handleVectorize = useCallback(async () => {
 
             {/* Settings panel — always visible */}
             <div className="px-4 py-3 border-b border-white/5 shrink-0 bg-slate-900/40">
+                {/* Presets — tuned param sets per content type */}
+                <div className="flex items-center gap-1.5 mb-3">
+                    {([
+                        { key: 'photo' as const, label: t('vectorizer.presetPhoto'), Icon: ImageIcon },
+                        { key: 'logo' as const, label: t('vectorizer.presetLogo'), Icon: Shapes },
+                        { key: 'sketch' as const, label: t('vectorizer.presetSketch'), Icon: PenLine },
+                        { key: 'pixel' as const, label: t('vectorizer.presetPixel'), Icon: LayoutGrid },
+                    ]).map(({ key, label, Icon }) => (
+                        <button
+                            key={key}
+                            onClick={() => applyPreset(key)}
+                            disabled={anyProcessing}
+                            className={`flex-1 flex flex-col items-center gap-1 py-1.5 rounded-lg border text-[10px] font-semibold transition-colors disabled:opacity-50 ${
+                                preset === key
+                                    ? 'bg-rose-500/15 border-rose-500/60 text-rose-300'
+                                    : 'bg-slate-800/40 border-white/5 text-slate-400 hover:text-white hover:bg-slate-700/50'
+                            }`}
+                            title={label}
+                        >
+                            <Icon className="w-3.5 h-3.5" />
+                            {label}
+                        </button>
+                    ))}
+                </div>
                 <div className="flex gap-5">
                     {/* Smoothness */}
                     <div className="flex-1 space-y-1.5">
