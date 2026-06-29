@@ -7,8 +7,10 @@ import {
 } from 'lucide-react';
 import { scrubMetadata, getFileThumbnail } from '../../services/api';
 import type { ScrubResult } from '../../services/api';
-import JSZip from 'jszip';
+import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
+import { ToolHeader } from '../ToolHeader';
+import { ToolIconButton } from '../ToolIconButton';
 
 interface MetadataToolProps {
     onClose: () => void;
@@ -151,31 +153,17 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
         if (done.length === 0) return;
         setIsDownloading(true);
         try {
-            if (done.length === 1) {
-                const item = done[0];
-                const a = document.createElement('a');
-                a.href = item.resultUrl!;
+            await saveOutputs(done.map(item => {
                 const ext = item.name.split('.').pop() || 'bin';
                 const base = item.name.replace(/\.[^.]+$/, '');
-                a.download = `${base}_clean.${ext}`;
-                a.click();
-            } else {
-                const zip = new JSZip();
-                for (const item of done) {
-                    const res = await fetch(item.resultUrl!);
-                    const blob = await res.blob();
-                    const ext = item.name.split('.').pop() || 'bin';
-                    const base = item.name.replace(/\.[^.]+$/, '');
-                    zip.file(`${base}_clean.${ext}`, blob);
-                }
-                const content = await zip.generateAsync({ type: 'blob' });
-                const url = URL.createObjectURL(content);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'cleaned_files.zip';
-                a.click();
-                URL.revokeObjectURL(url);
-            }
+                return {
+                    name: `${base}_clean.${ext}`,
+                    url: item.resultUrl!,
+                    originalPath: ((item as any).file)?.path ?? null,
+                };
+            }), 'cleaned');
+        } catch (e) {
+            console.error('Save failed', e);
         } finally {
             setIsDownloading(false);
         }
@@ -270,19 +258,7 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
-                <div className="flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-red-400" />
-                    <span className="text-sm font-bold text-[var(--text)]">{t('metadata.headerTitle')}</span>
-                    {hasFiles && (
-                        <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{files.length}</span>
-                    )}
-                </div>
-                <div className="flex-1" />
-                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
-                    <X className="w-4 h-4" />
-                </button>
-            </div>
+            <ToolHeader icon={<ShieldAlert className="w-4 h-4 text-red-400" />} title={t('metadata.headerTitle')} count={files.length} onClose={onClose} />
 
             {/* Body */}
             <div className="flex-1 flex flex-col min-h-0 p-3 gap-2">
@@ -473,14 +449,9 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                 )}
 
                 <div className="flex-1 flex items-center gap-1">
-                    <button
+                    <ToolIconButton
                         onClick={handleCopy}
                         disabled={!files.some(f => f.status === 'done' && f.resultUrl) || isCopying}
-                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            !files.some(f => f.status === 'done' && f.resultUrl)
-                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
-                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]'
-                        }`}
                         title={t('metadata.copy')}
                     >
                         {isCopying ? (
@@ -490,26 +461,21 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                         ) : (
                             <Copy className="w-4 h-4" />
                         )}
-                    </button>
-                    <button
+                    </ToolIconButton>
+                    <ToolIconButton
                         onClick={handlePaste}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]"
                         title={t('metadata.paste')}
                     >
                         <ClipboardPaste className="w-4 h-4" />
-                    </button>
-                    <button
+                    </ToolIconButton>
+                    <ToolIconButton
                         onClick={handleClear}
                         disabled={!hasFiles || isProcessing}
-                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            !hasFiles || isProcessing
-                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
-                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
-                        }`}
+                        danger
                         title={t('metadata.clearAll')}
                     >
                         <Trash2 className="w-4 h-4" />
-                    </button>
+                    </ToolIconButton>
                 </div>
             </div>
         </div>

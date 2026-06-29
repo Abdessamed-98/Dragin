@@ -85,13 +85,14 @@ interface SideDockProps {
   vectorizerDropGen?: number;
   ocrDroppedFiles?: File[];
   ocrDropGen?: number;
+  resizeDroppedFiles?: File[];
+  resizeDropGen?: number;
+  zipDroppedFiles?: File[];
+  zipDropGen?: number;
   clearGen?: number;
   compressorQuality?: number;
   onRecompress?: (quality: number) => void;
-  removerOptions?: import('../services/api').RemoverOptions;
   removerModelLoading?: boolean;
-  ben2ModelLoading?: boolean;
-  onRemoverModeChange?: (mode: import('../services/api').RemoverMode) => void;
   onSelfItemCountChange?: (toolId: ToolId, count: number) => void;
 }
 
@@ -132,13 +133,14 @@ export const SideDock: React.FC<SideDockProps> = ({
   vectorizerDropGen,
   ocrDroppedFiles,
   ocrDropGen,
+  resizeDroppedFiles,
+  resizeDropGen,
+  zipDroppedFiles,
+  zipDropGen,
   clearGen,
   compressorQuality,
   onRecompress,
-  removerOptions,
   removerModelLoading,
-  ben2ModelLoading,
-  onRemoverModeChange,
   onSelfItemCountChange,
 }) => {
   const { t } = useI18n();
@@ -202,9 +204,9 @@ export const SideDock: React.FC<SideDockProps> = ({
   const railLength = tileCount > 0                 // LEN extent of the rail
     ? tileCount * TILE + (tileCount - 1) * GAP + PAD * 2
     : TILE + PAD * 2;
-  // Expanded tool panel stays portrait (420×525) in SCREEN space on every edge.
+  // Expanded tool panel stays portrait (420×672) in SCREEN space on every edge.
   const PANEL_W = Math.min(420, window.innerWidth - 20);
-  const PANEL_H = Math.min(Math.round(PANEL_W * 5 / 4), window.innerHeight - 20);
+  const PANEL_H = Math.min(Math.round(PANEL_W * 8 / 5), window.innerHeight - 24);
   const ONE_TOOL_LEN = TILE + PAD * 2;             // LEN at one-tool reveal start
   const perpExpanded = isVertical ? PANEL_W : PANEL_H;
   const lenExpanded = isVertical ? PANEL_H : PANEL_W;
@@ -523,12 +525,14 @@ export const SideDock: React.FC<SideDockProps> = ({
                   vectorizerDropGen={tool.id === 'vectorizer' ? vectorizerDropGen : undefined}
                   ocrDroppedFiles={tool.id === 'ocr' ? ocrDroppedFiles : undefined}
                   ocrDropGen={tool.id === 'ocr' ? ocrDropGen : undefined}
+                  resizeDroppedFiles={tool.id === 'resize' ? resizeDroppedFiles : undefined}
+                  resizeDropGen={tool.id === 'resize' ? resizeDropGen : undefined}
+                  zipDroppedFiles={tool.id === 'zip' ? zipDroppedFiles : undefined}
+                  zipDropGen={tool.id === 'zip' ? zipDropGen : undefined}
                   clearGen={clearGen}
                   compressorQuality={tool.id === 'compressor' ? compressorQuality : undefined}
                   onRecompress={tool.id === 'compressor' ? onRecompress : undefined}
-                  removerOptions={tool.id === 'remover' ? removerOptions : undefined}
-                  isModelLoading={tool.id === 'remover' ? removerModelLoading : tool.id === 'remover2' ? ben2ModelLoading : undefined}
-                  onRemoverModeChange={tool.id === 'remover' ? onRemoverModeChange : undefined}
+                  isModelLoading={tool.id === 'remover' ? removerModelLoading : undefined}
                   onSelfItemCountChange={(count) => onSelfItemCountChange?.(tool.id, count)}
                 />
                 </ToolErrorBoundary>

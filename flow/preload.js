@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('electron', {
     // --- LOGS ---
     openLogsFolder: () => ipcRenderer.invoke('OPEN_LOGS_FOLDER'),
 
+    // --- OUTPUT SAVING (post-drop) ---
+    saveOutput: (payload) => ipcRenderer.invoke('save-output', payload),
+    pickOutputFolder: () => ipcRenderer.invoke('pick-output-folder'),
+
     // --- SETTINGS (language, etc.) ---
     getSetting: (key) => ipcRenderer.invoke('get-setting', key),
     setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),

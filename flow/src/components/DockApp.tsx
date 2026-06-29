@@ -5,16 +5,11 @@ import { useElectron } from '../hooks/useElectron';
 import { dlog } from '../utils/dockLogger';
 import { useI18n } from '../i18n/I18nContext';
 import {
-    removeBackground,
     compressImage,
     cropImage,
-    unloadRemoverModels,
-    checkRemoverModelLoaded,
     removeBackgroundBen2,
     checkBen2ModelLoaded,
     unloadBen2Model,
-    RemoverOptions,
-    RemoverMode,
 } from '../services/api';
 
 
@@ -155,16 +150,16 @@ const DockAppInner: React.FC = () => {
     const [ocrDroppedFiles, setOcrDroppedFiles] = useState<File[]>([]);
     const [ocrDropGen, setOcrDropGen] = useState(0);
 
-    // Remover tool: processing mode + per-mode result cache
-    const [removerOptions, setRemoverOptions] = useState<RemoverOptions>({
-        mode: 'speed',
-    });
-    // Cache: itemId → { mode → processedUrl }
-    const removerCacheRef = useRef<Record<string, Partial<Record<RemoverMode, string>>>>({});
-    // Whether the remover model is currently being loaded (first inference)
+    // Resize tool: forward dropped files via props (ResizeTool is self-contained)
+    const [resizeDroppedFiles, setResizeDroppedFiles] = useState<File[]>([]);
+    const [resizeDropGen, setResizeDropGen] = useState(0);
+
+    // Zip tool: forward dropped files via props (ZipTool is self-contained)
+    const [zipDroppedFiles, setZipDroppedFiles] = useState<File[]>([]);
+    const [zipDropGen, setZipDropGen] = useState(0);
+
+    // Whether the remover (BEN2) model is currently being loaded (first inference)
     const [removerModelLoading, setRemoverModelLoading] = useState(false);
-    // Whether the BEN2 model is currently being loaded (first inference)
-    const [ben2ModelLoading, setBen2ModelLoading] = useState(false);
 
     // Clear signal for self-contained tools
     const [clearGen, setClearGen] = useState(0);
@@ -411,6 +406,20 @@ const DockAppInner: React.FC = () => {
             return;
         }
 
+        // Resize tool is self-contained. Forward files via state props.
+        if (toolId === 'resize') {
+            setResizeDroppedFiles(Array.from(files));
+            setResizeDropGen(g => g + 1);
+            return;
+        }
+
+        // Zip tool is self-contained. Forward files via state props.
+        if (toolId === 'zip') {
+            setZipDroppedFiles(Array.from(files));
+            setZipDropGen(g => g + 1);
+            return;
+        }
+
         // PDF tool is self-contained (like OCR). Forward files via state props.
         if (toolId === 'pdf') {
             setPdfDroppedFiles(Array.from(files));
@@ -493,58 +502,32 @@ const DockAppInner: React.FC = () => {
             };
         });
 
-        // Remover: batch all files in one request for speed
+        // Remover (BEN2): process one-by-one so each result appears immediately.
         if (toolId === 'remover') {
             newItems.forEach(item => updateItemStatus(toolId, sessionId, item.id, { status: 'processing' }));
-            processRemoverBatch(sessionId, newItems, removerOptions);
-        } else if (toolId === 'remover2') {
-            newItems.forEach(item => updateItemStatus(toolId, sessionId, item.id, { status: 'processing' }));
-            processBen2Batch(sessionId, newItems);
+            processRemoverBatch(sessionId, newItems);
         } else {
             newItems.forEach(item => processItem(sessionId, item.id, item.file, toolId));
         }
     };
 
-    /** Process BEN2 items one-by-one (single model, no modes). */
-    const processBen2Batch = async (sessionId: string, items: SessionItem[]) => {
+    /** Background Remover (BEN2): single model, no modes. The "Loading model..."
+     *  label shows until the first result while the model loads on first use. */
+    const processRemoverBatch = async (sessionId: string, items: SessionItem[]) => {
         const modelReady = await checkBen2ModelLoaded();
-        if (!modelReady) setBen2ModelLoading(true);
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            try {
-                const url = await removeBackgroundBen2(item.file);
-                if (i === 0 && !modelReady) setBen2ModelLoading(false);
-                updateItemStatus('remover2', sessionId, item.id, { processedUrl: url, status: 'completed' });
-            } catch {
-                if (i === 0 && !modelReady) setBen2ModelLoading(false);
-                updateItemStatus('remover2', sessionId, item.id, { status: 'error' });
-            }
-        }
-        setBen2ModelLoading(false);
-        checkSessionCompletion('remover2', sessionId);
-    };
-
-    /** Process remover items one-by-one so each result appears immediately.
-     *  Sequential is faster per-image (full CPU) and gives clear progressive UX. */
-    const processRemoverBatch = async (sessionId: string, items: SessionItem[], opts: RemoverOptions) => {
-        const mode = opts.mode || 'speed';
-        // Check if model needs loading — show "Loading model..." label
-        const modelReady = await checkRemoverModelLoaded(mode);
         if (!modelReady) setRemoverModelLoading(true);
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             try {
-                const url = await removeBackground(item.file, opts);
-                // After first result, model is loaded — switch label
+                const url = await removeBackgroundBen2(item.file);
                 if (i === 0 && !modelReady) setRemoverModelLoading(false);
-                if (!removerCacheRef.current[item.id]) removerCacheRef.current[item.id] = {};
-                removerCacheRef.current[item.id][mode] = url;
                 updateItemStatus('remover', sessionId, item.id, { processedUrl: url, status: 'completed' });
             } catch {
                 if (i === 0 && !modelReady) setRemoverModelLoading(false);
                 updateItemStatus('remover', sessionId, item.id, { status: 'error' });
             }
         }
+        setRemoverModelLoading(false);
         checkSessionCompletion('remover', sessionId);
     };
 
@@ -638,30 +621,6 @@ const DockAppInner: React.FC = () => {
         handleToolDrop(files, targetToolId);
     };
 
-    // Handle remover mode change: restore cached results or batch-reprocess uncached
-    const handleRemoverModeChange = (newMode: RemoverMode) => {
-        const newOpts = { mode: newMode };
-        setRemoverOptions(newOpts);
-        const session = sessions['remover'];
-        if (!session) return;
-
-        const uncached: SessionItem[] = [];
-        session.items.forEach(item => {
-            if (item.status !== 'completed' && item.status !== 'error') return;
-            const cached = removerCacheRef.current[item.id]?.[newMode];
-            if (cached) {
-                updateItemStatus('remover', session.id, item.id, { processedUrl: cached, status: 'completed' });
-            } else {
-                updateItemStatus('remover', session.id, item.id, { status: 'processing', processedUrl: undefined });
-                uncached.push(item);
-            }
-        });
-
-        if (uncached.length > 0) {
-            processRemoverBatch(session.id, uncached, newOpts);
-        }
-    };
-
     const handleCancelProcessing = (toolId: ToolId) => {
         setSessions(prev => {
             const session = prev[toolId];
@@ -694,16 +653,6 @@ const DockAppInner: React.FC = () => {
 
     const handleDelete = (toolId: ToolId) => {
         dlog('delete', { toolId });
-        // Clean up remover mode cache for deleted items
-        if (toolId === 'remover') {
-            const session = sessions[toolId];
-            if (session) {
-                const idsToDelete = session.selectedItemIds.length > 0
-                    ? session.selectedItemIds
-                    : session.items.map(i => i.id);
-                idsToDelete.forEach(id => delete removerCacheRef.current[id]);
-            }
-        }
         // Delete shelf files from disk before updating state
         if (toolId === 'shelf') {
             const session = sessions[toolId];
@@ -722,15 +671,13 @@ const DockAppInner: React.FC = () => {
 
             if (!hasSelection) {
                 if (expandedToolId === toolId) setExpandedToolId(null);
-                if (toolId === 'remover') unloadRemoverModels();
-                if (toolId === 'remover2') unloadBen2Model();
+                if (toolId === 'remover') unloadBen2Model();
                 return { ...prev, [toolId]: undefined };
             } else {
                 const newItems = session.items.filter(item => !session.selectedItemIds.includes(item.id));
                 if (newItems.length === 0) {
                     if (expandedToolId === toolId) setExpandedToolId(null);
-                    if (toolId === 'remover') unloadRemoverModels();
-                    if (toolId === 'remover2') unloadBen2Model();
+                    if (toolId === 'remover') unloadBen2Model();
                     return { ...prev, [toolId]: undefined };
                 }
                 return { ...prev, [toolId]: { ...session, items: newItems, selectedItemIds: [] } };
@@ -744,8 +691,7 @@ const DockAppInner: React.FC = () => {
     const handleRemoveTool = (id: ToolId) => {
         dispatch('REMOVE_TOOL', id);
         if (expandedToolId === id) setExpandedToolId(null);
-        if (id === 'remover') unloadRemoverModels();
-        if (id === 'remover2') unloadBen2Model();
+        if (id === 'remover') unloadBen2Model();
     };
 
     const handleReorderTools = (newOrder: ToolId[]) => {
@@ -830,13 +776,14 @@ const DockAppInner: React.FC = () => {
                 vectorizerDropGen={vectorizerDropGen}
                 ocrDroppedFiles={ocrDroppedFiles}
                 ocrDropGen={ocrDropGen}
+                resizeDroppedFiles={resizeDroppedFiles}
+                resizeDropGen={resizeDropGen}
+                zipDroppedFiles={zipDroppedFiles}
+                zipDropGen={zipDropGen}
                 clearGen={clearGen}
                 compressorQuality={compressorQuality}
                 onRecompress={handleRecompress}
-                removerOptions={removerOptions}
                 removerModelLoading={removerModelLoading}
-                ben2ModelLoading={ben2ModelLoading}
-                onRemoverModeChange={handleRemoverModeChange}
                 onSelfItemCountChange={handleSelfItemCountChange}
             />
         </div>

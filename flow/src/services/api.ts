@@ -16,65 +16,7 @@ const returnOriginal = async (file: File): Promise<string> => {
   });
 };
 
-// 1. Background Remover (Python Flask Backend)
-export type RemoverMode = 'precision' | 'speed';
-
-export interface RemoverOptions {
-  mode?: RemoverMode;
-}
-
-export const removeBackground = async (file: File, options?: RemoverOptions): Promise<string> => {
-  const results = await removeBackgroundBatch([file], options);
-  return results[0];
-};
-
-/** Batch remove background — sends all files in a single request. Returns data-URLs in same order. */
-export const removeBackgroundBatch = async (files: File[], options?: RemoverOptions): Promise<string[]> => {
-  try {
-    const formData = new FormData();
-    files.forEach(f => formData.append('images', f));
-    if (options?.mode) formData.append('mode', options.mode);
-
-    const res = await fetch(`${BASE_URL}/process`, {
-      method: 'POST',
-      body: formData
-    });
-
-    if (!res.ok) {
-      throw new Error(`Server error: ${res.status}`);
-    }
-
-    const data = await res.json();
-
-    if (data.results && data.results.length > 0) {
-      return data.results.map((r: { data: string }) => `data:image/png;base64,${r.data}`);
-    } else {
-      throw new Error('No results from server');
-    }
-  } catch (err) {
-    console.error('Background removal failed:', err);
-    throw err;
-  }
-};
-
-/** Check whether the remover model for a given mode is already loaded in memory. */
-export const checkRemoverModelLoaded = async (mode: RemoverMode = 'speed'): Promise<boolean> => {
-  try {
-    const res = await fetch(`${BASE_URL}/process/model-status?mode=${mode}`);
-    if (!res.ok) return false;
-    const data = await res.json();
-    return data.loaded === true;
-  } catch {
-    return false;
-  }
-};
-
-/** Tell the backend to free cached bg-removal models (reclaims ~7 GB RAM). */
-export const unloadRemoverModels = async (): Promise<void> => {
-  await fetch(`${BASE_URL}/process/unload`, { method: 'POST' }).catch(() => {});
-};
-
-// 1.b Background Remover (BEN2) — single high-quality model, no modes.
+// 1. Background Remover (BEN2) — single high-quality model, no modes.
 export const removeBackgroundBen2 = async (file: File): Promise<string> => {
   const results = await removeBackgroundBen2Batch([file]);
   return results[0];
@@ -585,6 +527,60 @@ export const convertPdfToPptx = async (file: File): Promise<{ dataUrl: string; s
     size: data.size,
     slideCount: data.slideCount,
   };
+};
+
+// 9.7 PDF → Images (pypdfium2 render)
+export const pdfToImages = async (file: File, dpi = 150): Promise<{ name: string; dataUrl: string }[]> => {
+  const formData = new FormData();
+  formData.append('pdf', file);
+  formData.append('dpi', String(dpi));
+  const res = await fetch(`${BASE_URL}/pdf/to-images`, { method: 'POST', body: formData });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Server error: ${res.status}`);
+  const data = await res.json();
+  return (data.results || []).map((r: { name: string; data: string }) => ({ name: r.name, dataUrl: `data:image/png;base64,${r.data}` }));
+};
+
+// 9.8 Images → PDF (Pillow)
+export const pdfFromImages = async (files: File[]): Promise<{ dataUrl: string; size: number; pages: number }> => {
+  const formData = new FormData();
+  files.forEach(f => formData.append('images', f));
+  const res = await fetch(`${BASE_URL}/pdf/from-images`, { method: 'POST', body: formData });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Server error: ${res.status}`);
+  const data = await res.json();
+  return { dataUrl: `data:application/pdf;base64,${data.data}`, size: data.size, pages: data.pages };
+};
+
+// 9.9 Resize Image (Pillow)
+export interface ResizeOptions { width?: number; height?: number; mode?: 'fit' | 'exact' | 'width' | 'fill'; maxKB?: number }
+export const resizeImage = async (file: File, opts: ResizeOptions): Promise<{ dataUrl: string; width: number; height: number; size: number }> => {
+  const formData = new FormData();
+  formData.append('image', file);
+  if (opts.width) formData.append('width', String(opts.width));
+  if (opts.height) formData.append('height', String(opts.height));
+  if (opts.mode) formData.append('mode', opts.mode);
+  if (opts.maxKB) formData.append('maxKB', String(opts.maxKB));
+  const res = await fetch(`${BASE_URL}/resize`, { method: 'POST', body: formData });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Server error: ${res.status}`);
+  const data = await res.json();
+  return { dataUrl: `data:${data.mime};base64,${data.data}`, width: data.width, height: data.height, size: data.size };
+};
+
+// 9.10 Zip / Unzip (stdlib zipfile)
+export const zipFiles = async (files: File[]): Promise<{ dataUrl: string; size: number }> => {
+  const formData = new FormData();
+  files.forEach(f => formData.append('files', f));
+  const res = await fetch(`${BASE_URL}/zip`, { method: 'POST', body: formData });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Server error: ${res.status}`);
+  const data = await res.json();
+  return { dataUrl: `data:application/zip;base64,${data.data}`, size: data.size };
+};
+export const unzipFile = async (file: File): Promise<{ name: string; dataUrl: string }[]> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${BASE_URL}/unzip`, { method: 'POST', body: formData });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Server error: ${res.status}`);
+  const data = await res.json();
+  return (data.results || []).map((r: { name: string; data: string }) => ({ name: r.name, dataUrl: `data:application/octet-stream;base64,${r.data}` }));
 };
 
 // 10. OCR - RapidOCR text extraction

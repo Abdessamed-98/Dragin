@@ -30,24 +30,19 @@ export const TOOL_REGISTRY: ToolManifest[] = [
     { id: 'watermark',  default: true, deps: [], totalSizeBytes: 0 },
     { id: 'palette',    default: true, deps: [], totalSizeBytes: 0 },
     { id: 'shelf',      default: true, deps: [], totalSizeBytes: 0 },
+    { id: 'resize',     default: true, deps: [], totalSizeBytes: 0 },
+    { id: 'zip',        default: true, deps: [], totalSizeBytes: 0 },
 
     // On-demand tools — heavy deps, downloaded from Dragin
     {
+        // Background Remover — BEN2 (installed via pip into the backend env, no zip URL).
         id: 'remover',
-        default: false,
-        deps: [{ label: 'rembg + ONNX models', sizeBytes: 330_000_000 }],
-        totalSizeBytes: 330_000_000,
-        downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/remover-v1/remover-win-x64.zip',
-    },
-    {
-        id: 'remover2',
         default: false,
         deps: [
             { label: 'PyTorch (CPU)', sizeBytes: 200_000_000 },
             { label: 'BEN2 model weights', sizeBytes: 380_000_000 },
         ],
         totalSizeBytes: 580_000_000,
-        downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/remover2-v1/remover2-win-x64.zip',
     },
     {
         id: 'upscaler',

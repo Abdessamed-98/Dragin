@@ -1,5 +1,5 @@
 
-import { Sparkles, Wand2, Minimize2, Archive, ArrowRightLeft, PenTool, ScanText, Palette, Crop, Maximize2, FileText, ShieldAlert, Copyright, Layers } from 'lucide-react';
+import { Sparkles, Minimize2, Archive, ArrowRightLeft, PenTool, ScanText, Palette, Crop, Maximize2, FileText, ShieldAlert, Copyright, Layers, Scaling, FileArchive } from 'lucide-react';
 import { ToolDefinition } from '../types';
 import type { TranslationKey } from '../i18n';
 import type { LucideIcon } from 'lucide-react';
@@ -26,16 +26,6 @@ export const ALL_TOOLS_RAW: ToolDefinitionRaw[] = [
     emptyHintKey: 'tool.remover.emptyHint',
     emptySubHintKey: 'tool.remover.emptySubHint',
     formatLinesKeys: ['tool.remover.formatLines.0'],
-  },
-  {
-    id: 'remover2',
-    titleKey: 'tool.remover2.title',
-    descriptionKey: 'tool.remover2.description',
-    icon: Wand2,
-    colorClass: 'violet',
-    emptyHintKey: 'tool.remover2.emptyHint',
-    emptySubHintKey: 'tool.remover2.emptySubHint',
-    formatLinesKeys: ['tool.remover2.formatLines.0'],
   },
   {
     id: 'compressor',
@@ -152,5 +142,25 @@ export const ALL_TOOLS_RAW: ToolDefinitionRaw[] = [
     emptyHintKey: 'tool.cropper.emptyHint',
     emptySubHintKey: 'tool.cropper.emptySubHint',
     formatLinesKeys: ['tool.cropper.formatLines.0'],
+  },
+  {
+    id: 'resize',
+    titleKey: 'tool.resize.title',
+    descriptionKey: 'tool.resize.description',
+    icon: Scaling,
+    colorClass: 'sky',
+    emptyHintKey: 'tool.resize.emptyHint',
+    emptySubHintKey: 'tool.resize.emptySubHint',
+    formatLinesKeys: ['tool.resize.formatLines.0'],
+  },
+  {
+    id: 'zip',
+    titleKey: 'tool.zip.title',
+    descriptionKey: 'tool.zip.description',
+    icon: FileArchive,
+    colorClass: 'teal',
+    emptyHintKey: 'tool.zip.emptyHint',
+    emptySubHintKey: 'tool.zip.emptySubHint',
+    formatLinesKeys: ['tool.zip.formatLines.0'],
   }
 ];

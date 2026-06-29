@@ -1,8 +1,11 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ScanText, FileText, Upload, Loader2, Download, Trash2, AlertCircle, File as FileIcon, Copy, Check, X, Ban, ClipboardPaste } from 'lucide-react';
+import { ScanText, FileText, Upload, Loader2, Download, Trash2, AlertCircle, File as FileIcon, Copy, Check, Ban, ClipboardPaste } from 'lucide-react';
 import { extractText } from '../../services/api';
+import { saveOutputs } from '../../services/saveOutput';
+import { ToolHeader } from '../ToolHeader';
+import { ToolIconButton } from '../ToolIconButton';
 import { useI18n } from '../../i18n/I18nContext';
 
 type OcrState = 'idle' | 'processing' | 'done' | 'error';
@@ -85,16 +88,15 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
         e.target.value = '';
     };
 
-    const handleDownload = () => {
+    const handleDownload = async () => {
         if (!extractedText) return;
-        const blob = new Blob([extractedText], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const base = fileName.replace(/\.[^.]+$/, '') || 'extracted';
-        a.href = url;
-        a.download = `${base}-OCR.txt`;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        const url = URL.createObjectURL(new Blob([extractedText], { type: 'text/plain;charset=utf-8' }));
+        try {
+            const base = fileName.replace(/\.[^.]+$/, '') || 'extracted';
+            await saveOutputs([{ name: `${base}-OCR.txt`, url, originalPath: null }], 'ocr');
+        } finally {
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
     };
 
     const handleCopy = () => {
@@ -152,19 +154,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
-                <div className="flex items-center gap-2">
-                    <ScanText className="w-4 h-4 text-fuchsia-400" />
-                    <span className="text-sm font-bold text-[var(--text)]">{t('tool.ocr.title')}</span>
-                    {state === 'done' && pages > 1 && (
-                        <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{pages} {t('ocr.pages')}</span>
-                    )}
-                </div>
-                <div className="flex-1" />
-                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
-                    <X className="w-4 h-4" />
-                </button>
-            </div>
+            <ToolHeader icon={<ScanText className="w-4 h-4 text-fuchsia-400" />} title={t('tool.ocr.title')} count={state === 'done' ? pages : 0} onClose={onClose} />
 
             {/* Body */}
             <div className="flex-1 flex flex-col min-h-0 p-3 gap-3">
@@ -198,7 +188,8 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                                     {isDragOver ? t('ocr.dropFile') : t('ocr.dragFile')}
                                 </p>
                                 <p className="text-xs text-[var(--text-3)] mt-1">{t('ocr.orClickToSelect')}</p>
-                                <p className="text-[10px] text-[var(--text-3)] mt-2">JPG · PNG · WEBP · PDF</p>
+                                <p className="text-[10px] text-[var(--text-3)] mt-2">Images: JPG · PNG · WEBP</p>
+                                <p className="text-[10px] text-[var(--text-3)]">Documents: PDF</p>
                             </div>
                             <input
                                 id="ocr-file-input"
@@ -333,37 +324,27 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
 
                 {/* Secondary buttons: Copy | Paste | Clear */}
                 <div className="flex-1 flex items-center gap-1">
-                    <button
+                    <ToolIconButton
                         onClick={handleCopy}
                         disabled={!hasResult}
-                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            !hasResult
-                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
-                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]'
-                        }`}
                         title={t('ocr.copyText')}
                     >
                         {copied ? <Check className="w-4 h-4 text-[var(--green)]" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                    <button
+                    </ToolIconButton>
+                    <ToolIconButton
                         onClick={handlePaste}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]"
                         title={t('ocr.paste')}
                     >
                         <ClipboardPaste className="w-4 h-4" />
-                    </button>
-                    <button
+                    </ToolIconButton>
+                    <ToolIconButton
                         onClick={handleClear}
                         disabled={state === 'idle' || state === 'processing'}
-                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            state === 'idle' || state === 'processing'
-                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
-                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
-                        }`}
+                        danger
                         title={t('ocr.clear')}
                     >
                         <Trash2 className="w-4 h-4" />
-                    </button>
+                    </ToolIconButton>
                 </div>
             </div>
 

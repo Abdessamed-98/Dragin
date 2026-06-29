@@ -11,7 +11,9 @@ import {
 } from '../../services/api';
 import type { UpscaleScale, UpscaleModel } from '../../services/api';
 import { useI18n } from '../../i18n/I18nContext';
-import JSZip from 'jszip';
+import { saveOutputs } from '../../services/saveOutput';
+import { ToolHeader } from '../ToolHeader';
+import { ToolIconButton } from '../ToolIconButton';
 
 interface UpscalerToolProps {
     onClose: () => void;
@@ -218,37 +220,23 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
         if (completed.length === 0) return;
 
         setIsDownloading(true);
+        const urls: string[] = [];
         try {
-            if (completed.length === 1) {
-                // Single file — fetch blob, trigger download, release immediately
-                const item = completed[0];
+            const saveItems = await Promise.all(completed.map(async (item) => {
                 const blob = await fetchUpscaleResultBlob(item.jobId!);
                 const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                const base = item.name.replace(/\.[^.]+$/, '');
-                link.download = `${base}-${item.scale}x.png`;
-                link.click();
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-                return;
-            }
-
-            // Multiple files → zip (blobs exist only during zip creation)
-            const zip = new JSZip();
-            for (const item of completed) {
-                const blob = await fetchUpscaleResultBlob(item.jobId!);
-                const base = item.name.replace(/\.[^.]+$/, '');
-                zip.file(`${base}-${item.scale}x.png`, blob);
-            }
-            const content = await zip.generateAsync({ type: 'blob' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(content);
-            link.download = `upscaled-${Date.now()}.zip`;
-            link.click();
-            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+                urls.push(url);
+                return {
+                    name: `${item.name.replace(/\.[^.]+$/, '')}-${item.scale}x.png`,
+                    url,
+                    originalPath: (item.file as any).path ?? null,
+                };
+            }));
+            await saveOutputs(saveItems, 'upscaled');
         } catch (err) {
-            console.error('Download failed', err);
+            console.error('Save failed', err);
         } finally {
+            urls.forEach(u => URL.revokeObjectURL(u));
             setIsDownloading(false);
         }
     };
@@ -369,19 +357,12 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
-                <div className="flex items-center gap-2">
-                    <Maximize2 className="w-4 h-4 text-pink-400" />
-                    <span className="text-sm font-bold text-[var(--text)]">{t('upscaler.headerTitle')}</span>
-                    {hasFiles && (
-                        <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{files.length}</span>
-                    )}
-                </div>
-                <div className="flex-1" />
-                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
-                    <X className="w-4 h-4" />
-                </button>
-            </div>
+            <ToolHeader
+                icon={<Maximize2 className="w-4 h-4 text-pink-400" />}
+                title={t('upscaler.headerTitle')}
+                count={files.length}
+                onClose={onClose}
+            />
 
             {/* Global settings bar */}
             {hasFiles && (
@@ -462,7 +443,7 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                                 </p>
                                 <p className="text-xs text-[var(--text-3)] mt-1">{t('upscaler.orClickToSelect')}</p>
                                 <p className="text-[10px] text-[var(--text-3)] mt-2">
-                                    JPG · PNG · WEBP · BMP · TIFF
+                                    Images: JPG · PNG · WEBP · BMP · TIFF
                                 </p>
                                 <p className="text-[10px] text-[var(--text-3)] mt-1">
                                     {t('upscaler.aiHint')}
@@ -638,37 +619,15 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
 
                 {/* Right half: Copy | Paste | Clear */}
                 <div className="flex-1 flex items-center gap-1">
-                    <button
-                        onClick={handleCopy}
-                        disabled={!files.some(f => f.status === 'done' && f.jobId) || isCopying}
-                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            !files.some(f => f.status === 'done' && f.jobId)
-                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
-                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]'
-                        }`}
-                        title={t('upscaler.copy')}
-                    >
+                    <ToolIconButton onClick={handleCopy} disabled={!files.some(f => f.status === 'done' && f.jobId) || isCopying} title={t('upscaler.copy')}>
                         {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopySuccess ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                    <button
-                        onClick={handlePaste}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]"
-                        title={t('upscaler.paste')}
-                    >
+                    </ToolIconButton>
+                    <ToolIconButton onClick={handlePaste} title={t('upscaler.paste')}>
                         <ClipboardPaste className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={handleClear}
-                        disabled={!hasFiles || isProcessing}
-                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            !hasFiles || isProcessing
-                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
-                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
-                        }`}
-                        title={t('upscaler.clearAll')}
-                    >
+                    </ToolIconButton>
+                    <ToolIconButton onClick={handleClear} disabled={!hasFiles || isProcessing} danger title={t('upscaler.clearAll')}>
                         <Trash2 className="w-4 h-4" />
-                    </button>
+                    </ToolIconButton>
                 </div>
             </div>
         </div>

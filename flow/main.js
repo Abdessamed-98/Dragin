@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, ipcMain, shell, Menu, Tray, nativeImage, clipboard, powerMonitor } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, shell, dialog, Menu, Tray, nativeImage, clipboard, powerMonitor } = require('electron');
 const { spawn } = require('child_process');
 const https = require('https');
 const fs = require('fs');
@@ -321,19 +321,19 @@ ipcMain.on('native-drag-start', (event, { items }) => {
 const savedSettings = loadSettings();
 
 // Default tool IDs (lightweight, ship with app)
-const DEFAULT_TOOL_IDS = ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadata', 'watermark', 'palette', 'shelf'];
+const DEFAULT_TOOL_IDS = ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadata', 'watermark', 'palette', 'shelf', 'resize', 'zip'];
 // All known tool IDs (for migration)
-const ALL_TOOL_IDS = ['remover', 'remover2', 'compressor', 'shelf', 'converter', 'vectorizer', 'ocr', 'palette', 'cropper', 'upscaler', 'pdf', 'metadata', 'watermark'];
+const ALL_TOOL_IDS = ['remover', 'compressor', 'shelf', 'converter', 'vectorizer', 'ocr', 'palette', 'cropper', 'upscaler', 'pdf', 'metadata', 'watermark', 'resize', 'zip'];
 
-// Download URLs for on-demand tools (mirrors toolRegistry.ts for main process)
+// Download URLs for on-demand (zip) tools (mirrors toolRegistry.ts for main process).
+// `remover` is BEN2 and installs via pip (see PIP_TOOLS), so it's not here.
 const TOOL_DOWNLOAD_URLS = {
-    remover:   'https://github.com/Abdessamed-98/flow-tools/releases/download/remover-v1/remover-win-x64.zip',
-    remover2:  'https://github.com/Abdessamed-98/flow-tools/releases/download/remover2-v1/remover2-win-x64.zip',
     upscaler:  'https://github.com/Abdessamed-98/flow-tools/releases/download/upscaler-v1/upscaler-win-x64.zip',
     ocr:       'https://github.com/Abdessamed-98/flow-tools/releases/download/ocr-v1/ocr-win-x64.zip',
     converter: 'https://github.com/Abdessamed-98/flow-tools/releases/download/converter-v1/converter-win-x64.zip',
 };
-const ON_DEMAND_TOOL_IDS = Object.keys(TOOL_DOWNLOAD_URLS);
+// On-demand = zip-downloaded tools + pip-installed tools (e.g. remover/BEN2).
+const ON_DEMAND_TOOL_IDS = [...Object.keys(TOOL_DOWNLOAD_URLS), 'remover'];
 
 // Determine installedToolIds with migration logic
 let initialInstalledToolIds;
@@ -489,7 +489,7 @@ let activeInstalls = {}; // { [toolId]: AbortController }
 // Tools whose runtime is a Python package installed into the backend env (pip)
 // rather than a downloadable zip bundle. Installing runs pip instead of fetching.
 const PIP_TOOLS = {
-    remover2: {
+    remover: {
         steps: [
             { label: 'PyTorch (CPU)', args: ['torch', '--index-url', 'https://download.pytorch.org/whl/cpu'] },
             { label: 'BEN2', args: ['git+https://github.com/PramaLLC/BEN2.git'] },
@@ -725,9 +725,16 @@ function applyDockBounds(edge) {
 }
 
 // Force the dock to the very front. setAlwaysOnTop(true) is a no-op when the flag
-// is already true (so it won't win a z-order tie), hence moveTop(). We call this
-// ONLY at user-relevant moments — never on a timer — so the dock doesn't climb back
-// over transient system overlays (Snipping Tool, Win+Shift+S, screen recorders).
+// is already true (so it won't win a z-order tie), hence moveTop().
+//
+// Frameless + transparent + alwaysOnTop windows on Windows silently sink under other
+// windows on focus changes (Alt-Tab, clicking another app, launching one) WITHOUT
+// firing 'always-on-top-changed' — see electron/electron#2097, #20933. So the only
+// reliable way to stay pinned is to re-assert on a light interval (KEEP_ON_TOP_MS).
+// Accepted tradeoff: the collapsed edge strip can briefly appear over screenshots /
+// fullscreen content. moveTop() is a cheap SetWindowPos, so 1×/sec is negligible.
+const KEEP_ON_TOP_MS = 1000;
+let keepOnTopTimer = null;
 function raiseDock() {
     if (!dockWindow || dockWindow.isDestroyed() || !dockWindow.isVisible()) return;
     dockWindow.setAlwaysOnTop(true, 'screen-saver');
@@ -788,6 +795,11 @@ const createDockWindow = () => {
 
     // Start in click-through mode
     dockWindow.setIgnoreMouseEvents(true, { forward: true });
+
+    // Keep the dock reliably pinned — re-assert topmost on a light interval (see raiseDock).
+    if (keepOnTopTimer) clearInterval(keepOnTopTimer);
+    keepOnTopTimer = setInterval(raiseDock, KEEP_ON_TOP_MS);
+    dockWindow.on('closed', () => { if (keepOnTopTimer) { clearInterval(keepOnTopTimer); keepOnTopTimer = null; } });
 };
 
 // ============================================================
@@ -885,13 +897,18 @@ const createGalleryWindow = () => {
 
 // --- APP LIFECYCLE ---
 app.whenReady().then(() => {
+    // Spawn the Python backend FIRST so its ~330ms import overlaps with the window/tray
+    // setup below, instead of starting only after all of it finishes. Backend ready sooner.
+    startPythonServer();
+
     // --- Startup: verify on-demand tools exist on disk ---
+    const _installedBefore = state.installedToolIds.length;
     state.installedToolIds = state.installedToolIds.filter(id => {
         if (DEFAULT_TOOL_IDS.includes(id)) return true;           // default: always keep
         if (!ON_DEMAND_TOOL_IDS.includes(id)) return true;        // unknown: keep (forward compat)
         return isToolDownloaded(id);                               // on-demand: verify version.json exists
     });
-    persistSettings();
+    if (state.installedToolIds.length !== _installedBefore) persistSettings(); // only write if something dropped
 
     // Clean up stale temp files from crashed installs
     try {
@@ -987,8 +1004,6 @@ app.whenReady().then(() => {
         uIOhook.start();
     });
 
-    // Start Python backend
-    startPythonServer();
 });
 
 app.on('window-all-closed', () => {
@@ -1009,25 +1024,28 @@ app.on('will-quit', () => {
 });
 
 // --- uIOhook EVENT HANDLERS ---
-uIOhook.on('mousedown', (e) => {
-    isMouseDown = true;
-    // Don't checkAndEnableEdge here — only on mousemove.
-    // This prevents interfering with scrollbar clicks at the right edge.
-});
-
-uIOhook.on('mousemove', () => {
-    if (!isMouseDown) return; // Only care about drag (button held down)
-
-    // Use Electron's logical (device-independent) cursor coords — these match
-    // getBounds() and workAreaSize on every DPI setting. uIOhook e.x/e.y are
-    // physical pixels on high-DPI displays which would cause coordinate mismatches.
+// We only care about mouse-move WHILE a button is held (a drag). So we subscribe
+// to 'mousemove' on mousedown and unsubscribe on mouseup — ordinary idle cursor
+// movement then does ZERO work (no per-move callback, no getCursorScreenPoint),
+// which keeps idle CPU / macOS WindowServer cost essentially nil while staying
+// instantly ready to catch a drag.
+function onDragMove() {
+    // Logical (DPI-independent) coords so they match workArea on every display.
     const cursor = screen.getCursorScreenPoint();
     checkAndEnableEdge(cursor.x, cursor.y);
+}
+
+uIOhook.on('mousedown', () => {
+    isMouseDown = true;
+    uIOhook.off('mousemove', onDragMove); // guard against a missed mouseup
+    uIOhook.on('mousemove', onDragMove);
+    // Don't checkAndEnableEdge here — only on mousemove (avoids scrollbar-click interference at the edge).
 });
 
 uIOhook.on('mouseup', () => {
     isMouseDown = false;
     edgeArmed = false; // re-arm so the next drag-to-edge raises the dock again
+    uIOhook.off('mousemove', onDragMove); // stop tracking once the button is released
 
     // Restore click-through if dock is in idle mode
     if (dockMode === 'idle' && dockWindow && !dockWindow.isDestroyed()) {
@@ -1304,6 +1322,72 @@ ipcMain.handle('clipboard:read', () => {
 ipcMain.handle('OPEN_LOGS_FOLDER', () => {
     const logPath = log.transports.file.getFile().path;
     shell.openPath(path.dirname(logPath));
+});
+
+// --- OUTPUT SAVING (post-drop) ---
+// Avoid clobbering an existing file: foo.png → foo (1).png
+function uniqueOutputPath(p) {
+    if (!fs.existsSync(p)) return p;
+    const dir = path.dirname(p);
+    const ext = path.extname(p);
+    const base = path.basename(p, ext);
+    for (let i = 1; i < 1000; i++) {
+        const cand = path.join(dir, `${base} (${i})${ext}`);
+        if (!fs.existsSync(cand)) return cand;
+    }
+    return p;
+}
+
+// Let the user pick (and remember) the default output folder.
+ipcMain.handle('pick-output-folder', async () => {
+    const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
+    if (r.canceled || !r.filePaths || !r.filePaths[0]) return null;
+    const dir = r.filePaths[0];
+    const s = loadSettings() || {};
+    s.outputFolder = dir;
+    saveSettings(s);
+    return dir;
+});
+
+// Write processed outputs to disk.
+// payload: { items: [{ name, dataUrl, originalPath? }], mode: 'ask'|'beside'|'folder', openFolder }
+ipcMain.handle('save-output', async (_event, payload) => {
+    try {
+        const { items = [], mode = 'folder', openFolder = true } = payload || {};
+        const s = loadSettings() || {};
+
+        // Resolve the base directory for non-"beside" items.
+        let baseDir;
+        if (mode === 'ask') {
+            const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
+            if (r.canceled || !r.filePaths || !r.filePaths[0]) return { ok: false, canceled: true, paths: [] };
+            baseDir = r.filePaths[0];
+        } else {
+            baseDir = s.outputFolder || app.getPath('downloads');
+        }
+
+        const written = [];
+        for (const it of items) {
+            if (!it || !it.dataUrl) continue;
+            let dir = baseDir;
+            if (mode === 'beside' && it.originalPath) {
+                try { dir = path.dirname(it.originalPath); } catch (_) {}
+            }
+            try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+            const safeName = String(it.name || 'output').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
+            const outPath = uniqueOutputPath(path.join(dir, safeName));
+            const b64 = String(it.dataUrl).replace(/^data:[^;]+;base64,/, '');
+            fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+            written.push(outPath);
+        }
+        if (openFolder && written.length) {
+            shell.showItemInFolder(written[written.length - 1]);
+        }
+        return { ok: true, paths: written };
+    } catch (err) {
+        log.error('[save-output] failed:', err.message);
+        return { ok: false, error: err.message, paths: [] };
+    }
 });
 
 // --- SETTINGS IPC (language, etc.) ---

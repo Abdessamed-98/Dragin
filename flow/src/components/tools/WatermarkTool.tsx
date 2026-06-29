@@ -8,8 +8,10 @@ import {
 } from 'lucide-react';
 import { addWatermark, getFileThumbnail } from '../../services/api';
 import type { WatermarkOptions } from '../../services/api';
-import JSZip from 'jszip';
+import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
+import { ToolHeader } from '../ToolHeader';
+import { ToolIconButton } from '../ToolIconButton';
 
 interface WatermarkToolProps {
     onClose: () => void;
@@ -160,29 +162,13 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
         if (done.length === 0) return;
         setIsDownloading(true);
         try {
-            if (done.length === 1) {
-                const item = done[0];
-                const a = document.createElement('a');
-                a.href = item.resultUrl!;
-                const base = item.name.replace(/\.[^.]+$/, '');
-                a.download = `${base}_watermarked.png`;
-                a.click();
-            } else {
-                const zip = new JSZip();
-                for (const item of done) {
-                    const res = await fetch(item.resultUrl!);
-                    const blob = await res.blob();
-                    const base = item.name.replace(/\.[^.]+$/, '');
-                    zip.file(`${base}_watermarked.png`, blob);
-                }
-                const content = await zip.generateAsync({ type: 'blob' });
-                const url = URL.createObjectURL(content);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'watermarked_files.zip';
-                a.click();
-                URL.revokeObjectURL(url);
-            }
+            await saveOutputs(done.map(item => ({
+                name: `${item.name.replace(/\.[^.]+$/, '')}_watermarked.png`,
+                url: item.resultUrl!,
+                originalPath: ((item as any).file)?.path ?? null,
+            })), 'watermarked');
+        } catch (e) {
+            console.error('Save failed', e);
         } finally {
             setIsDownloading(false);
         }
@@ -292,19 +278,7 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
-                <div className="flex items-center gap-2">
-                    <Copyright className="w-4 h-4 text-cyan-400" />
-                    <span className="text-sm font-bold text-[var(--text)]">{t('watermark.title')}</span>
-                    {hasFiles && (
-                        <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{files.length}</span>
-                    )}
-                </div>
-                <div className="flex-1" />
-                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
-                    <X className="w-4 h-4" />
-                </button>
-            </div>
+            <ToolHeader icon={<Copyright className="w-4 h-4 text-cyan-400" />} title={t('watermark.title')} count={files.length} onClose={onClose} />
 
             {/* Body */}
             <div className="flex-1 flex flex-col min-h-0 p-3 gap-2">
@@ -547,38 +521,32 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                         className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed"
                     >
                         <Copyright className="w-4 h-4" />
-                        {hasFiles && !text.trim() ? t('watermark.enterTextFirst') : t('watermark.title')}
+                        {hasFiles && !text.trim() ? t('watermark.enterTextFirst') : t('watermark.apply')}
                     </button>
                 )}
 
                 <div className="flex-1 flex items-center gap-1">
-                    <button
+                    <ToolIconButton
                         onClick={handleCopy}
                         disabled={isCopying || !files.some(f => f.status === 'done')}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed"
                         title={t('watermark.copy')}
                     >
                         {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopySuccess ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                    <button
+                    </ToolIconButton>
+                    <ToolIconButton
                         onClick={handlePaste}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]"
                         title={t('watermark.paste')}
                     >
                         <ClipboardPaste className="w-4 h-4" />
-                    </button>
-                    <button
+                    </ToolIconButton>
+                    <ToolIconButton
                         onClick={handleClear}
                         disabled={!hasFiles || isProcessing}
-                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            !hasFiles || isProcessing
-                                ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
-                                : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
-                        }`}
+                        danger
                         title={t('watermark.clearAll')}
                     >
                         <Trash2 className="w-4 h-4" />
-                    </button>
+                    </ToolIconButton>
                 </div>
             </div>
         </div>

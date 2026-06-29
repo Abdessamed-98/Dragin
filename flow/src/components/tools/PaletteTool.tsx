@@ -2,11 +2,13 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Palette, Upload, Loader2, Trash2, X, Copy, Check, ClipboardPaste
+    Palette, Upload, Loader2, Trash2, Copy, Check, ClipboardPaste
 } from 'lucide-react';
 import { extractPalette, getFileThumbnail } from '../../services/api';
 import type { PaletteColor } from '../../services/api';
 import { useI18n } from '../../i18n/I18nContext';
+import { ToolHeader } from '../ToolHeader';
+import { ToolIconButton } from '../ToolIconButton';
 
 interface PaletteToolProps {
     onClose: () => void;
@@ -202,16 +204,7 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
-                <div className="flex items-center gap-2">
-                    <Palette className="w-4 h-4 text-violet-400" />
-                    <span className="text-sm font-bold text-[var(--text)]">{t('palette.headerTitle')}</span>
-                </div>
-                <div className="flex-1" />
-                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
-                    <X className="w-4 h-4" />
-                </button>
-            </div>
+            <ToolHeader icon={<Palette className="w-4 h-4 text-violet-400" />} title={t('palette.headerTitle')} onClose={onClose} />
 
             {/* Body */}
             <div className="flex-1 flex flex-col min-h-0 p-3 gap-2">
@@ -340,15 +333,15 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
                     </button>
                 )}
                 <div className="flex-1 flex items-center gap-1">
-                    <button onClick={handleCopyAll} disabled={isCopyingAll || state !== 'done'} className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed" title={t('palette.copy')}>
+                    <ToolIconButton onClick={handleCopyAll} disabled={isCopyingAll || state !== 'done'} title={t('palette.copy')}>
                         {isCopyingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopyAllSuccess ? <Check className="w-4 h-4 text-[var(--green)]" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                    <button onClick={handlePaste} className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]" title={t('palette.paste')}>
+                    </ToolIconButton>
+                    <ToolIconButton onClick={handlePaste} title={t('palette.paste')}>
                         <ClipboardPaste className="w-4 h-4" />
-                    </button>
-                    <button onClick={handleClear} disabled={state === 'processing'} className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${state === 'processing' ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed' : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'}`} title={t('palette.clear')}>
+                    </ToolIconButton>
+                    <ToolIconButton onClick={handleClear} disabled={state === 'processing'} danger title={t('palette.clear')}>
                         <Trash2 className="w-4 h-4" />
-                    </button>
+                    </ToolIconButton>
                 </div>
             </div>
         </div>

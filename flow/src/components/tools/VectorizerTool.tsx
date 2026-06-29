@@ -2,13 +2,15 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
     PenTool, Sliders, Palette, Upload, Loader2, Download,
-    Trash2, X, Check, ClipboardPaste, Ban, AlertCircle, Copy, CheckCircle2,
+    Trash2, Check, ClipboardPaste, Ban, AlertCircle, Copy, CheckCircle2,
     Image as ImageIcon, Shapes, PenLine, LayoutGrid,
 } from 'lucide-react';
 import { vectorizeImage, getFileThumbnail } from '../../services/api';
 import type { VectorizeOptions } from '../../services/api';
-import JSZip from 'jszip';
+import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
+import { ToolHeader } from '../ToolHeader';
+import { ToolIconButton } from '../ToolIconButton';
 
 interface VectorizerToolProps {
     onClose: () => void;
@@ -226,30 +228,21 @@ const handleVectorize = useCallback(async () => {
         const done = files.filter(f => f.status === 'done' && f.svgString);
         if (done.length === 0) return;
         setIsDownloading(true);
+        const urls: string[] = [];
         try {
-            if (done.length === 1) {
-                const item = done[0];
-                const blob = new Blob([item.svgString!], { type: 'image/svg+xml' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${item.file.name.replace(/\.[^.]+$/, '')}-vectorized.svg`;
-                a.click();
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-            } else {
-                const zip = new JSZip();
-                for (const item of done) {
-                    zip.file(`${item.file.name.replace(/\.[^.]+$/, '')}-vectorized.svg`, item.svgString!);
-                }
-                const content = await zip.generateAsync({ type: 'blob' });
-                const url = URL.createObjectURL(content);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'vectorized.zip';
-                a.click();
-                URL.revokeObjectURL(url);
-            }
+            await saveOutputs(done.map(item => {
+                const url = URL.createObjectURL(new Blob([item.svgString!], { type: 'image/svg+xml' }));
+                urls.push(url);
+                return {
+                    name: `${item.file.name.replace(/\.[^.]+$/, '')}-vectorized.svg`,
+                    url,
+                    originalPath: (item.file as any).path ?? null,
+                };
+            }), 'vectorized');
+        } catch (e) {
+            console.error('Save failed', e);
         } finally {
+            urls.forEach(u => URL.revokeObjectURL(u));
             setIsDownloading(false);
         }
     };
@@ -353,19 +346,7 @@ const handleVectorize = useCallback(async () => {
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-white/5 shrink-0">
-                <div className="flex items-center gap-2">
-                    <PenTool className="w-4 h-4 text-rose-400" />
-                    <span className="text-sm font-bold text-white">{t('vectorizer.headerTitle')}</span>
-                    {hasFiles && (
-                        <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full text-slate-300">{files.length}</span>
-                    )}
-                </div>
-                <div className="flex-1" />
-                <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
-                    <X className="w-4 h-4" />
-                </button>
-            </div>
+            <ToolHeader icon={<PenTool className="w-4 h-4 text-rose-400" />} title={t('vectorizer.headerTitle')} count={files.length} onClose={onClose} />
 
             {/* Settings panel — always visible */}
             <div className="px-4 py-3 border-b border-white/5 shrink-0 bg-slate-900/40">
@@ -622,39 +603,29 @@ const handleVectorize = useCallback(async () => {
                 )}
 
                 <div className="flex-1 flex items-center gap-1">
-                    <button
+                    <ToolIconButton
                         onClick={handleCopy}
                         disabled={!anyDone || isCopying}
-                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            !anyDone
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white'
-                        }`}
                         title={t('vectorizer.copy')}
                     >
                         {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> :
                             showCopySuccess ? <Check className="w-4 h-4 text-green-400" /> :
                                 <Copy className="w-4 h-4" />}
-                    </button>
-                    <button
+                    </ToolIconButton>
+                    <ToolIconButton
                         onClick={handlePaste}
-                        className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white"
                         title={t('vectorizer.paste')}
                     >
                         <ClipboardPaste className="w-4 h-4" />
-                    </button>
-                    <button
+                    </ToolIconButton>
+                    <ToolIconButton
                         onClick={handleClear}
                         disabled={!hasFiles || anyProcessing}
-                        className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                            !hasFiles || anyProcessing
-                                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                                : 'bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300'
-                        }`}
+                        danger
                         title={t('vectorizer.clearAll')}
                     >
                         <Trash2 className="w-4 h-4" />
-                    </button>
+                    </ToolIconButton>
                 </div>
             </div>
         </div>

@@ -40,6 +40,10 @@ interface ElectronBridge {
     // Logs
     openLogsFolder: () => Promise<void>;
 
+    // Output saving (post-drop)
+    saveOutput: (payload: { items: Array<{ name: string; dataUrl: string; originalPath: string | null }>; mode: 'ask' | 'beside' | 'folder'; openFolder: boolean }) => Promise<{ ok: boolean; paths: string[]; canceled?: boolean; error?: string }>;
+    pickOutputFolder: () => Promise<string | null>;
+
     // Settings (language, etc.)
     getSetting: (key: string) => Promise<any>;
     setSetting: (key: string, value: any) => Promise<void>;

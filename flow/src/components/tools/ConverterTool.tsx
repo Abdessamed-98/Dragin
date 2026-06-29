@@ -9,8 +9,10 @@ import {
     getConvertStatus, convertImage, startVideoConversion, getVideoProgress, getFileThumbnail
 } from '../../services/api';
 import type { ConvertFormat, ImageFormat } from '../../services/api';
-import JSZip from 'jszip';
+import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
+import { ToolHeader } from '../ToolHeader';
+import { ToolIconButton } from '../ToolIconButton';
 
 interface ConverterToolProps {
     onClose: () => void;
@@ -63,7 +65,7 @@ const detectFileType = (file: File): FileType | null => {
     if (file.type.startsWith('audio/')) return 'audio';
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
     if (['gif'].includes(ext)) return 'gif';
-    if (['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'psd', 'ai'].includes(ext)) return 'image';
+    if (['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'psd', 'ai', 'heic', 'heif'].includes(ext)) return 'image';
     if (['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv'].includes(ext)) return 'video';
     if (['mp3', 'wav', 'ogg', 'flac', 'aac', 'wma', 'm4a'].includes(ext)) return 'audio';
     return null;
@@ -109,7 +111,7 @@ const GROUP_ICON: Record<GroupId, React.ReactNode> = {
     audio: <Music className="w-3.5 h-3.5 text-emerald-400" />,
 };
 
-const FILE_ACCEPT = 'image/*,video/*,audio/*,.gif,.mp4,.webm,.mov,.avi,.mkv,.psd,.ai,.tiff,.tif,.mp3,.wav,.ogg,.flac,.aac,.wma,.m4a';
+const FILE_ACCEPT = 'image/*,video/*,audio/*,.gif,.mp4,.webm,.mov,.avi,.mkv,.psd,.ai,.tiff,.tif,.heic,.heif,.mp3,.wav,.ogg,.flac,.aac,.wma,.m4a';
 
 export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
     const { t } = useI18n();
@@ -271,30 +273,15 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
     const handleDownload = async () => {
         const completed = files.filter(f => f.status === 'done' && f.resultDataUrl);
         if (completed.length === 0) return;
-        if (completed.length === 1) {
-            const item = completed[0];
-            const link = document.createElement('a');
-            link.href = item.resultDataUrl!;
-            link.download = `${item.name.replace(/\.[^.]+$/, '')}.${fileExt(item.targetFormat)}`;
-            link.click();
-            return;
-        }
         setIsDownloading(true);
         try {
-            const zip = new JSZip();
-            await Promise.all(completed.map(async (item) => {
-                const res = await fetch(item.resultDataUrl!);
-                const blob = await res.blob();
-                zip.file(`${item.name.replace(/\.[^.]+$/, '')}.${fileExt(item.targetFormat)}`, blob);
-            }));
-            const content = await zip.generateAsync({ type: 'blob' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(content);
-            link.download = `converted-${Date.now()}.zip`;
-            link.click();
-            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+            await saveOutputs(completed.map(item => ({
+                name: `${item.name.replace(/\.[^.]+$/, '')}.${fileExt(item.targetFormat)}`,
+                url: item.resultDataUrl!,
+                originalPath: (item.file as any).path ?? null,
+            })), 'converted');
         } catch (err) {
-            console.error('Failed to zip converted files', err);
+            console.error('Save failed', err);
         } finally {
             setIsDownloading(false);
         }
@@ -527,19 +514,7 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
             onDragLeave={handleDragLeave}
         >
             {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
-                <div className="flex items-center gap-2">
-                    <ArrowRightLeft className="w-4 h-4 text-blue-400" />
-                    <span className="text-sm font-bold text-[var(--text)]">{t('converter.headerTitle')}</span>
-                    {hasFiles && (
-                        <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{files.length}</span>
-                    )}
-                </div>
-                <div className="flex-1" />
-                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
-                    <X className="w-4 h-4" />
-                </button>
-            </div>
+            <ToolHeader icon={<ArrowRightLeft className="w-4 h-4 text-blue-400" />} title={t('converter.headerTitle')} count={files.length} onClose={onClose} />
 
             {/* Body */}
             <div className="flex-1 flex flex-col min-h-0 p-3 gap-2">
@@ -635,19 +610,19 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
                 ) : (
                     <button disabled className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed">
                         <ArrowRightLeft className="w-4 h-4" />
-                        {t('converter.headerTitle')}
+                        {t('converter.convert')}
                     </button>
                 )}
                 <div className="flex-1 flex items-center gap-1">
-                    <button onClick={handleCopy} disabled={isCopying || !files.some(f => f.status === 'done')} className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed" title={t('converter.copy')}>
+                    <ToolIconButton onClick={handleCopy} disabled={isCopying || !files.some(f => f.status === 'done')} title={t('converter.copy')}>
                         {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopySuccess ? <Check className="w-4 h-4 text-[var(--green)]" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                    <button onClick={handlePaste} className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)]" title={t('converter.paste')}>
+                    </ToolIconButton>
+                    <ToolIconButton onClick={handlePaste} title={t('converter.paste')}>
                         <ClipboardPaste className="w-4 h-4" />
-                    </button>
-                    <button onClick={handleClear} disabled={!hasFiles || isConverting} className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${!hasFiles || isConverting ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed' : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'}`} title={t('converter.clearAll')}>
+                    </ToolIconButton>
+                    <ToolIconButton onClick={handleClear} disabled={!hasFiles || isConverting} danger title={t('converter.clearAll')}>
                         <Trash2 className="w-4 h-4" />
-                    </button>
+                    </ToolIconButton>
                 </div>
             </div>
         </div>

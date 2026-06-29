@@ -4,14 +4,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     FileText, Upload, Loader2, Download, Trash2, AlertCircle,
     GripVertical, X, Plus, Layers, LayoutGrid, Minimize2, Check, FileOutput,
-    Copy, ClipboardPaste, Ban, FileSearch
+    Copy, ClipboardPaste, Ban, FileSearch, Images
 } from 'lucide-react';
-import { getPdfThumbnails, mergePdfs, organizePdf, compressPdf, convertPdfToWord, convertPdfToPptx, makePdfSearchable } from '../../services/api';
+import { getPdfThumbnails, mergePdfs, organizePdf, compressPdf, convertPdfToWord, convertPdfToPptx, makePdfSearchable, pdfToImages, pdfFromImages, getFileThumbnail } from '../../services/api';
 import type { PdfCompressPreset } from '../../services/api';
-import JSZip from 'jszip';
+import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
+import { ToolHeader } from '../ToolHeader';
+import { ToolIconButton } from '../ToolIconButton';
 
-type PdfSubtool = 'merge' | 'organize' | 'compress' | 'convert' | 'searchable' | null;
+type PdfSubtool = 'merge' | 'organize' | 'compress' | 'convert' | 'searchable' | 'toImages' | 'fromImages' | null;
 
 interface PdfFileItem {
     id: string;
@@ -20,6 +22,7 @@ interface PdfFileItem {
     pageCount: number;
     sizeBytes: number;
     thumbnailUrl?: string;
+    isImage?: boolean;
 }
 
 interface PageItem {
@@ -123,7 +126,8 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
     const prevHadFilesRef = useRef(false);
     useEffect(() => {
         if (pdfFiles.length > 0 && !prevHadFilesRef.current && !activeSubtool) {
-            setShowServicePicker(true);
+            // Image input has only one action (Images → PDF) — skip the PDF service picker.
+            if (!pdfFiles.every(f => f.isImage)) setShowServicePicker(true);
         }
         prevHadFilesRef.current = pdfFiles.length > 0;
     }, [pdfFiles.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -131,7 +135,11 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
     // ── Add files ──────────────────────────────────────────────────────
     const addFiles = useCallback(async (files: File[]) => {
         const pdfOnly = files.filter(isPdf);
-        if (pdfOnly.length === 0) {
+        const imageOnly = files.filter(f => f.type.startsWith('image/') && !isPdf(f));
+        // Images (with no PDFs) → image-input mode for "Images → PDF". Otherwise PDFs.
+        const useImages = imageOnly.length > 0 && pdfOnly.length === 0;
+        const accepted = useImages ? imageOnly : pdfOnly;
+        if (accepted.length === 0) {
             setError(t('pdf.onlyPdfAccepted'));
             setTimeout(() => setError(null), 3000);
             return;
@@ -142,7 +150,13 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
 
         try {
             const newItems: PdfFileItem[] = [];
-            for (const file of pdfOnly) {
+            for (const file of accepted) {
+                if (useImages) {
+                    let thumb: string | undefined;
+                    try { const r = await getFileThumbnail(file, 72); if (r) thumb = r.url; } catch {}
+                    newItems.push({ id: genId(), file, name: file.name, pageCount: 1, sizeBytes: file.size, thumbnailUrl: thumb, isImage: true });
+                    continue;
+                }
                 try {
                     const result = await getPdfThumbnails(file, 72);
                     newItems.push({
@@ -354,6 +368,45 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
             setShowDownload(true);
         } catch (err: any) {
             setError(err?.message || t('pdf.searchableFailed'));
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    // ── PDF → Images (render each page to PNG, save them) ────────────────
+    const handleToImages = async () => {
+        setIsProcessing(true);
+        setError(null);
+        try {
+            const all: { name: string; url: string; originalPath: string | null }[] = [];
+            for (let i = 0; i < pdfFiles.length; i++) {
+                setProcessingLabel(t('pdf.toImagesFile', { current: String(i + 1), total: String(pdfFiles.length) }));
+                const imgs = await pdfToImages(pdfFiles[i].file);
+                imgs.forEach(im => all.push({ name: im.name, url: im.dataUrl, originalPath: (pdfFiles[i].file as any).path ?? null }));
+            }
+            await saveOutputs(all, 'pdf-images');
+            setActiveSubtool(null);
+        } catch (err: any) {
+            setError(err?.message || t('pdf.toImagesFailed'));
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    // ── Images → PDF (combine images into one PDF) ──────────────────────
+    const handleFromImages = async () => {
+        setIsProcessing(true);
+        setError(null);
+        try {
+            setProcessingLabel(t('pdf.fromImagesWorking'));
+            const result = await pdfFromImages(pdfFiles.map(f => f.file));
+            const blob = await (await fetch(result.dataUrl)).blob();
+            const pdf = new File([blob], 'images.pdf', { type: 'application/pdf' });
+            setPdfFiles([{ id: genId(), file: pdf, name: 'images.pdf', pageCount: result.pages, sizeBytes: blob.size }]);
+            setActiveSubtool(null);
+            setShowDownload(true);
+        } catch (err: any) {
+            setError(err?.message || t('pdf.fromImagesFailed'));
         } finally {
             setIsProcessing(false);
         }
@@ -620,30 +673,24 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
     // ── Download ────────────────────────────────────────────────────────
     const handleDownload = async () => {
         if (pdfFiles.length === 0) return;
-
-        if (pdfFiles.length === 1) {
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(pdfFiles[0].file);
-            link.href = url;
-            link.download = pdfFiles[0].name;
-            link.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-        } else {
-            const zip = new JSZip();
-            pdfFiles.forEach(pf => zip.file(pf.name, pf.file));
-            const blob = await zip.generateAsync({ type: 'blob' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            link.href = url;
-            link.download = `pdf-tools-${Date.now()}.zip`;
-            link.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        const urls: string[] = [];
+        try {
+            await saveOutputs(pdfFiles.map(pf => {
+                const url = URL.createObjectURL(pf.file);
+                urls.push(url);
+                return { name: pf.name, url, originalPath: (pf.file as any).path ?? null };
+            }), 'pdf-tools');
+        } catch (e) {
+            console.error('Save failed', e);
+        } finally {
+            urls.forEach(u => URL.revokeObjectURL(u));
         }
     };
 
     // ── Render ──────────────────────────────────────────────────────────
 
     const hasFiles = pdfFiles.length > 0;
+    const isImageInput = hasFiles && pdfFiles.every(f => f.isImage);
     const showFileList = hasFiles && !isOrganizeOpen;
 
     return (
@@ -654,21 +701,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
             onDragLeave={!isOrganizeOpen ? handleDragLeave : undefined}
         >
             {/* ── Header ──────────────────────────────────────────── */}
-            <div className="flex items-center px-4 py-3 border-b border-[var(--separator)] shrink-0">
-                <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-red-400" />
-                    <span className="text-sm font-bold text-[var(--text)]">{t('pdf.headerTitle')}</span>
-                    {hasFiles && (
-                        <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">
-                            {pdfFiles.length} {pdfFiles.length === 1 ? t('pdf.file') : t('pdf.files')}
-                        </span>
-                    )}
-                </div>
-                <div className="flex-1" />
-                <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
-                    <X className="w-4 h-4" />
-                </button>
-            </div>
+            <ToolHeader icon={<FileText className="w-4 h-4 text-red-400" />} title={t('pdf.headerTitle')} count={pdfFiles.length} onClose={onClose} />
 
             {/* ── Error banner ────────────────────────────────────── */}
             {error && (
@@ -717,7 +750,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                             <input
                                 id="pdf-file-input"
                                 type="file"
-                                accept=".pdf,application/pdf"
+                                accept=".pdf,application/pdf,image/*"
                                 multiple
                                 className="sr-only"
                                 onChange={(e) => {
@@ -751,14 +784,16 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                             exit={{ opacity: 0 }}
                             className="flex-1 flex flex-col gap-2 min-h-0"
                         >
-                            {/* Service selector row — icon-only; label slides in for the active one */}
-                            <div className="flex gap-1.5 shrink-0 justify-center">
+                            {/* Service selector row — icon-only; label slides in for the active one.
+                                Hidden for image input (only "Images → PDF" applies). */}
+                            {!isImageInput && <div className="flex gap-1.5 shrink-0 justify-center">
                                 {([
                                     { id: 'merge' as PdfSubtool, label: t('pdf.merge'), Icon: Layers },
                                     { id: 'organize' as PdfSubtool, label: t('pdf.organize'), Icon: LayoutGrid },
                                     { id: 'compress' as PdfSubtool, label: t('pdf.compress'), Icon: Minimize2 },
                                     { id: 'convert' as PdfSubtool, label: t('pdf.convert'), Icon: FileOutput },
                                     { id: 'searchable' as PdfSubtool, label: t('pdf.searchable'), Icon: FileSearch },
+                                    { id: 'toImages' as PdfSubtool, label: t('pdf.toImages'), Icon: Images },
                                 ]).map(s => (
                                     <button
                                         key={s.id}
@@ -787,7 +822,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                         </AnimatePresence>
                                     </button>
                                 ))}
-                            </div>
+                            </div>}
 
                             {/* Compress presets (shown when compress selected) */}
                             {activeSubtool === 'compress' && (
@@ -898,7 +933,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                 <input
                                     id="pdf-add-input"
                                     type="file"
-                                    accept=".pdf,application/pdf"
+                                    accept=".pdf,application/pdf,image/*"
                                     multiple
                                     className="sr-only"
                                     onChange={(e) => {
@@ -999,26 +1034,41 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                             <FileSearch className="w-4 h-4" />
                             {t('pdf.makeSearchable')}
                         </button>
+                    ) : isImageInput ? (
+                        <button
+                            onClick={handleFromImages}
+                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-red-600 hover:bg-red-500 text-white"
+                        >
+                            <FileText className="w-4 h-4" />
+                            {t('pdf.makePdf')}
+                        </button>
+                    ) : hasFiles && activeSubtool === 'toImages' ? (
+                        <button
+                            onClick={handleToImages}
+                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-red-600 hover:bg-red-500 text-white"
+                        >
+                            <Images className="w-4 h-4" />
+                            {t('pdf.makeImages')}
+                        </button>
                     ) : (
                         <button
                             disabled
                             className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed"
                         >
                             <FileText className="w-4 h-4" />
-                            {t('pdf.headerTitle')}
+                            {t('pdf.process')}
                         </button>
                     )}
 
                     {/* Right: Copy | Paste | Delete */}
                     <div className="flex-1 flex items-center gap-1.5">
-                        <button
+                        <ToolIconButton
                             onClick={handleCopy}
                             disabled={!hasFiles || isProcessing || isCopying}
-                            className="flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed"
                             title={t('pdf.copy')}
                         >
                             {isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : showCopySuccess ? <Check className="w-4 h-4 text-[var(--green)]" /> : <Copy className="w-4 h-4" />}
-                        </button>
+                        </ToolIconButton>
                         <label
                             htmlFor="pdf-paste-input"
                             className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors cursor-pointer ${
@@ -1032,7 +1082,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                             <input
                                 id="pdf-paste-input"
                                 type="file"
-                                accept=".pdf,application/pdf"
+                                accept=".pdf,application/pdf,image/*"
                                 multiple
                                 className="sr-only"
                                 onChange={(e) => {
@@ -1041,7 +1091,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                 }}
                             />
                         </label>
-                        <button
+                        <ToolIconButton
                             onClick={() => {
                                 if (selectedFileIds.size > 0) {
                                     const remaining = pdfFiles.filter(f => !selectedFileIds.has(f.id));
@@ -1057,15 +1107,11 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                 }
                             }}
                             disabled={!hasFiles || isProcessing}
-                            className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                                !hasFiles || isProcessing
-                                    ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
-                                    : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
-                            }`}
+                            danger
                             title={selectedFileIds.size > 0 ? t('pdf.deleteSelected', { count: String(selectedFileIds.size) }) : t('pdf.clearAll')}
                         >
                             <Trash2 className="w-4 h-4" />
-                        </button>
+                        </ToolIconButton>
                     </div>
                 </div>
             )}
@@ -1226,6 +1272,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                                 { id: 'compress' as PdfSubtool, label: t('pdf.compress'), Icon: Minimize2 },
                                 { id: 'convert' as PdfSubtool, label: t('pdf.convert'), Icon: FileOutput },
                                 { id: 'searchable' as PdfSubtool, label: t('pdf.makeSearchable'), Icon: FileSearch },
+                                { id: 'toImages' as PdfSubtool, label: t('pdf.toImages'), Icon: Images },
                             ]).map(s => (
                                 <button
                                     key={s.id}

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutGrid, Settings, Info, Eraser, Plus, Power, Minus, Store, Download, Loader2, AlertCircle, X, FolderOpen, Globe, Eye, Sun, Moon, PanelLeft, PanelRight, PanelTop, PanelBottom } from 'lucide-react';
+import { LayoutGrid, Settings, Info, Eraser, Plus, Power, Minus, Store, Download, Loader2, AlertCircle, X, FolderOpen, Globe, Eye, Sun, Moon, PanelLeft, PanelRight, PanelTop, PanelBottom, ChevronDown } from 'lucide-react';
 import { useLocalizedTools } from '../i18n/useLocalizedTools';
 import { useI18n } from '../i18n/I18nContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -48,6 +48,20 @@ const SettingSeg: React.FC<{ options: { value: string; label: React.ReactNode }[
                 {o.label}
             </button>
         ))}
+    </div>
+);
+
+// Styled native dropdown (for choices whose labels are full phrases).
+const SettingSelect: React.FC<{ options: { value: string; label: string }[]; value: string; onChange: (v: string) => void }> = ({ options, value, onChange }) => (
+    <div className="relative shrink-0">
+        <select
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            className="appearance-none bg-[var(--surface-3)] text-[var(--text)] text-xs font-semibold rounded-[10px] pl-3 pr-8 py-1.5 cursor-pointer border border-transparent hover:bg-[var(--surface-2)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+        >
+            {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--text-2)]" />
     </div>
 );
 
@@ -103,6 +117,22 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
     const changeDockEdge = (v: string) => {
         setDockEdge(v);
         window.electron?.setSetting?.('dockEdge', v);
+    };
+
+    // --- Output saving (post-drop) ---
+    const [saveMode, setSaveMode] = useState<'ask' | 'beside' | 'folder'>('folder');
+    const [openAfterSave, setOpenAfterSave] = useState(true); // default on
+    const [outputFolder, setOutputFolder] = useState<string>('');
+    useEffect(() => {
+        window.electron?.getSetting?.('saveMode').then((v: any) => { if (v) setSaveMode(v); });
+        window.electron?.getSetting?.('openFolderAfterSave').then((v: any) => setOpenAfterSave(v !== false));
+        window.electron?.getSetting?.('outputFolder').then((v: any) => setOutputFolder(v || ''));
+    }, []);
+    const changeSaveMode = (v: string) => { setSaveMode(v as any); window.electron?.setSetting?.('saveMode', v); };
+    const toggleOpenAfter = () => { const n = !openAfterSave; setOpenAfterSave(n); window.electron?.setSetting?.('openFolderAfterSave', n); };
+    const pickOutputFolder = async () => {
+        const dir = await (window as any).electron?.pickOutputFolder?.();
+        if (dir) setOutputFolder(dir);
     };
 
     // Only show tools that are NOT currently in the dock
@@ -362,6 +392,45 @@ export const ToolsGallery: React.FC<ToolsGalleryProps> = ({
                                             { value: 'en', label: 'English' },
                                         ]}
                                     />}
+                                />
+                            </div>
+
+                            {/* SAVING — post-drop output handling */}
+                            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-[var(--e1)] overflow-hidden">
+                                <SettingRow
+                                    icon={<Download className="w-[18px] h-[18px]" />}
+                                    iconBg="var(--green)"
+                                    title={t('gallery.settings.saveLocation')}
+                                    subtitle={t('gallery.settings.saveLocationDesc')}
+                                    control={<SettingSelect
+                                        value={saveMode}
+                                        onChange={changeSaveMode}
+                                        options={[
+                                            { value: 'ask', label: t('gallery.settings.saveAsk') },
+                                            { value: 'beside', label: t('gallery.settings.saveBesideShort') },
+                                            { value: 'folder', label: t('gallery.settings.saveFolder') },
+                                        ]}
+                                    />}
+                                />
+                                {saveMode === 'folder' && (
+                                    <SettingRow
+                                        icon={<FolderOpen className="w-[18px] h-[18px]" />}
+                                        iconBg="var(--orange)"
+                                        title={t('gallery.settings.outputFolder')}
+                                        subtitle={outputFolder || 'Downloads'}
+                                        control={<button
+                                            onClick={pickOutputFolder}
+                                            className="px-3 py-1.5 rounded-[10px] text-xs font-semibold bg-[var(--surface-3)] text-[var(--text)] hover:bg-[var(--surface-2)]"
+                                        >{t('gallery.settings.change')}</button>}
+                                    />
+                                )}
+                                <SettingRow
+                                    last
+                                    icon={<FolderOpen className="w-[18px] h-[18px]" />}
+                                    iconBg="#0a84ff"
+                                    title={t('gallery.settings.openAfterSave')}
+                                    subtitle={t('gallery.settings.openAfterSaveDesc')}
+                                    control={<SettingSwitch on={openAfterSave} onClick={toggleOpenAfter} />}
                                 />
                             </div>
 

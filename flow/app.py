@@ -2,9 +2,31 @@ import os, sys, io, base64, subprocess, threading, uuid, tempfile, shutil, json,
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from PIL import Image, ImageOps, ImageEnhance, ImageFilter
+# Register HEIC/HEIF support so Image.open() can read iPhone photos (input-only).
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except Exception as _heif_err:
+    print(f"[Backend] pillow-heif unavailable, HEIC input disabled: {_heif_err}")
 import vtracer
-import fitz  # PyMuPDF
-import numpy as np
+
+# Defer the heaviest imports (fitz ~90ms, numpy ~84ms) until first actual use — keeps
+# backend cold-start fast. This proxy is transparent: every `fitz.`/`np.` call site works
+# unchanged; the real module loads on the first attribute access.
+class _LazyModule:
+    def __init__(self, name):
+        self.__dict__['_name'] = name
+        self.__dict__['_mod'] = None
+    def __getattr__(self, attr):
+        mod = self.__dict__['_mod']
+        if mod is None:
+            import importlib
+            mod = importlib.import_module(self.__dict__['_name'])
+            self.__dict__['_mod'] = mod
+        return getattr(mod, attr)
+
+fitz = _LazyModule('fitz')   # PyMuPDF
+np = _LazyModule('numpy')
 
 app = Flask(__name__)
 CORS(app)
@@ -12,153 +34,11 @@ CORS(app)
 # ── On-demand tools directory (set by Electron main process) ──────
 TOOLS_DIR = os.environ.get('DRAGIN_TOOLS_DIR', '')
 
-# Point rembg at downloaded models (must be set BEFORE importing rembg)
-if TOOLS_DIR:
-    _remover_models = os.path.join(TOOLS_DIR, 'remover', 'models')
-    if os.path.isdir(_remover_models):
-        os.environ['U2NET_HOME'] = _remover_models
+print("[Backend] Device: CPU")
 
-# ── Lazy rembg import ──────────────────────────────────────────────
-# rembg is an on-demand dependency — only imported when the remover tool is used.
-_rembg_remove = None
-_rembg_new_session = None
+# Shared idle timeout for on-demand models (e.g. BEN2) — unload after 5 min idle.
+_MODEL_IDLE_TIMEOUT = 300
 
-def _ensure_rembg():
-    """Lazy-import rembg. Raises ImportError if not installed."""
-    global _rembg_remove, _rembg_new_session
-    if _rembg_remove is None:
-        from rembg import remove, new_session
-        _rembg_remove = remove
-        _rembg_new_session = new_session
-
-# ── Execution provider ──────────────────────────────────────────────
-_providers = ['CPUExecutionProvider']
-_device = 'CPU'
-print(f"[Backend] Device: {_device}")
-
-# ── Model cache ─────────────────────────────────────────────────────
-# Lazy-load models on first use, auto-unload after idle timeout.
-# User-facing modes mapped to internal rembg model names
-MODE_TO_MODEL = {
-    'precision': 'birefnet-general-lite',
-    'speed': 'isnet-general-use',
-}
-DEFAULT_MODE = 'speed'
-_model_cache = {}
-_model_lock = threading.Lock()
-_model_last_used = 0.0          # time.time() of last /process call
-_MODEL_IDLE_TIMEOUT = 300       # 5 minutes
-
-def get_model(name):
-    global _model_last_used
-    _ensure_rembg()
-    with _model_lock:
-        _model_last_used = time.time()
-        if name not in _model_cache:
-            print(f"[Remover] Loading model: {name} ...")
-            _model_cache[name] = _rembg_new_session(name, providers=_providers)
-            print(f"[Remover] Model {name} ready.")
-        return _model_cache[name]
-
-def _unload_models():
-    """Free all cached rembg models to reclaim memory."""
-    with _model_lock:
-        if _model_cache:
-            names = list(_model_cache.keys())
-            _model_cache.clear()
-            import gc; gc.collect()
-            print(f"[Remover] Unloaded models: {names} — memory freed")
-
-def _model_idle_watcher():
-    """Background thread: unload models after idle timeout."""
-    while True:
-        time.sleep(60)  # check every minute
-        with _model_lock:
-            if _model_cache and _model_last_used > 0:
-                idle = time.time() - _model_last_used
-                if idle >= _MODEL_IDLE_TIMEOUT:
-                    names = list(_model_cache.keys())
-                    _model_cache.clear()
-                    import gc; gc.collect()
-                    print(f"[Remover] Auto-unloaded after {int(idle)}s idle: {names}")
-
-threading.Thread(target=_model_idle_watcher, daemon=True).start()
-
-
-
-@app.route('/process', methods=['POST'])
-def process():
-    try:
-        _ensure_rembg()
-    except ImportError:
-        return jsonify({"error": "rembg not installed. Install from Store."}), 503
-
-    if 'images' not in request.files:
-        return jsonify({"error": "No images"}), 400
-
-    files = request.files.getlist('images')
-    mode = request.form.get('mode', DEFAULT_MODE)
-
-    # Validate mode
-    if mode not in MODE_TO_MODEL:
-        mode = DEFAULT_MODE
-    model_name = MODE_TO_MODEL[mode]
-
-    sess = get_model(model_name)
-    results = []
-    req_start = time.perf_counter()
-
-    for file in files:
-        t0 = time.perf_counter()
-        input_image = Image.open(io.BytesIO(file.read())).convert("RGB")
-        w, h = input_image.size
-        t_load = time.perf_counter() - t0
-
-        t1 = time.perf_counter()
-        output_image = _rembg_remove(input_image, session=sess)
-        t_infer = time.perf_counter() - t1
-
-        t2 = time.perf_counter()
-        buffered = io.BytesIO()
-        output_image.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
-        t_encode = time.perf_counter() - t2
-
-        print(f"[Remover] {file.filename} ({w}x{h}) | mode={mode} device={_device} | "
-              f"load={t_load:.2f}s infer={t_infer:.2f}s encode={t_encode:.2f}s total={t_load+t_infer+t_encode:.2f}s")
-
-        results.append({
-            "name": file.filename,
-            "data": img_str
-        })
-
-    total = time.perf_counter() - req_start
-    print(f"[Remover] Request done: {len(files)} file(s) in {total:.2f}s ({mode}, {_device})")
-
-    return jsonify({"results": results})
-
-
-@app.route('/process/modes', methods=['GET'])
-def list_modes():
-    """Return available bg-removal modes."""
-    return jsonify({"modes": list(MODE_TO_MODEL.keys()), "default": DEFAULT_MODE})
-
-@app.route('/process/model-status', methods=['GET'])
-def model_status():
-    """Check whether the bg-removal model for a given mode is already loaded."""
-    mode = request.args.get('mode', DEFAULT_MODE)
-    if mode not in MODE_TO_MODEL:
-        mode = DEFAULT_MODE
-    model_name = MODE_TO_MODEL[mode]
-    with _model_lock:
-        loaded = model_name in _model_cache
-    return jsonify({"loaded": loaded, "model": model_name})
-
-@app.route('/process/unload', methods=['POST'])
-def unload_models():
-    """Explicitly free cached bg-removal models to reclaim RAM."""
-    _unload_models()
-    return jsonify({"ok": True})
 
 
 # ── BEN2 background remover (on-demand, single model, no modes) ──────
@@ -166,7 +46,7 @@ def unload_models():
 # PyTorch package. Point the HuggingFace cache at the downloaded tool dir so
 # the weights load offline.
 if TOOLS_DIR:
-    _ben2_dir = os.path.join(TOOLS_DIR, 'remover2')
+    _ben2_dir = os.path.join(TOOLS_DIR, 'remover')
     if os.path.isdir(_ben2_dir):
         os.environ.setdefault('HF_HOME', os.path.join(_ben2_dir, 'hf'))
 
@@ -1875,21 +1755,178 @@ def watermark():
         return jsonify({"error": str(e)}), 500
 
 
+# ── Resize Image (Pillow) ────────────────────────────────────────────
+@app.route('/resize', methods=['POST'])
+def resize_image():
+    if 'image' not in request.files:
+        return jsonify({"error": "No image"}), 400
+    file = request.files['image']
+    width = request.form.get('width', type=int)
+    height = request.form.get('height', type=int)
+    mode = request.form.get('mode', 'fit')   # 'fit' | 'exact' | 'width'
+    max_kb = request.form.get('maxKB', type=int)
+    try:
+        img = Image.open(io.BytesIO(file.read()))
+        fmt = (img.format or 'PNG').upper()
+        ow, oh = img.size
+
+        if mode == 'fill' and width and height:
+            # Aspect ratio: cover-resize then centre-crop. NEVER enlarge — if the requested
+            # box exceeds what the source can supply at this ratio, shrink it to fit.
+            tw, th = width, height
+            fit = min(ow / tw, oh / th, 1.0)
+            if fit < 1.0:
+                tw, th = max(1, round(tw * fit)), max(1, round(th * fit))
+            scale = max(tw / ow, th / oh)
+            rw, rh = max(1, round(ow * scale)), max(1, round(oh * scale))
+            img = img.resize((rw, rh), Image.LANCZOS)
+            left, top = (rw - tw) // 2, (rh - th) // 2
+            img = img.crop((left, top, left + tw, top + th))
+        elif mode == 'exact' and width and height:
+            tw, th = width, height
+            if (tw, th) != (ow, oh):
+                img = img.resize((tw, th), Image.LANCZOS)
+        elif mode == 'width' and width:
+            tw = min(width, ow)  # never enlarge — cap at source width (use the Upscaler to go bigger)
+            th = max(1, round(oh * (tw / ow)))
+            if (tw, th) != (ow, oh):
+                img = img.resize((tw, th), Image.LANCZOS)
+        else:  # fit within width/height, keep aspect
+            bw, bh = width or ow, height or oh
+            ratio = min(bw / ow, bh / oh)
+            tw, th = max(1, round(ow * ratio)), max(1, round(oh * ratio))
+            if (tw, th) != (ow, oh):
+                img = img.resize((tw, th), Image.LANCZOS)
+
+        save_fmt = fmt if fmt in ('JPEG', 'PNG', 'WEBP') else 'PNG'
+        if save_fmt == 'JPEG' and img.mode in ('RGBA', 'P', 'LA'):
+            img = img.convert('RGB')
+
+        out = io.BytesIO()
+        if max_kb and save_fmt in ('JPEG', 'WEBP'):
+            q = 90
+            while q >= 20:
+                out.seek(0); out.truncate()
+                img.save(out, format=save_fmt, quality=q)
+                if out.tell() <= max_kb * 1024:
+                    break
+                q -= 8
+        elif save_fmt in ('JPEG', 'WEBP'):
+            img.save(out, format=save_fmt, quality=90)
+        else:
+            img.save(out, format=save_fmt, optimize=True)
+
+        data = out.getvalue()
+        mime = {'JPEG': 'image/jpeg', 'PNG': 'image/png', 'WEBP': 'image/webp'}[save_fmt]
+        return jsonify({"data": base64.b64encode(data).decode('utf-8'),
+                        "mime": mime, "width": tw, "height": th, "size": len(data)})
+    except Exception as e:
+        print(f"[Resize] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Zip / Unzip (stdlib zipfile) ──────────────────────────────────────
+@app.route('/zip', methods=['POST'])
+def zip_files():
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({"error": "No files"}), 400
+    try:
+        buf = io.BytesIO()
+        seen = {}
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+            for f in files:
+                name = os.path.basename(f.filename or 'file')
+                if name in seen:
+                    seen[name] += 1
+                    base, ext = os.path.splitext(name)
+                    name = f"{base} ({seen[name]}){ext}"
+                else:
+                    seen[name] = 0
+                z.writestr(name, f.read())
+        data = buf.getvalue()
+        return jsonify({"data": base64.b64encode(data).decode('utf-8'), "size": len(data)})
+    except Exception as e:
+        print(f"[Zip] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/unzip', methods=['POST'])
+def unzip_file():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file"}), 400
+    f = request.files['file']
+    try:
+        results = []
+        with zipfile.ZipFile(io.BytesIO(f.read())) as z:
+            for info in z.infolist():
+                if info.is_dir():
+                    continue
+                with z.open(info) as zf:
+                    data = zf.read()
+                results.append({"name": os.path.basename(info.filename) or info.filename,
+                                "data": base64.b64encode(data).decode('utf-8')})
+        return jsonify({"results": results, "count": len(results)})
+    except zipfile.BadZipFile:
+        return jsonify({"error": "Not a valid zip file"}), 400
+    except Exception as e:
+        print(f"[Unzip] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ── PDF ↔ Images (pypdfium2 render / Pillow combine) ──────────────────
+@app.route('/pdf/to-images', methods=['POST'])
+def pdf_to_images():
+    if 'pdf' not in request.files:
+        return jsonify({"error": "No PDF"}), 400
+    f = request.files['pdf']
+    dpi = request.form.get('dpi', 150, type=int)
+    try:
+        import pypdfium2 as pdfium
+        base = os.path.splitext(os.path.basename(f.filename or 'page'))[0]
+        doc = pdfium.PdfDocument(f.read())
+        scale = dpi / 72.0
+        results = []
+        for i in range(len(doc)):
+            pil = doc[i].render(scale=scale).to_pil().convert('RGB')
+            out = io.BytesIO(); pil.save(out, format='PNG')
+            results.append({"name": f"{base}-{i + 1}.png",
+                            "data": base64.b64encode(out.getvalue()).decode('utf-8')})
+        doc.close()
+        return jsonify({"results": results, "count": len(results)})
+    except Exception as e:
+        print(f"[PDF->Images] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/pdf/from-images', methods=['POST'])
+def pdf_from_images():
+    files = request.files.getlist('images')
+    if not files:
+        return jsonify({"error": "No images"}), 400
+    try:
+        imgs = []
+        for f in files:
+            im = Image.open(io.BytesIO(f.read()))
+            imgs.append(im.convert('RGB') if im.mode != 'RGB' else im)
+        out = io.BytesIO()
+        imgs[0].save(out, format='PDF', save_all=True, append_images=imgs[1:])
+        data = out.getvalue()
+        return jsonify({"data": base64.b64encode(data).decode('utf-8'),
+                        "size": len(data), "pages": len(imgs)})
+    except Exception as e:
+        print(f"[Images->PDF] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/tools/status', methods=['GET'])
 def tools_status():
     """Report which tool backends have their deps satisfied."""
     status = {}
 
-    # Remover: check if rembg is importable
-    try:
-        _ensure_rembg()
-        status['remover'] = True
-    except ImportError:
-        status['remover'] = False
-
     # Remover (BEN2): check if the ben2 package is present (without importing torch)
     import importlib.util
-    status['remover2'] = importlib.util.find_spec('ben2') is not None
+    status['remover'] = importlib.util.find_spec('ben2') is not None
 
     # OCR: check if rapidocr is importable
     try:
@@ -1905,7 +1942,7 @@ def tools_status():
     status['converter'] = find_ffmpeg() is not None
 
     # Default tools (Pillow, PyMuPDF, vtracer ship with app)
-    for tid in ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadata', 'watermark', 'palette']:
+    for tid in ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadata', 'watermark', 'palette', 'resize', 'zip']:
         status[tid] = True
 
     # Shelf is pure Electron
@@ -1915,13 +1952,9 @@ def tools_status():
 
 
 def _preload_models():
-    """Background preload of heavy models so first use feels instant."""
-    try:
-        _ensure_rembg()
-        get_model('isnet-general-use')  # speed mode — most common
-        print("[Preload] Remover speed model ready.")
-    except Exception as e:
-        print(f"[Preload] Remover skip: {e}")
+    """Background preload of light, bundled engines so first use feels instant.
+    (The remover/BEN2 is heavy + on-demand, so it is NOT preloaded — it loads on
+    first drop and unloads after idle.)"""
     try:
         get_ocr_reader()
         print("[Preload] OCR engine ready.")

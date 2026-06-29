@@ -2,8 +2,7 @@
 import { LucideIcon } from 'lucide-react';
 
 export type ToolId =
-  | 'remover'
-  | 'remover2'   // Background Remover (BEN2) — higher-quality, on-demand
+  | 'remover'    // Background Remover (BEN2)
   | 'compressor'
   | 'shelf'
   | 'converter'
@@ -14,7 +13,9 @@ export type ToolId =
   | 'upscaler'   // New
   | 'pdf'        // New
   | 'metadata'   // New
-  | 'watermark'; // New
+  | 'watermark'  // New
+  | 'resize'     // New
+  | 'zip';       // New
 
 export interface ToolDefinition {
   id: ToolId;

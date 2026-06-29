@@ -1,9 +1,8 @@
 
 import React, { DragEvent, useState, useEffect, useRef, MouseEvent } from 'react';
 import { motion } from 'framer-motion';
-import { LucideIcon, X, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, Settings, File as FileIcon, ClipboardPaste, Brush, Zap, Crosshair, Ban } from 'lucide-react';
+import { LucideIcon, X, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, Settings, File as FileIcon, ClipboardPaste, Brush, Ban } from 'lucide-react';
 import { ActiveSession, ToolId, SessionItem } from '../types';
-import JSZip from 'jszip';
 import { CropperTool } from './tools/CropperTool';
 import { VectorizerTool } from './tools/VectorizerTool';
 import { OcrTool } from './tools/OcrTool';
@@ -15,8 +14,11 @@ import { MetadataTool } from './tools/MetadataTool';
 import { WatermarkTool } from './tools/WatermarkTool';
 import { PaletteTool } from './tools/PaletteTool';
 import { MagicBrushTool } from './tools/MagicBrushTool';
+import { ResizeTool } from './tools/ResizeTool';
+import { ZipTool } from './tools/ZipTool';
 import { clipboardState } from '../state/clipboardState';
 import { getFileThumbnail } from '../services/api';
+import { saveOutputs } from '../services/saveOutput';
 import { useI18n } from '../i18n/I18nContext';
 
 interface ToolWidgetProps {
@@ -68,17 +70,18 @@ interface ToolWidgetProps {
     /** OCR tool: files forwarded from DockApp drop handler */
     ocrDroppedFiles?: File[];
     ocrDropGen?: number;
+    resizeDroppedFiles?: File[];
+    resizeDropGen?: number;
+    zipDroppedFiles?: File[];
+    zipDropGen?: number;
     /** Clear signal — incremented when user confirms "clear all data" */
     clearGen?: number;
     /** Compressor tool: quality level (0-100) */
     compressorQuality?: number;
     /** Compressor tool: re-compress all items at new quality */
     onRecompress?: (quality: number) => void;
-    /** Remover tool: processing options */
-    removerOptions?: import('../services/api').RemoverOptions;
-    /** Whether the remover model is currently being loaded into memory */
+    /** Whether the remover (BEN2) model is currently being loaded into memory */
     isModelLoading?: boolean;
-    onRemoverModeChange?: (mode: import('../services/api').RemoverMode) => void;
     onCancelProcessing?: () => void;
     emptyHint?: string;
     emptySubHint?: string;
@@ -209,10 +212,12 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     vectorizerDropGen,
     ocrDroppedFiles,
     ocrDropGen,
+    resizeDroppedFiles,
+    resizeDropGen,
+    zipDroppedFiles,
+    zipDropGen,
     clearGen,
-    removerOptions,
     isModelLoading,
-    onRemoverModeChange,
     onCancelProcessing,
     emptyHint,
     emptySubHint,
@@ -248,6 +253,9 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     const items = activeSession?.items || [];
     const itemCount = items.length;
     const isMultiple = items.length > 1;
+    // Idle primary-button label: an action verb per tool (falls back to the title).
+    const _actionKeys: Record<string, string> = { compressor: 'widget.action.compressor', remover: 'widget.action.remover', cropper: 'widget.action.cropper', shelf: 'widget.action.shelf' };
+    const idleActionLabel = _actionKeys[id] ? t(_actionKeys[id] as any) : title;
 
     // Single Item Shortcuts
     const singleItem = items.length === 1 ? items[0] : null;
@@ -497,7 +505,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     // Map tool IDs to descriptive filename suffixes
     const toolSuffixMap: Record<string, string> = {
         remover: 'BGremoved',
-        remover2: 'BGremoved',
         compressor: 'compressed',
         shelf: 'shelved',
         cropper: 'cropped',
@@ -547,66 +554,26 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
 
     const handleDownload = async () => {
         if (isZipping) return;
-
-        const itemsToDownload = hasSelection
-            ? items.filter(i => selectedIds.includes(i.id))
-            : items;
-
+        const itemsToDownload = (hasSelection ? items.filter(i => selectedIds.includes(i.id)) : items)
+            .filter(i => i.processedUrl);
         if (itemsToDownload.length === 0) return;
-
-        // SINGLE FILE DOWNLOAD
-        if (itemsToDownload.length === 1) {
-            const item = itemsToDownload[0];
-            if (item.processedUrl) {
-                const link = document.createElement('a');
-                link.href = item.processedUrl;
-                link.download = getOutputFileName(item.file.name, id);
-                link.click();
-            }
-            return;
-        }
-
-        // MULTIPLE FILES DOWNLOAD (ZIP)
         try {
             setIsZipping(true);
-            const zip = new JSZip();
-            const suffix = toolSuffixMap[id] || 'processed';
-            const folderName = `${suffix}-${Date.now()}`;
-
-            // Process files in parallel
-            await Promise.all(itemsToDownload.map(async (item) => {
-                if (item.processedUrl) {
-                    // Fetch the blob content
-                    const response = await fetch(item.processedUrl);
-                    const blob = await response.blob();
-
-                    // Create a descriptive filename
-                    const fileName = getOutputFileName(item.file.name, id);
-
-                    // Add to zip
-                    zip.file(fileName, blob);
-                }
-            }));
-
-            // Generate zip file
-            const content = await zip.generateAsync({ type: "blob" });
-
-            // Trigger download
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(content);
-            link.download = `${folderName}.zip`;
-            link.click();
-
-            // Cleanup
-            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-
+            await saveOutputs(
+                itemsToDownload.map(i => ({
+                    name: getOutputFileName(i.file.name, id),
+                    url: i.processedUrl!,
+                    originalPath: (i.file as any).path ?? null,
+                })),
+                toolSuffixMap[id] || 'processed'
+            );
         } catch (error) {
-            console.error("Failed to zip files", error);
-            alert(t('widget.zipError'));
+            console.error('Save failed', error);
         } finally {
             setIsZipping(false);
         }
     };
+
 
     const currentImageSrc = (singleItem && (isSingleCompleted && !showOriginal
         ? singleItem.processedUrl
@@ -680,7 +647,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     )}
 
                     {/* Magic Brush overlay — remover-specific (both remover variants) */}
-                    {(id === 'remover' || id === 'remover2') && isBrushing && focusedItem?.status === 'completed' && focusedItem.processedUrl && (
+                    {(id === 'remover') && isBrushing && focusedItem?.status === 'completed' && focusedItem.processedUrl && (
                         <div className="absolute inset-0 z-50 rounded-2xl overflow-hidden">
                             <MagicBrushTool
                                 originalImageSrc={focusedItem.originalUrl}
@@ -711,9 +678,9 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     )}
 
                     {/* Hide ToolWidget content when an overlay tool covers it */}
-                    {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark', 'vectorizer', 'palette'].includes(id)
+                    {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark', 'vectorizer', 'palette', 'resize', 'zip'].includes(id)
                         || (id === 'cropper' && isCropping)
-                        || ((id === 'remover' || id === 'remover2') && isBrushing)) && (<>
+                        || ((id === 'remover') && isBrushing)) && (<>
                     <div className="flex items-center pb-3 border-b border-[var(--separator)] mb-3 shrink-0">
                         {/* Left: Title + count */}
                         <div className="flex items-center gap-2">
@@ -736,34 +703,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                             </button>
                         </div>
                     </div>
-
-                    {/* Remover mode toggle */}
-                    {id === 'remover' && items.length > 0 && onRemoverModeChange && (
-                        <div className="flex justify-center shrink-0 mb-2">
-                            <div className="inline-flex rounded-lg bg-[var(--surface)] border border-[var(--separator)] p-0.5">
-                                {([
-                                    { mode: 'speed' as const, label: t('widget.modeSpeed'), Icon: Zap },
-                                    { mode: 'precision' as const, label: t('widget.modePrecision'), Icon: Crosshair },
-                                ]).map(({ mode, label, Icon }) => {
-                                    const active = (removerOptions?.mode || 'speed') === mode;
-                                    return (
-                                        <button
-                                            key={mode}
-                                            onClick={() => onRemoverModeChange(mode)}
-                                            className={`flex items-center justify-center gap-1.5 w-20 py-1 rounded-md text-xs font-bold transition-all ${
-                                                active
-                                                    ? 'bg-[var(--accent)] text-white shadow-sm'
-                                                    : 'text-[var(--text-2)] hover:text-[var(--text)]'
-                                            }`}
-                                        >
-                                            <Icon className="w-3.5 h-3.5" />
-                                            {label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
 
                     {/* Content Body */}
                     <div className="flex-1 relative rounded-xl overflow-hidden bg-black/20 mb-3 min-h-0 border border-[var(--separator)]"
@@ -886,7 +825,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     {/* Actions Footer */}
                     <div className="flex flex-col gap-1.5 shrink-0 w-full px-1">
                         {/* Row 1: Extra tool-specific buttons (only when present) */}
-                        {(id === 'remover' || id === 'remover2') && (
+                        {(id === 'remover') && (
                             <>
                             <div className="flex items-center gap-1.5 w-full">
                                 <button
@@ -991,7 +930,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                     className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed"
                                 >
                                     <Icon className="w-4 h-4" />
-                                    {title}
+                                    {idleActionLabel}
                                 </button>
                             )}
 
@@ -1020,10 +959,8 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                 <button
                                     onClick={onDelete}
                                     disabled={items.length === 0}
-                                    className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors ${
-                                        items.length === 0
-                                            ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed'
-                                            : 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--red)] hover:text-[var(--red)]'
+                                    className={`flex-1 flex items-center justify-center h-10 rounded-xl transition-colors bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-3)] hover:text-[var(--red)] ${
+                                        items.length === 0 ? 'cursor-not-allowed opacity-40' : ''
                                     }`}
                                     title={hasSelection ? t('widget.deleteSelected', { count: selectionCount }) : t('widget.clearAll')}
                                 >
@@ -1129,6 +1066,38 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         onClose={onClose}
                         droppedFiles={paletteDroppedFiles || []}
                         dropGeneration={paletteDropGen || 0}
+                        onItemCountChange={setSelfItemCount}
+                        clearGen={clearGen || 0}
+                    />
+                </motion.div>
+            )}
+            {id === 'resize' && (
+                <motion.div
+                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
+                    animate={{ opacity: isActive ? 1 : 0 }}
+                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
+                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
+                >
+                    <ResizeTool
+                        onClose={onClose}
+                        droppedFiles={resizeDroppedFiles || []}
+                        dropGeneration={resizeDropGen || 0}
+                        onItemCountChange={setSelfItemCount}
+                        clearGen={clearGen || 0}
+                    />
+                </motion.div>
+            )}
+            {id === 'zip' && (
+                <motion.div
+                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
+                    animate={{ opacity: isActive ? 1 : 0 }}
+                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
+                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
+                >
+                    <ZipTool
+                        onClose={onClose}
+                        droppedFiles={zipDroppedFiles || []}
+                        dropGeneration={zipDropGen || 0}
                         onItemCountChange={setSelfItemCount}
                         clearGen={clearGen || 0}
                     />
