@@ -16,6 +16,9 @@ rembg_datas, rembg_binaries, rembg_hiddenimports = collect_all('rembg')
 # Collect RapidOCR data files (bundled ONNX models for det/rec/cls)
 rapidocr_datas, rapidocr_binaries, rapidocr_hiddenimports = collect_all('rapidocr_onnxruntime')
 
+# HEIC/HEIF input (iPhone photos) — bundle pillow-heif + its libheif native libs
+heif_datas, heif_binaries, heif_hiddenimports = collect_all('pillow_heif')
+
 # Collect template/data files for other packages
 pptx_datas = collect_data_files('pptx')
 pdf2docx_datas = collect_data_files('pdf2docx')
@@ -32,8 +35,8 @@ for pkg in ['pymatting', 'rembg', 'onnxruntime', 'scipy', 'pooch', 'jsonschema',
 a = Analysis(
     ['app.py'],
     pathex=[base_path],
-    binaries=rembg_binaries + rapidocr_binaries,
-    datas=pptx_datas + pdf2docx_datas + rembg_datas + rapidocr_datas + extra_metadata + [
+    binaries=rembg_binaries + rapidocr_binaries + heif_binaries,
+    datas=pptx_datas + pdf2docx_datas + rembg_datas + rapidocr_datas + heif_datas + extra_metadata + [
         ('models/ocr/arabic_rec.onnx', 'models/ocr'),
         ('models/ocr/arabic_dict.txt', 'models/ocr'),
     ],
@@ -61,7 +64,9 @@ a = Analysis(
         'onnxruntime', 'scipy', 'pymatting', 'pooch',
         # OCR (RapidOCR — reuses onnxruntime already bundled above)
         'rapidocr_onnxruntime',
-    ] + rembg_hiddenimports + rapidocr_hiddenimports,
+        # HEIC/HEIF input (native module is top-level _pillow_heif)
+        'pillow_heif', '_pillow_heif',
+    ] + rembg_hiddenimports + rapidocr_hiddenimports + heif_hiddenimports,
     excludes=[
         # Not needed — keep these out
         'easyocr', 'torch', 'torchvision', 'paddlepaddle', 'paddleocr', 'paddle',
