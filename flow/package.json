@@ -97,7 +97,7 @@
           ]
         }
       ],
-      "icon": "icon.icns",
+      "icon": "icon.png",
       "category": "public.app-category.productivity",
       "hardenedRuntime": false,
       "gatekeeperAssess": false

@@ -3,7 +3,8 @@
  * Backend API service — calls the local Flask server
  */
 
-const BASE_URL = 'http://localhost:5000';
+// Port 8756 (not 5000 — macOS Control Center's AirPlay Receiver holds 5000). Must match app.py.
+const BASE_URL = 'http://localhost:8756';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, ipcMain, shell, dialog, Menu, Tray, nativeImage, clipboard, powerMonitor } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, shell, dialog, Menu, Tray, nativeImage, clipboard, powerMonitor, systemPreferences } = require('electron');
 const { spawn } = require('child_process');
 const https = require('https');
 const fs = require('fs');
@@ -69,6 +69,7 @@ const mainTranslations = {
         'install.cancelled': 'تم الإلغاء',
         'install.cancelledError': 'تم إلغاء التحميل',
         'install.failed': 'فشل التثبيت',
+        'install.unavailablePlatform': 'هذه الأداة غير متوفرة على نظامك بعد',
     },
     en: {
         'tray.hide': 'Hide Dock',
@@ -83,6 +84,7 @@ const mainTranslations = {
         'install.cancelled': 'Cancelled',
         'install.cancelledError': 'Download cancelled',
         'install.failed': 'Installation failed',
+        'install.unavailablePlatform': 'This tool is not available on your platform yet',
     }
 };
 
@@ -93,7 +95,11 @@ function mt(key) {
 }
 
 const createMenu = () => {
+    const isMac = process.platform === 'darwin';
     const template = [
+        // On macOS the first menu becomes the app menu — provide the standard roles
+        // so Cmd+Q / Cmd+H / Cmd+, work. Omitted entirely on Windows/Linux.
+        ...(isMac ? [{ role: 'appMenu' }] : []),
         {
             label: 'Edit',
             submenu: [
@@ -115,6 +121,8 @@ const createMenu = () => {
                 { role: 'toggleDevTools' }
             ]
         },
+        // Standard Window menu on macOS (Cmd+W to close the gallery, Cmd+M to minimize).
+        ...(isMac ? [{ role: 'windowMenu' }] : []),
         {
             label: 'Help',
             submenu: [
@@ -143,7 +151,8 @@ function startPythonServer() {
             ? path.join(__dirname, 'venv', 'Scripts', 'python.exe')
             : path.join(__dirname, 'venv', 'bin', 'python');
         if (!fs.existsSync(executablePath)) {
-            executablePath = process.platform === 'win32' ? 'python.exe' : 'python';
+            // macOS 12.3+ / most Linux ship only `python3`, not `python`.
+            executablePath = process.platform === 'win32' ? 'python.exe' : 'python3';
         }
         args = [path.join(__dirname, 'app.py')];
     } else {
@@ -175,6 +184,10 @@ function startPythonServer() {
 
     pyServer.on('close', (code) => {
         log.info(`[Python] Backend exited with code ${code}`);
+    });
+    // Without this, a missing interpreter (ENOENT) throws an uncaught exception in main.
+    pyServer.on('error', (err) => {
+        log.error(`[Python] Failed to start backend (${executablePath}): ${err.message}`);
     });
 }
 
@@ -211,8 +224,8 @@ ipcMain.handle('shelf:save', (_event, id, buffer, name) => {
     const safeName = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
     const fileName = `${id}__${safeName}`;
 
-    // Cap at 20 items: delete oldest if needed
-    const existing = fs.readdirSync(dir);
+    // Cap at 20 items: delete oldest if needed (ignore Finder's .DS_Store etc.)
+    const existing = fs.readdirSync(dir).filter(f => !f.startsWith('.'));
     if (existing.length >= 20) {
         const oldest = existing
             .map(f => ({ f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
@@ -228,7 +241,7 @@ ipcMain.handle('shelf:save', (_event, id, buffer, name) => {
 
 ipcMain.handle('shelf:load', () => {
     const dir = getShelfDir();
-    const files = fs.readdirSync(dir);
+    const files = fs.readdirSync(dir).filter(f => !f.startsWith('.'));
     return files
         .map(fileName => {
             const filePath = path.join(dir, fileName);
@@ -505,7 +518,7 @@ function getBackendPython() {
             : path.join(__dirname, 'venv', 'bin', 'python');
         if (fs.existsSync(venvPy)) return venvPy;
     }
-    return process.platform === 'win32' ? 'python.exe' : 'python';
+    return process.platform === 'win32' ? 'python.exe' : 'python3';
 }
 
 // Run `python -m pip install <args>`, streaming logs; rejects on non-zero / abort.
@@ -588,6 +601,15 @@ async function handleToolInstall(toolId) {
     const downloadUrl = TOOL_DOWNLOAD_URLS[toolId];
     if (!downloadUrl) {
         log.error(`[Install] No download URL for tool: ${toolId}`);
+        return;
+    }
+
+    // On-demand binaries are currently Windows-only (win-x64 zips). On other platforms
+    // refuse rather than "successfully" installing an unrunnable .exe payload (false-green).
+    if (process.platform !== 'win32') {
+        log.warn(`[Install] ${toolId}: no ${process.platform} build available yet`);
+        state.installProgress[toolId] = { toolId, status: 'error', progress: 0, error: mt('install.unavailablePlatform') };
+        broadcastState();
         return;
     }
 
@@ -741,6 +763,37 @@ function raiseDock() {
     dockWindow.moveTop();
 }
 
+// Start the global mouse hook that drives edge-reveal. On macOS this needs Accessibility
+// permission — without it uIOhook.start() THROWS (AXAPI disabled) and, since the dock is
+// click-through, the edge drag never fires. So on darwin we gate on the permission, trigger
+// the system prompt, and poll until it's granted (no app relaunch needed). start() is always
+// wrapped so a failure logs instead of crashing the main process.
+let _mouseHookStarted = false;
+let _accessibilityPoll = null;
+function startMouseHook() {
+    if (_mouseHookStarted) return;
+    if (process.platform === 'darwin' && !systemPreferences.isTrustedAccessibilityClient(false)) {
+        systemPreferences.isTrustedAccessibilityClient(true); // shows the system prompt once
+        log.warn('[Hook] Waiting for macOS Accessibility permission before starting mouse hook');
+        if (!_accessibilityPoll) {
+            _accessibilityPoll = setInterval(() => {
+                if (systemPreferences.isTrustedAccessibilityClient(false)) {
+                    clearInterval(_accessibilityPoll); _accessibilityPoll = null;
+                    startMouseHook();
+                }
+            }, 2000);
+        }
+        return;
+    }
+    try {
+        uIOhook.start();
+        _mouseHookStarted = true;
+    } catch (err) {
+        _mouseHookStarted = false;
+        log.error(`[Hook] Failed to start global mouse hook: ${err && err.message}`);
+    }
+}
+
 const createDockWindow = () => {
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.workAreaSize;
@@ -782,6 +835,12 @@ const createDockWindow = () => {
 
     // Topmost so the dock stays above normal windows.
     dockWindow.setAlwaysOnTop(true, 'screen-saver');
+
+    // macOS: an always-on-top window is otherwise bound to the Space it was created on
+    // and hidden by fullscreen apps. Make the dock follow the user across Spaces + fullscreen.
+    if (process.platform === 'darwin') {
+        dockWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
 
     // Re-assert ONLY if Windows actually clears our always-on-top flag (fullscreen
     // apps, UAC). This fires for OUR window's state — not when another overlay merely
@@ -990,10 +1049,10 @@ app.whenReady().then(() => {
         createGalleryWindow();
     });
 
-    // Start Mouse Hook
-    uIOhook.start();
+    // Start the global mouse hook (permission-gated + crash-guarded on macOS).
+    startMouseHook();
 
-    // Restart uIOhook after system sleep/wake — Windows drops native hooks on resume
+    // Restart uIOhook after system sleep/wake — native hooks get dropped on resume.
     powerMonitor.on('resume', () => {
         isMouseDown = false; // missed the mouseup during sleep
         dockMode = 'idle';
@@ -1001,7 +1060,8 @@ app.whenReady().then(() => {
             dockWindow.setIgnoreMouseEvents(true, { forward: true });
         }
         try { uIOhook.stop(); } catch {}
-        uIOhook.start();
+        _mouseHookStarted = false;
+        startMouseHook();
     });
 
 });
@@ -1019,8 +1079,23 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+    // Kill the backend here too — window-all-closed doesn't fire on the tray-Quit path
+    // (and never on macOS), so this is the reliable place to stop the Python process.
+    if (pyServer) {
+        try {
+            if (process.platform === 'win32') spawn('taskkill', ['/pid', String(pyServer.pid), '/f', '/t']);
+            else pyServer.kill('SIGTERM');
+        } catch {}
+    }
     // Clean up any temp files written for native drag-out
     for (const f of tempDragFiles) try { fs.unlinkSync(f); } catch {}
+});
+
+// macOS: clicking the Dock icon reopens the app. Recreate the dock strip if it was
+// destroyed, otherwise surface the gallery/control-center window.
+app.on('activate', () => {
+    if (!dockWindow || dockWindow.isDestroyed()) createDockWindow();
+    else createGalleryWindow();
 });
 
 // --- uIOhook EVENT HANDLERS ---
@@ -1277,8 +1352,19 @@ ipcMain.handle('clipboard:write', async (_event, items) => {
                 });
                 ps.on('error', reject);
             });
+        } else if (process.platform === 'darwin') {
+            // macOS: put real file references on the pasteboard via AppleScript so Finder
+            // and other apps paste the actual files (writeText would paste literal paths).
+            const script = filePaths.length === 1
+                ? `set the clipboard to POSIX file ${JSON.stringify(filePaths[0])}`
+                : `set the clipboard to {${filePaths.map(p => `POSIX file ${JSON.stringify(p)}`).join(', ')}}`;
+            await new Promise((resolve) => {
+                const os = spawn('osascript', ['-e', script]);
+                os.on('close', () => resolve(true));
+                os.on('error', (e) => { log.error('[Clipboard] osascript failed:', e); resolve(false); });
+            });
         } else {
-            // macOS / Linux: write file paths as text (basic fallback)
+            // Linux fallback: file paths as text.
             clipboard.writeText(filePaths.join('\n'));
         }
 
@@ -1299,7 +1385,7 @@ ipcMain.handle('clipboard:read', () => {
             return [{ dataUrl: img.toDataURL(), name: 'pasted.png' }];
         }
 
-        // Priority 2: CF_HDROP file list (files copied in Explorer/Finder)
+        // Priority 2: file list copied in the file manager.
         if (process.platform === 'win32') {
             const buf = clipboard.readBuffer('CF_HDROP');
             if (buf && buf.length >= 20) {
@@ -1308,6 +1394,24 @@ ipcMain.handle('clipboard:read', () => {
                     dataUrl: toDataUrl(fs.readFileSync(p), path.basename(p)),
                     name: path.basename(p),
                 }));
+            }
+        } else if (process.platform === 'darwin') {
+            // Finder-copied files: NSFilenamesPboardType (multiple) or public.file-url (single).
+            let paths = [];
+            try {
+                const buf = clipboard.readBuffer('NSFilenamesPboardType');
+                if (buf && buf.length) {
+                    paths = [...buf.toString('utf8').matchAll(/<string>([^<]+)<\/string>/g)]
+                        .map(m => m[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+                }
+            } catch {}
+            if (!paths.length) {
+                const url = clipboard.read('public.file-url');
+                if (url) { try { paths = [decodeURIComponent(url.replace(/^file:\/\//, ''))]; } catch {} }
+            }
+            paths = paths.filter(p => { try { return fs.existsSync(p); } catch { return false; } });
+            if (paths.length) {
+                return paths.map(p => ({ dataUrl: toDataUrl(fs.readFileSync(p), path.basename(p)), name: path.basename(p) }));
             }
         }
 

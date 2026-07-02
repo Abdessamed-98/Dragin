@@ -91,7 +91,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=True,
-    icon='icon.ico' if platform.system() == 'Windows' else ('icon.icns' if platform.system() == 'Darwin' else None),
+    icon='icon.ico' if platform.system() == 'Windows' else None,  # PyInstaller EXE ignores icon on non-Windows
 )
 
 coll = COLLECT(

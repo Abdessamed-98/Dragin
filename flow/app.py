@@ -63,9 +63,20 @@ def _load_ben2():
             import torch
             from ben2 import BEN_Base
             print("[BEN2] Loading model ...")
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            # Prefer CUDA, then Apple Silicon MPS, else CPU — so Macs aren't stuck on slow CPU.
+            if torch.cuda.is_available():
+                device = torch.device('cuda')
+            elif getattr(torch.backends, 'mps', None) is not None and torch.backends.mps.is_available():
+                device = torch.device('mps')
+            else:
+                device = torch.device('cpu')
             m = BEN_Base.from_pretrained("PramaLLC/BEN2")
-            m.to(device).eval()
+            try:
+                m.to(device).eval()
+            except Exception as e:
+                print(f"[BEN2] {device} failed ({e}); falling back to CPU")
+                device = torch.device('cpu')
+                m.to(device).eval()
             _ben2_model = (m, device)
             print(f"[BEN2] Model ready on {device}.")
         return _ben2_model
@@ -708,8 +719,9 @@ def _get_ocr_layer_font():
         candidates = [
             os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'ocr', 'ocr_layer.ttf'),
             r'C:\Windows\Fonts\arial.ttf',
+            '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',  # macOS 10.15+ (Arabic + Latin)
+            '/Library/Fonts/Arial Unicode.ttf',                       # older macOS
             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-            '/Library/Fonts/Arial Unicode.ttf',
         ]
         for fp in candidates:
             if os.path.isfile(fp):
@@ -902,6 +914,15 @@ def pdf_to_pptx():
 convert_jobs = {}
 convert_jobs_lock = threading.Lock()
 
+def _mac_brew_bin(name):
+    """macOS: Finder/Dock-launched apps inherit launchd's minimal PATH (no /opt/homebrew,
+    no /usr/local), so shutil.which misses Homebrew installs. Probe those locations."""
+    if sys.platform == 'darwin':
+        for p in (f'/opt/homebrew/bin/{name}', f'/usr/local/bin/{name}'):
+            if os.path.isfile(p):
+                return p
+    return None
+
 def find_ffmpeg():
     """Return path to ffmpeg binary — downloaded, bundled, or system."""
     exe = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
@@ -914,7 +935,7 @@ def find_ffmpeg():
         return bundled
     if shutil.which('ffmpeg'):
         return 'ffmpeg'
-    return None
+    return _mac_brew_bin('ffmpeg')
 
 def find_ffprobe():
     """Return path to ffprobe binary — downloaded, bundled, or system."""
@@ -928,7 +949,7 @@ def find_ffprobe():
         return bundled
     if shutil.which('ffprobe'):
         return 'ffprobe'
-    return None
+    return _mac_brew_bin('ffprobe')
 
 def get_duration(ffprobe_path, filepath):
     """Get media duration in seconds using ffprobe."""
@@ -1203,7 +1224,7 @@ def find_realesrgan():
         return bundled
     if shutil.which('realesrgan-ncnn-vulkan'):
         return 'realesrgan-ncnn-vulkan'
-    return None
+    return _mac_brew_bin('realesrgan-ncnn-vulkan')
 
 def find_models_dir():
     """Return path to the upscaler models directory."""
@@ -1674,6 +1695,8 @@ def watermark():
             for font_path in [
                 'C:/Windows/Fonts/tahoma.ttf',
                 'C:/Windows/Fonts/arial.ttf',
+                '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',  # macOS (Arabic + Latin)
+                '/System/Library/Fonts/Supplemental/Arial.ttf',          # macOS
                 '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
             ]:
                 try:
@@ -1682,7 +1705,10 @@ def watermark():
                 except Exception:
                     continue
             if font is None:
-                font = ImageFont.load_default()
+                try:
+                    font = ImageFont.load_default(size=font_size)  # Pillow >= 10.1 honors size
+                except TypeError:
+                    font = ImageFont.load_default()
 
             alpha = int(255 * opacity / 100)
             color = (cr, cg, cb, alpha)
@@ -1715,6 +1741,8 @@ def watermark():
                 for font_path in [
                     'C:/Windows/Fonts/tahoma.ttf',
                     'C:/Windows/Fonts/arial.ttf',
+                    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',  # macOS
+                    '/System/Library/Fonts/Supplemental/Arial.ttf',
                     '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
                 ]:
                     try:
@@ -1976,4 +2004,6 @@ if __name__ == '__main__':
                 print(f"[Memory:Python] RSS: {m.rss // 1024 // 1024}MB | VMS: {m.vms // 1024 // 1024}MB", flush=True)
                 threading.Event().wait(30)
         threading.Thread(target=_mem_log, daemon=True).start()
-    app.run(port=5000)
+    # Port 5000 is taken by macOS Control Center's AirPlay Receiver by default, so use an
+    # uncommon fixed port instead (must match BASE_URL in src/services/api.ts).
+    app.run(host='127.0.0.1', port=8756)
