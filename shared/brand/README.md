@@ -40,10 +40,11 @@ radial-gradient support works; avoid renderPM/svglib — poor gradient handling)
 
 ## Font
 
-Wordmark was set in **Gotham** (Hoefler&Co, commercial) and exported as outlines.
-⚠️ Outlining avoids *distributing* the font file, but creating artwork with an unlicensed
-font is still unlicensed use — H&Co licenses explicitly cover logo usage and they are
-known to enforce. Low practical risk while private/testing; **before public launch**,
-either buy a Gotham license or re-set the wordmark in **Montserrat** (SIL OFL — free,
-designed in the same geometric-grotesque spirit; Bold tracks very close to Gotham Bold
-at logo sizes). ~10 min swap in Figma, then re-export `lockup-on-light.svg` here.
+Wordmark is set in **Montserrat** (SIL Open Font License — free for any use, including
+logos): `Dragin` = Bold (700), `TOOLS` = SemiBold (600), letterspaced/justified to the
+"Dragin" width. Outlined to paths — no font file is shipped or required.
+
+The original draft used Gotham (commercial, unlicensed) — replaced 2026-07 with
+Montserrat, traced programmatically (fontTools instancer + opentype.js) to match the
+original lockup geometry (cap heights, baselines, x-origin). Sync the Figma file's
+wordmark to Montserrat Bold/SemiBold when convenient so design and repo match.
