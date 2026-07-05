@@ -1,4 +1,5 @@
 import { setRequestLocale } from "next-intl/server";
+import { notFound } from "next/navigation";
 import { GlimpseHero } from "@/components/GlimpseHero";
 import { GlimpseFeatures } from "@/components/GlimpseFeatures";
 import { CtaSection } from "@/components/CtaSection";
@@ -21,6 +22,9 @@ export async function generateMetadata({
 }
 
 export default async function GlimpsePage({ params }: Props) {
+  // Flow-only phase: hidden until this app ships. Remove this guard to restore.
+  notFound();
+
     const { locale } = await params;
     setRequestLocale(locale);
 

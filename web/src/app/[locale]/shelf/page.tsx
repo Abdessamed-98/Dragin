@@ -1,4 +1,5 @@
 import { setRequestLocale } from "next-intl/server";
+import { notFound } from "next/navigation";
 import { ShelfHero } from "@/components/ShelfHero";
 import { HowItWorks } from "@/components/HowItWorks";
 import { ShelfFeatures } from "@/components/ShelfFeatures";
@@ -22,6 +23,9 @@ export async function generateMetadata({
 }
 
 export default async function ShelfPage({ params }: Props) {
+  // Flow-only phase: hidden until this app ships. Remove this guard to restore.
+  notFound();
+
   const { locale } = await params;
   setRequestLocale(locale);
 

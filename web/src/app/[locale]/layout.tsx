@@ -35,6 +35,18 @@ export async function generateMetadata({
   return {
     title: messages.meta.title,
     description: messages.meta.description,
+    icons: {
+      apple: "/apple-touch-icon.png",
+    },
+    openGraph: {
+      title: messages.meta.title,
+      description: messages.meta.description,
+      images: [{ url: "/og.png", width: 1200, height: 630, alt: "Dragin Tools" }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      images: ["/og.png"],
+    },
   };
 }
 
