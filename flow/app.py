@@ -43,12 +43,27 @@ _MODEL_IDLE_TIMEOUT = 300
 
 # ── BEN2 background remover (on-demand, single model, no modes) ──────
 # BEN2 (Background Erase Network 2) — higher-quality matting via the `ben2`
-# PyTorch package. Point the HuggingFace cache at the downloaded tool dir so
-# the weights load offline.
-if TOOLS_DIR:
-    _ben2_dir = os.path.join(TOOLS_DIR, 'remover')
-    if os.path.isdir(_ben2_dir):
-        os.environ.setdefault('HF_HOME', os.path.join(_ben2_dir, 'hf'))
+# PyTorch package. Its runtime ships as a downloadable dependency pack:
+# TOOLS_DIR/remover/lib is a ready site-packages (torch CPU + ben2 + deps).
+def _ensure_remover_env():
+    """Make the remover dependency pack importable and point the HF cache at the
+    tool dir. Re-checked on every call because the pack can be installed while the
+    backend is running. No-op in dev (venv already has torch/ben2; lib/ absent).
+    Note: PyInstaller's FrozenImporter sits on sys.meta_path ahead of PathFinder,
+    so bundled modules (numpy, PIL, cv2, ...) always win over same-named dirs in
+    lib/ — the pack only supplies modules the frozen backend does NOT bundle."""
+    if not TOOLS_DIR:
+        return
+    remover_dir = os.path.join(TOOLS_DIR, 'remover')
+    lib = os.path.join(remover_dir, 'lib')
+    if os.path.isdir(lib) and lib not in sys.path:
+        sys.path.insert(0, lib)
+        import importlib
+        importlib.invalidate_caches()
+    if os.path.isdir(remover_dir):
+        os.environ.setdefault('HF_HOME', os.path.join(remover_dir, 'hf'))
+
+_ensure_remover_env()  # pack already installed at startup
 
 _ben2_model = None              # (model, device) tuple once loaded
 _ben2_lock = threading.Lock()
@@ -57,6 +72,7 @@ _ben2_last_used = 0.0
 def _load_ben2():
     """Lazy-load the BEN2 model. Raises ImportError if ben2/torch not installed."""
     global _ben2_model, _ben2_last_used
+    _ensure_remover_env()  # pack may have been installed after backend start
     with _ben2_lock:
         _ben2_last_used = time.time()
         if _ben2_model is None:
@@ -116,8 +132,10 @@ def ben2_process():
     global _ben2_last_used
     try:
         model, device = _load_ben2()
-    except ImportError:
-        return jsonify({"error": "BEN2 not installed. Install 'Background Remover (BEN2)' from Store."}), 503
+    except ImportError as e:
+        print(f"[BEN2] import failed: {e}", flush=True)
+        return jsonify({"error": "BEN2 not installed. Install 'Background Remover (BEN2)' from Store.",
+                        "detail": str(e)}), 503
 
     if 'images' not in request.files:
         return jsonify({"error": "No images"}), 400
@@ -1952,9 +1970,14 @@ def tools_status():
     """Report which tool backends have their deps satisfied."""
     status = {}
 
-    # Remover (BEN2): check if the ben2 package is present (without importing torch)
+    # Remover (BEN2): check both ben2 AND torch are locatable (without importing them).
+    # ben2 is pure-Python and gets frozen into the backend bundle, so checking it alone
+    # is a false positive — torch is the piece the dependency pack actually supplies.
+    # Re-check the pack first: it may have been installed mid-session.
+    _ensure_remover_env()
     import importlib.util
-    status['remover'] = importlib.util.find_spec('ben2') is not None
+    status['remover'] = (importlib.util.find_spec('ben2') is not None
+                         and importlib.util.find_spec('torch') is not None)
 
     # OCR: check if rapidocr is importable
     try:
@@ -2006,4 +2029,5 @@ if __name__ == '__main__':
         threading.Thread(target=_mem_log, daemon=True).start()
     # Port 5000 is taken by macOS Control Center's AirPlay Receiver by default, so use an
     # uncommon fixed port instead (must match BASE_URL in src/services/api.ts).
-    app.run(host='127.0.0.1', port=8756)
+    # DRAGIN_BACKEND_PORT is a test/dev override only — the renderer hardcodes 8756.
+    app.run(host='127.0.0.1', port=int(os.environ.get('DRAGIN_BACKEND_PORT', '8756')))

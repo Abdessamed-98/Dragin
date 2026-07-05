@@ -66,6 +66,10 @@ a = Analysis(
         'rapidocr_onnxruntime',
         # HEIC/HEIF input (native module is top-level _pillow_heif)
         'pillow_heif', '_pillow_heif',
+        # Stdlib modules needed by the remover dependency pack (torch/ben2 load from
+        # tools/remover/lib at runtime; nothing frozen imports these, so PyInstaller
+        # omits them — but the pack can only supply site-packages, not stdlib).
+        'pickletools', 'modulefinder', 'struct',
     ] + rembg_hiddenimports + rapidocr_hiddenimports + heif_hiddenimports,
     excludes=[
         # Not needed — keep these out

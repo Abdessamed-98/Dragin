@@ -16,8 +16,6 @@ export interface ToolManifest {
     deps: ToolDep[];
     /** Total estimated download size in bytes */
     totalSizeBytes: number;
-    /** GitHub Releases download URL (placeholder until infra ready) */
-    downloadUrl?: string;
 }
 
 export const TOOL_REGISTRY: ToolManifest[] = [
@@ -33,16 +31,17 @@ export const TOOL_REGISTRY: ToolManifest[] = [
     { id: 'resize',     default: true, deps: [], totalSizeBytes: 0 },
     { id: 'zip',        default: true, deps: [], totalSizeBytes: 0 },
 
-    // On-demand tools — heavy deps, downloaded from Dragin
+    // On-demand tools — heavy deps, downloaded from Dragin (per-platform URLs live in main.js)
     {
-        // Background Remover — BEN2 (installed via pip into the backend env, no zip URL).
+        // Background Remover — BEN2 dependency pack (torch CPU + BEN2 runtime, extracted
+        // to tools/remover/lib). Model weights download separately on first use (cached).
         id: 'remover',
         default: false,
         deps: [
-            { label: 'PyTorch (CPU)', sizeBytes: 200_000_000 },
-            { label: 'BEN2 model weights', sizeBytes: 380_000_000 },
+            { label: 'PyTorch (CPU) + BEN2 runtime', sizeBytes: 230_000_000 },
+            { label: 'BEN2 model weights (first use, cached)', sizeBytes: 450_000_000 },
         ],
-        totalSizeBytes: 580_000_000,
+        totalSizeBytes: 230_000_000,
     },
     {
         id: 'upscaler',
@@ -52,7 +51,6 @@ export const TOOL_REGISTRY: ToolManifest[] = [
             { label: 'Upscaler models', sizeBytes: 35_000_000 },
         ],
         totalSizeBytes: 42_000_000,
-        downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/upscaler-v1/upscaler-win-x64.zip',
     },
     { id: 'ocr',        default: true, deps: [], totalSizeBytes: 0 },
     {
@@ -60,7 +58,6 @@ export const TOOL_REGISTRY: ToolManifest[] = [
         default: false,
         deps: [{ label: 'FFmpeg', sizeBytes: 63_000_000 }],
         totalSizeBytes: 63_000_000,
-        downloadUrl: 'https://github.com/Abdessamed-98/flow-tools/releases/download/converter-v1/converter-win-x64.zip',
     },
 ];
 

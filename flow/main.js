@@ -334,19 +334,41 @@ ipcMain.on('native-drag-start', (event, { items }) => {
 const savedSettings = loadSettings();
 
 // Default tool IDs (lightweight, ship with app)
-const DEFAULT_TOOL_IDS = ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadata', 'watermark', 'palette', 'shelf', 'resize', 'zip'];
+// 'ocr' is default: fully bundled (RapidOCR + repo models in the backend), no download needed.
+const DEFAULT_TOOL_IDS = ['compressor', 'cropper', 'vectorizer', 'pdf', 'metadata', 'watermark', 'palette', 'shelf', 'resize', 'zip', 'ocr'];
 // All known tool IDs (for migration)
 const ALL_TOOL_IDS = ['remover', 'compressor', 'shelf', 'converter', 'vectorizer', 'ocr', 'palette', 'cropper', 'upscaler', 'pdf', 'metadata', 'watermark', 'resize', 'zip'];
 
-// Download URLs for on-demand (zip) tools (mirrors toolRegistry.ts for main process).
-// `remover` is BEN2 and installs via pip (see PIP_TOOLS), so it's not here.
+// Per-platform download URLs for on-demand tools (mirrors toolRegistry.ts for main process).
+// win32 is always served x64 (runs under emulation on win-arm64); mac/linux keyed by real arch.
+// `remover` is a dependency pack: a ready site-packages (torch CPU + BEN2 + deps) extracted to
+// tools/remover/lib, which the backend inserts into sys.path (works with the frozen backend —
+// the old pip flow installed into an interpreter the PyInstaller backend could never import from).
+const PLAT = process.platform === 'win32' ? 'win-x64' : `${process.platform}-${process.arch}`;
+const GH_TOOLS = 'https://github.com/Abdessamed-98/flow-tools/releases/download';
 const TOOL_DOWNLOAD_URLS = {
-    upscaler:  'https://github.com/Abdessamed-98/flow-tools/releases/download/upscaler-v1/upscaler-win-x64.zip',
-    ocr:       'https://github.com/Abdessamed-98/flow-tools/releases/download/ocr-v1/ocr-win-x64.zip',
-    converter: 'https://github.com/Abdessamed-98/flow-tools/releases/download/converter-v1/converter-win-x64.zip',
+    upscaler: {
+        'win-x64':      `${GH_TOOLS}/upscaler-v1/upscaler-win-x64.zip`,
+        'darwin-arm64': `${GH_TOOLS}/upscaler-v1/upscaler-darwin-arm64.zip`, // x86_64 binary; Rosetta 2 on Apple Silicon
+        'darwin-x64':   `${GH_TOOLS}/upscaler-v1/upscaler-darwin-x64.zip`,
+    },
+    converter: {
+        'win-x64':      `${GH_TOOLS}/converter-v1/converter-win-x64.zip`,
+        'darwin-arm64': `${GH_TOOLS}/converter-v1/converter-darwin-arm64.zip`,
+        'darwin-x64':   `${GH_TOOLS}/converter-v1/converter-darwin-x64.zip`,
+    },
+    remover: {
+        'win-x64':      `${GH_TOOLS}/remover-v2/remover-win-x64.zip`,
+        'darwin-arm64': `${GH_TOOLS}/remover-v2/remover-darwin-arm64.zip`,
+        // no darwin-x64: torch publishes no Intel-mac cp312 wheels
+    },
 };
-// On-demand = zip-downloaded tools + pip-installed tools (e.g. remover/BEN2).
-const ON_DEMAND_TOOL_IDS = [...Object.keys(TOOL_DOWNLOAD_URLS), 'remover'];
+function getToolDownloadUrl(toolId) {
+    return (TOOL_DOWNLOAD_URLS[toolId] || {})[PLAT] || null;
+}
+// Binaries that must be executable after extraction (zips built on Windows can lose unix perms).
+const TOOL_EXECUTABLES = { converter: ['ffmpeg', 'ffprobe'], upscaler: ['realesrgan-ncnn-vulkan'] };
+const ON_DEMAND_TOOL_IDS = Object.keys(TOOL_DOWNLOAD_URLS);
 
 // Determine installedToolIds with migration logic
 let initialInstalledToolIds;
@@ -396,7 +418,15 @@ function getTempDir() {
 }
 
 function isToolDownloaded(toolId) {
-    return fs.existsSync(path.join(getToolDir(toolId), 'version.json'));
+    const vPath = path.join(getToolDir(toolId), 'version.json');
+    if (!fs.existsSync(vPath)) return false;
+    try {
+        const v = JSON.parse(fs.readFileSync(vPath, 'utf-8'));
+        if (v.method === 'pip') return false;                          // legacy pip remover → force clean reinstall as a pack
+        if (v.platform && v.platform !== process.platform) return false; // e.g. win payload on a mac
+        if (process.platform === 'darwin' && v.arch && v.arch !== process.arch) return false; // Intel→AS migration
+        return true;
+    } catch { return false; }
 }
 
 // --- DOWNLOAD HELPER ---
@@ -499,115 +529,14 @@ function extractZip(zipPath, targetDir, onProgress) {
 // --- TOOL INSTALLATION (real download + extract) ---
 let activeInstalls = {}; // { [toolId]: AbortController }
 
-// Tools whose runtime is a Python package installed into the backend env (pip)
-// rather than a downloadable zip bundle. Installing runs pip instead of fetching.
-const PIP_TOOLS = {
-    remover: {
-        steps: [
-            { label: 'PyTorch (CPU)', args: ['torch', '--index-url', 'https://download.pytorch.org/whl/cpu'] },
-            { label: 'BEN2', args: ['git+https://github.com/PramaLLC/BEN2.git'] },
-        ],
-    },
-};
-
-// The Python interpreter the backend runs on (dev venv, else system python).
-function getBackendPython() {
-    if (!app.isPackaged) {
-        const venvPy = process.platform === 'win32'
-            ? path.join(__dirname, 'venv', 'Scripts', 'python.exe')
-            : path.join(__dirname, 'venv', 'bin', 'python');
-        if (fs.existsSync(venvPy)) return venvPy;
-    }
-    return process.platform === 'win32' ? 'python.exe' : 'python3';
-}
-
-// Run `python -m pip install <args>`, streaming logs; rejects on non-zero / abort.
-function runPip(py, pkgArgs, signal) {
-    return new Promise((resolve, reject) => {
-        const child = spawn(py, ['-m', 'pip', 'install', ...pkgArgs], { windowsHide: true });
-        let stderr = '';
-        const onAbort = () => { try { child.kill(); } catch {} reject(new Error('cancelled')); };
-        if (signal) signal.addEventListener('abort', onAbort, { once: true });
-        child.stdout.on('data', d => log.info(`[pip] ${String(d).trim()}`));
-        child.stderr.on('data', d => { stderr += String(d); log.info(`[pip] ${String(d).trim()}`); });
-        child.on('error', reject);
-        child.on('close', code => {
-            if (signal) signal.removeEventListener('abort', onAbort);
-            if (code === 0) resolve();
-            else reject(new Error(`pip exited ${code}: ${stderr.slice(-200)}`));
-        });
-    });
-}
-
-async function handlePipInstall(toolId) {
-    const spec = PIP_TOOLS[toolId];
-    const py = getBackendPython();
-    const toolDir = getToolDir(toolId);
-    const abortController = new AbortController();
-    activeInstalls[toolId] = abortController;
-
-    state.installProgress[toolId] = { toolId, status: 'installing', progress: 0, step: mt('install.preparing') };
-    broadcastState();
-
-    try {
-        if (!fs.existsSync(toolDir)) fs.mkdirSync(toolDir, { recursive: true });
-
-        for (let i = 0; i < spec.steps.length; i++) {
-            const step = spec.steps[i];
-            state.installProgress[toolId] = {
-                toolId, status: 'installing',
-                progress: Math.round((i / spec.steps.length) * 90),
-                step: `Installing ${step.label}…`,
-            };
-            broadcastState();
-            await runPip(py, step.args, abortController.signal);
-        }
-
-        // Marker so isToolDownloaded()/startup verification treat it as installed.
-        fs.writeFileSync(path.join(toolDir, 'version.json'), JSON.stringify({
-            toolId, version: 'pip', method: 'pip',
-            installedAt: new Date().toISOString(),
-            platform: process.platform, arch: process.arch,
-        }, null, 2), 'utf-8');
-
-        state.installedToolIds.push(toolId);
-        state.installProgress[toolId] = { toolId, status: 'installed', progress: 100, step: mt('install.complete') };
-        persistSettings();
-        broadcastState();
-        setTimeout(() => { delete state.installProgress[toolId]; broadcastState(); }, 2000);
-    } catch (err) {
-        log.error(`[Install] pip install failed for ${toolId}:`, err.message);
-        if (fs.existsSync(toolDir)) { try { fs.rmSync(toolDir, { recursive: true, force: true }); } catch {} }
-        const isCancelled = err.message === 'cancelled';
-        state.installProgress[toolId] = {
-            toolId, status: 'error', progress: 0,
-            step: isCancelled ? mt('install.cancelled') : undefined,
-            error: isCancelled ? mt('install.cancelledError') : (err.message || mt('install.failed')),
-        };
-        broadcastState();
-        if (isCancelled) setTimeout(() => { delete state.installProgress[toolId]; broadcastState(); }, 2000);
-    } finally {
-        delete activeInstalls[toolId];
-    }
-}
-
 async function handleToolInstall(toolId) {
     if (state.installedToolIds.includes(toolId)) return;
     if (activeInstalls[toolId]) return;
 
-    // pip-package tools (e.g. BEN2) install into the backend env, not via a zip.
-    if (PIP_TOOLS[toolId]) return handlePipInstall(toolId);
-
-    const downloadUrl = TOOL_DOWNLOAD_URLS[toolId];
+    const downloadUrl = getToolDownloadUrl(toolId);
     if (!downloadUrl) {
-        log.error(`[Install] No download URL for tool: ${toolId}`);
-        return;
-    }
-
-    // On-demand binaries are currently Windows-only (win-x64 zips). On other platforms
-    // refuse rather than "successfully" installing an unrunnable .exe payload (false-green).
-    if (process.platform !== 'win32') {
-        log.warn(`[Install] ${toolId}: no ${process.platform} build available yet`);
+        // No asset for this OS/arch (e.g. remover on Intel macs) — clean error, no false-green.
+        log.warn(`[Install] ${toolId}: no build for ${PLAT}`);
         state.installProgress[toolId] = { toolId, status: 'error', progress: 0, error: mt('install.unavailablePlatform') };
         broadcastState();
         return;
@@ -646,6 +575,14 @@ async function handleToolInstall(toolId) {
             state.installProgress[toolId] = { toolId, status: 'installing', progress: pct, step: mt('install.installing') };
             broadcastState();
         });
+
+        // Ensure tool binaries are executable (zip attrs can be lost on Windows-built zips).
+        if (process.platform !== 'win32') {
+            for (const bin of (TOOL_EXECUTABLES[toolId] || [])) {
+                try { fs.chmodSync(path.join(toolDir, bin), 0o755); }
+                catch (e) { log.warn(`[Install] chmod ${bin}: ${e.message}`); }
+            }
+        }
 
         // --- Phase 3: Finalize (95% → 100%) ---
         fs.writeFileSync(path.join(toolDir, 'version.json'), JSON.stringify({
@@ -909,6 +846,8 @@ const createGalleryWindow = () => {
     if (galleryWindow) {
         galleryWindow.show();
         galleryWindow.focus();
+        // Accessory apps (no Dock icon) don't activate on window.show() — force it.
+        if (process.platform === 'darwin') app.focus({ steal: true });
         return;
     }
 
@@ -932,7 +871,20 @@ const createGalleryWindow = () => {
 
     galleryWindow.once('ready-to-show', () => {
         galleryWindow.show();
+        if (process.platform === 'darwin') app.focus({ steal: true });
     });
+
+    // macOS accessory apps show no menu bar, so menu accelerators are unreliable.
+    // Guarantee Cmd+W (close gallery) and Cmd+Q (quit) at the input level.
+    if (process.platform === 'darwin') {
+        const win = galleryWindow;
+        win.webContents.on('before-input-event', (event, input) => {
+            if (input.type !== 'keyDown' || !input.meta || input.control || input.alt) return;
+            const key = (input.key || '').toLowerCase();
+            if (key === 'w') { event.preventDefault(); if (!win.isDestroyed()) win.close(); }
+            else if (key === 'q') { event.preventDefault(); app.quit(); }
+        });
+    }
 
     const devUrl = 'http://localhost:5173?window=gallery';
     const prodPath = path.join(__dirname, 'dist/index.html');
@@ -956,6 +908,10 @@ const createGalleryWindow = () => {
 
 // --- APP LIFECYCLE ---
 app.whenReady().then(() => {
+    // macOS: strict accessory (tray/menu-bar) app — never show a Dock icon.
+    // LSUIElement in Info.plist covers packaged builds; this covers dev runs.
+    if (process.platform === 'darwin' && app.dock) app.dock.hide();
+
     // Spawn the Python backend FIRST so its ~330ms import overlaps with the window/tray
     // setup below, instead of starting only after all of it finishes. Backend ready sooner.
     startPythonServer();
@@ -1206,15 +1162,32 @@ ipcMain.on('dispatch-action', (event, action) => {
             state.activeToolIds = state.activeToolIds.filter(id => id !== action.payload);
             delete state.installProgress[action.payload];
 
-            // Delete extracted tool directory
+            // Delete extracted tool directory. The remover pack's torch DLLs are mapped into
+            // the running backend once loaded, so kill the backend first (wait for exit),
+            // delete, then restart — otherwise rmSync partially fails with EBUSY on Windows.
             const toolDir = getToolDir(action.payload);
-            if (fs.existsSync(toolDir)) {
+            const deleteToolDir = () => {
+                if (!fs.existsSync(toolDir)) return;
                 try {
                     fs.rmSync(toolDir, { recursive: true, force: true });
                     log.info(`[Install] Uninstalled ${action.payload}: deleted ${toolDir}`);
                 } catch (err) {
                     log.error(`[Install] Failed to delete ${toolDir}:`, err);
                 }
+            };
+            if (action.payload === 'remover' && pyServer) {
+                const proc = pyServer;
+                pyServer = null;
+                const finish = () => { deleteToolDir(); startPythonServer(); };
+                let done = false;
+                proc.once('close', () => { if (!done) { done = true; finish(); } });
+                setTimeout(() => { if (!done) { done = true; finish(); } }, 4000); // fallback if close never fires
+                try {
+                    if (process.platform === 'win32') spawn('taskkill', ['/pid', String(proc.pid), '/f', '/t']);
+                    else proc.kill('SIGTERM');
+                } catch {}
+            } else {
+                deleteToolDir();
             }
 
             broadcastState();
@@ -1442,9 +1415,20 @@ function uniqueOutputPath(p) {
     return p;
 }
 
+// Show a folder picker that reliably surfaces even as a macOS accessory app (no Dock icon):
+// activate the app first, and parent to the gallery window when it's open. Never parent to
+// the click-through dock strip.
+async function pickDirectory() {
+    if (process.platform === 'darwin') app.focus({ steal: true });
+    const opts = { properties: ['openDirectory', 'createDirectory'] };
+    return (galleryWindow && !galleryWindow.isDestroyed())
+        ? dialog.showOpenDialog(galleryWindow, opts)
+        : dialog.showOpenDialog(opts);
+}
+
 // Let the user pick (and remember) the default output folder.
 ipcMain.handle('pick-output-folder', async () => {
-    const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
+    const r = await pickDirectory();
     if (r.canceled || !r.filePaths || !r.filePaths[0]) return null;
     const dir = r.filePaths[0];
     const s = loadSettings() || {};
@@ -1463,7 +1447,7 @@ ipcMain.handle('save-output', async (_event, payload) => {
         // Resolve the base directory for non-"beside" items.
         let baseDir;
         if (mode === 'ask') {
-            const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
+            const r = await pickDirectory();
             if (r.canceled || !r.filePaths || !r.filePaths[0]) return { ok: false, canceled: true, paths: [] };
             baseDir = r.filePaths[0];
         } else {

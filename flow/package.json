@@ -100,7 +100,10 @@
       "icon": "icon.png",
       "category": "public.app-category.productivity",
       "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "LSUIElement": true
+      }
     },
     "nsis": {
       "oneClick": false,

@@ -51,3 +51,4 @@ flow/models/model.onnx
 *.db
 *.sqlite
 pip_out.txt
+release-assets/
