@@ -1,0 +1,48 @@
+name: Build macOS installer (Flow)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-14   # Apple Silicon runner -> arm64 .dmg/.zip
+    defaults:
+      run:
+        working-directory: flow
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Create backend venv (scripts/build.js uses it for PyInstaller)
+        run: |
+          python -m venv venv
+          venv/bin/python -m pip install --upgrade pip
+          venv/bin/python -m pip install -r requirements.txt
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build (Vite + PyInstaller + electron-builder)
+        run: node scripts/build.js
+        env:
+          # No signing cert on the runner — produce an unsigned app (same policy as Windows).
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: List artifacts
+        run: ls -la release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dragin-flow-macos-arm64
+          path: |
+            flow/release/*.dmg
+            flow/release/*.zip
+          if-no-files-found: error
+          retention-days: 14

@@ -10,8 +10,12 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules, coll
 block_cipher = None
 base_path = os.path.abspath('.')
 
-# Collect everything rembg needs (submodules, data, metadata)
-rembg_datas, rembg_binaries, rembg_hiddenimports = collect_all('rembg')
+# Collect everything rembg needs (submodules, data, metadata).
+# rembg is legacy (BEN2 replaced it) and absent on CI/mac build envs — tolerate that.
+try:
+    rembg_datas, rembg_binaries, rembg_hiddenimports = collect_all('rembg')
+except Exception:
+    rembg_datas, rembg_binaries, rembg_hiddenimports = [], [], []
 
 # Collect RapidOCR data files (bundled ONNX models for det/rec/cls)
 rapidocr_datas, rapidocr_binaries, rapidocr_hiddenimports = collect_all('rapidocr_onnxruntime')
