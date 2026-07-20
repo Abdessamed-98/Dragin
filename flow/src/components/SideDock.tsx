@@ -251,9 +251,15 @@ export const SideDock: React.FC<SideDockProps> = ({
   const railFlex = isVertical ? 'flex-col' : 'flex-row';
 
   // Tool-rail placement: the rail strip hugs the screen edge; the expanded panel
-  // is inset by RAIL_W on that side.
+  // is inset by RAIL_W on that side, MINUS an overlap that tucks the panel under
+  // the rail's inner margin — so the visual gap between the rail tiles and the
+  // tool's content matches the tile→edge gap instead of stacking the tool's own
+  // inner padding on top of the strip width. (Panel bg is transparent glass and
+  // the rail renders above it, so the overlap is invisible and non-interactive.)
+  const RAIL_OVERLAP = 12;
   const panelInset: React.CSSProperties = ({
-    right: { right: RAIL_W }, left: { left: RAIL_W }, top: { top: RAIL_W }, bottom: { bottom: RAIL_W },
+    right: { right: RAIL_W - RAIL_OVERLAP }, left: { left: RAIL_W - RAIL_OVERLAP },
+    top: { top: RAIL_W - RAIL_OVERLAP }, bottom: { bottom: RAIL_W - RAIL_OVERLAP },
   } as const)[edge];
   const railPos: React.CSSProperties = ({
     right: { right: 0, top: 0, bottom: 0, width: RAIL_W },
