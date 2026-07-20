@@ -7,6 +7,7 @@ import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
 import { sessionStore, useSessionIngest } from '../../state/sessionStore';
 import { toolAccepts } from '../../state/toolCompat';
+import { runPool } from '../../utils/pool';
 
 interface ResizeToolProps {
     onClose: () => void;
@@ -114,11 +115,12 @@ export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, active, onItemC
 
     // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
     // Direct drops auto-resize; carried items (rail switch) wait for the Resize button.
-    const ingestBatch = useCallback(async (batch: { id: string; file: File; direct: boolean }[]) => {
+    const ingestBatch = useCallback(async (batch: { id: string; file: File; revision: number; direct: boolean }[]) => {
         const items: (ResizeItem & { _direct?: boolean })[] = [];
-        for (const { id, file, direct } of batch) {
+        for (const { id, file, revision, direct } of batch) {
             let previewUrl: string | undefined; let previewNeedsRevoke = false;
-            try { const r = await getFileThumbnail(file, 64); if (r) { previewUrl = r.url; previewNeedsRevoke = r.needsRevoke; } } catch {}
+            const r = await sessionStore.getThumb(id, revision, () => getFileThumbnail(file, 64));
+            if (r) { previewUrl = r.url; previewNeedsRevoke = false; } // shared cache owns revocation
             let srcW: number | undefined, srcH: number | undefined;
             try { const bmp = await createImageBitmap(file); srcW = bmp.width; srcH = bmp.height; bmp.close(); } catch {}
             items.push({ id, file, name: file.name, status: 'idle', previewUrl, previewNeedsRevoke, srcW, srcH, _direct: direct });
@@ -126,24 +128,30 @@ export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, active, onItemC
         if (!items.length) return;
         setFiles(prev => {
             const kept = prev.filter(p => !items.some(n => n.id === p.id));
-            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => {
+                if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl);
+                if (p.resultDataUrl?.startsWith('blob:')) URL.revokeObjectURL(p.resultDataUrl);
+            });
             return [...kept, ...items];
         });
         const toProcess = items.filter(it => it._direct);
         if (!toProcess.length) return;
         lastSigRef.current = sigOf(widthRef.current, heightRef.current, modeRef.current);
-        toProcess.forEach(it => processOne(it, widthRef.current, heightRef.current, modeRef.current));
+        runPool(toProcess, it => processOne(it, widthRef.current, heightRef.current, modeRef.current));
     }, [processOne]);
 
     // Manual run for carried (idle) items at the current W/H/mode.
     const processIdle = useCallback(() => {
         lastSigRef.current = sigOf(widthRef.current, heightRef.current, modeRef.current);
-        files.filter(f => f.status === 'idle').forEach(f => processOne(f, widthRef.current, heightRef.current, modeRef.current));
+        runPool(files.filter(f => f.status === 'idle'), f => processOne(f, widthRef.current, heightRef.current, modeRef.current));
     }, [files, processOne]);
 
     const removeLocal = useCallback((ids: string[]) => {
         setFiles(prev => {
-            prev.filter(p => ids.includes(p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            prev.filter(p => ids.includes(p.id)).forEach(p => {
+                if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl);
+                if (p.resultDataUrl?.startsWith('blob:')) URL.revokeObjectURL(p.resultDataUrl);
+            });
             return prev.filter(p => !ids.includes(p.id));
         });
     }, []);
@@ -170,7 +178,7 @@ export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, active, onItemC
         if (sig === lastSigRef.current) return; // nothing actually changed — don't re-run the batch
         lastSigRef.current = sig;
         setFiles(prev => prev.map(f => ({ ...f, status: 'idle' as const })));
-        setTimeout(() => setFiles(prev => { prev.filter(f => f.status === 'idle').forEach(f => processOne(f, w, h, m)); return prev; }), 0);
+        setTimeout(() => setFiles(prev => { runPool(prev.filter(f => f.status === 'idle'), f => processOne(f, w, h, m)); return prev; }), 0);
     };
 
     // Keep Height locked to Width while proportions are constrained (any mode but 'free').

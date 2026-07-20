@@ -14,6 +14,7 @@ import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
 import { sessionStore, useSessionIngest } from '../../state/sessionStore';
 import { toolAccepts } from '../../state/toolCompat';
+import { runPool } from '../../utils/pool';
 
 interface WatermarkToolProps {
     onClose: () => void;
@@ -100,15 +101,13 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, active, o
     }, []);
 
     // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
-    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
+    const ingestBatch = useCallback(async (batch: { id: string; file: File; revision: number }[]) => {
         const items: WatermarkFileItem[] = [];
-        for (const { id, file } of batch) {
+        for (const { id, file, revision } of batch) {
             let previewUrl: string | undefined;
             let previewNeedsRevoke = false;
-            try {
-                const result = await getFileThumbnail(file, 64);
-                if (result) { previewUrl = result.url; previewNeedsRevoke = result.needsRevoke; }
-            } catch { /* proceed without preview */ }
+            const result = await sessionStore.getThumb(id, revision, () => getFileThumbnail(file, 64));
+            if (result) { previewUrl = result.url; previewNeedsRevoke = false; } // shared cache owns revocation
             items.push({
                 id, file, name: file.name, sizeBytes: file.size,
                 status: 'idle', previewUrl, previewNeedsRevoke,
@@ -117,14 +116,20 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, active, o
         if (!items.length) return;
         setFiles(prev => {
             const kept = prev.filter(p => !items.some(n => n.id === p.id));
-            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => {
+                if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl);
+                if (p.resultUrl?.startsWith('blob:')) URL.revokeObjectURL(p.resultUrl);
+            });
             return [...kept, ...items];
         });
     }, []);
 
     const removeLocal = useCallback((ids: string[]) => {
         setFiles(prev => {
-            prev.filter(p => ids.includes(p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            prev.filter(p => ids.includes(p.id)).forEach(p => {
+                if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl);
+                if (p.resultUrl?.startsWith('blob:')) URL.revokeObjectURL(p.resultUrl);
+            });
             return prev.filter(p => !ids.includes(p.id));
         });
     }, []);
@@ -168,7 +173,7 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, active, o
         const options: WatermarkOptions = { text: text.trim(), opacity, fontSize, style, color };
         // Only process idle/error files — leave completed ones untouched
         const toProcess = files.filter(f => f.status === 'idle' || f.status === 'error');
-        toProcess.forEach(f => processSingle(f, options));
+        runPool(toProcess, f => processSingle(f, options));
     }, [text, opacity, fontSize, style, color, files, processSingle]);
 
     const handleDownload = useCallback(async () => {

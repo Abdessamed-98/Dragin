@@ -63,10 +63,18 @@ let gen = 0;
 let snapshot: SessionSnapshot = { files, gen };
 const listeners = new Set<() => void>();
 
+// Coalesced notify: N synchronous store updates (e.g. a result burst) flush to
+// listeners once per microtask instead of N times.
+let flushQueued = false;
 function emit() {
     gen++;
     snapshot = { files, gen };
-    listeners.forEach(l => { try { l(); } catch { /* listener errors must not break the store */ } });
+    if (flushQueued) return;
+    flushQueued = true;
+    queueMicrotask(() => {
+        flushQueued = false;
+        listeners.forEach(l => { try { l(); } catch { /* listener errors must not break the store */ } });
+    });
 }
 
 function subscribe(l: () => void): () => void {
@@ -180,6 +188,7 @@ function remove(ids: string[]): void {
     gone.forEach(f => {
         if (f.currentUrl !== f.originalUrl) URL.revokeObjectURL(f.currentUrl);
         URL.revokeObjectURL(f.originalUrl);
+        dropThumb(f.id);
     });
     files = files.filter(f => !ids.includes(f.id));
     emit();
@@ -190,9 +199,35 @@ function clear(): void {
     files.forEach(f => {
         if (f.currentUrl !== f.originalUrl) URL.revokeObjectURL(f.currentUrl);
         URL.revokeObjectURL(f.originalUrl);
+        dropThumb(f.id);
     });
     files = [];
     emit();
+}
+
+// ── Shared thumbnail cache ───────────────────────────────────────────────────
+// One thumbnail per session file, generated once and reused by every tool —
+// instead of each tool making its own backend thumbnail round-trip for the
+// same files. Keyed by id + revision (a new result needs a new thumb).
+type Thumb = { url: string; needsRevoke: boolean } | null;
+const thumbs = new Map<string, { revision: number; promise: Promise<Thumb> }>();
+
+function dropThumb(id: string): void {
+    const entry = thumbs.get(id);
+    if (!entry) return;
+    thumbs.delete(id);
+    entry.promise.then(t => { if (t?.needsRevoke) URL.revokeObjectURL(t.url); }).catch(() => {});
+}
+
+/** Get (or create) the shared thumbnail for a session file. `make` runs only on
+ *  a cache miss — pass the tool's existing thumbnail generator. */
+function getThumb(id: string, revision: number, make: () => Promise<Thumb>): Promise<Thumb> {
+    const hit = thumbs.get(id);
+    if (hit && hit.revision === revision) return hit.promise;
+    if (hit) dropThumb(id);
+    const promise = make().catch(() => null);
+    thumbs.set(id, { revision, promise });
+    return promise;
 }
 
 export const sessionStore = {
@@ -204,11 +239,20 @@ export const sessionStore = {
     revertAll,
     remove,
     clear,
+    getThumb,
 };
 
-/** Live session snapshot (files + change counter). */
+/** Live session snapshot (files + change counter). Re-renders on every session
+ *  change — use only in components that VISUALLY track the session (rail,
+ *  carry banner). Tools use useSessionIngest, which never re-renders them. */
 export function useSession(): SessionSnapshot {
     return useSyncExternalStore(subscribe, getSnapshot);
+}
+
+/** Boolean selector for dock visibility — re-renders ONLY when emptiness flips,
+ *  not on every session change (DockApp re-rendering cascades to all 14 tools). */
+export function useSessionHasFiles(): boolean {
+    return useSyncExternalStore(subscribe, () => snapshot.files.length > 0);
 }
 
 /**
@@ -249,14 +293,19 @@ export function useSessionIngest(
     onRemove: (ids: string[]) => void,
 ): void {
     const seen = useRef<Map<string, number>>(new Map());
-    const settled = useRef(false);
-    const { files: sessionFiles, gen: sessionGen } = useSession();
+    // Latest callbacks without re-subscribing (or re-rendering) on change.
+    const cbs = useRef({ accept, onIngest, onRemove });
+    cbs.current = { accept, onIngest, onRemove };
 
+    // PERF: subscribes to the store directly — a session change never re-renders
+    // the tool component; only its onIngest/onRemove callbacks touch local state.
+    // With 14 always-mounted tools, this is what keeps result bursts cheap.
     useEffect(() => {
-        if (!active) { settled.current = false; return; }
+        if (!active) return;
 
         const reconcile = () => {
-            settled.current = true;
+            const { accept, onIngest, onRemove } = cbs.current;
+            const sessionFiles = getSnapshot().files;
             const fresh: IngestItem[] = [];
             const liveIds = new Set<string>();
             for (const f of sessionFiles) {
@@ -279,11 +328,19 @@ export function useSessionIngest(
             if (fresh.length) onIngest(fresh);
         };
 
-        // Already settled in this activation → session changes apply immediately.
-        if (settled.current) { reconcile(); return; }
-        // Newly active → wait for the user to actually LAND here before processing.
-        const timer = setTimeout(reconcile, INGEST_SETTLE_MS);
-        return () => clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [active, sessionGen]);
+        // Settle first (rail-surfing must cost nothing), then reconcile live on
+        // every store change while this tool stays active.
+        let settled = false;
+        let unsub: (() => void) | null = null;
+        const timer = setTimeout(() => {
+            settled = true;
+            reconcile();
+            unsub = subscribe(reconcile);
+        }, INGEST_SETTLE_MS);
+
+        return () => {
+            clearTimeout(timer);
+            if (settled && unsub) unsub();
+        };
+    }, [active, toolId]);
 }

@@ -11,8 +11,9 @@ import {
     checkBen2ModelLoaded,
     unloadBen2Model,
 } from '../services/api';
-import { sessionStore, useSession, useSessionIngest } from '../state/sessionStore';
+import { sessionStore, useSessionHasFiles, useSessionIngest } from '../state/sessionStore';
 import { toolAccepts } from '../state/toolCompat';
+import { runPool } from '../utils/pool';
 
 
 
@@ -173,8 +174,8 @@ const DockAppInner: React.FC = () => {
         session => session != null && session.items.length > 0
     );
     // Shared session (self-contained tools + carry-over) also keeps the dock alive.
-    const { files: liveSessionFiles } = useSession();
-    const sessionHasFiles = liveSessionFiles.length > 0;
+    // Boolean selector: re-renders the dock tree only when emptiness flips.
+    const sessionHasFiles = useSessionHasFiles();
     const [selfItemCounts, setSelfItemCounts] = useState<Partial<Record<string, number>>>({});
     // Last self-tool counts, read inside the count callback without making it
     // depend on (and re-subscribe to) those values.
@@ -445,7 +446,7 @@ const DockAppInner: React.FC = () => {
             toProcess.forEach(item => updateItemStatus(toolId, sessionId, item.id, { status: 'processing' }));
             processRemoverBatch(sessionId, toProcess);
         } else {
-            toProcess.forEach(item => processItem(sessionId, item.id, item.file, toolId));
+            runPool(toProcess, item => processItem(sessionId, item.id, item.file, toolId));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -460,7 +461,7 @@ const DockAppInner: React.FC = () => {
             idle.forEach(item => updateItemStatus(toolId, session.id, item.id, { status: 'processing' }));
             processRemoverBatch(session.id, idle);
         } else {
-            idle.forEach(item => processItem(session.id, item.id, item.file, toolId));
+            runPool(idle, item => processItem(session.id, item.id, item.file, toolId));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);

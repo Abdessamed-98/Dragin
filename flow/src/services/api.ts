@@ -8,6 +8,23 @@ const BASE_URL = 'http://localhost:8756';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/** Decode a base64 payload into a Blob object URL. Object URLs hold the bytes in
+ *  browser-managed Blob storage instead of multi-MB JS strings — batch results
+ *  no longer pin hundreds of MB of heap. Callers revoke on removal. */
+const b64ToBlobUrl = (b64: string, mime: string): string => {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: mime || 'application/octet-stream' }));
+};
+
+/** Convert a full data: URL to a Blob object URL (e.g. backend-built video results). */
+const dataUrlToBlobUrl = (dataUrl: string): string => {
+  const comma = dataUrl.indexOf(',');
+  const mime = dataUrl.slice(5, dataUrl.indexOf(';'));
+  return b64ToBlobUrl(dataUrl.slice(comma + 1), mime);
+};
+
 // Helper to return original file as result
 const returnOriginal = async (file: File): Promise<string> => {
   return new Promise((resolve) => {
@@ -257,7 +274,7 @@ export const scrubMetadata = async (file: File): Promise<ScrubResult> => {
   }
   const data = await res.json();
   return {
-    url: `data:${data.mime};base64,${data.data}`,
+    url: b64ToBlobUrl(data.data, data.mime),
     mime: data.mime,
     originalSize: data.originalSize,
     newSize: data.newSize,
@@ -309,7 +326,7 @@ export const addWatermark = async (file: File, options: WatermarkOptions): Promi
   }
   const data = await res.json();
   return {
-    url: `data:${data.mime};base64,${data.data}`,
+    url: b64ToBlobUrl(data.data, data.mime),
     size: data.size,
   };
 };
@@ -420,7 +437,7 @@ export const mergePdfs = async (
 
   const data = await res.json();
   return {
-    dataUrl: `data:application/pdf;base64,${data.data}`,
+    dataUrl: b64ToBlobUrl(data.data, 'application/pdf'),
     size: data.size,
     pageCount: data.pageCount,
   };
@@ -442,7 +459,7 @@ export const organizePdf = async (
 
   const data = await res.json();
   return {
-    dataUrl: `data:application/pdf;base64,${data.data}`,
+    dataUrl: b64ToBlobUrl(data.data, 'application/pdf'),
     size: data.size,
     pageCount: data.pageCount,
   };
@@ -464,7 +481,7 @@ export const compressPdf = async (
 
   const data = await res.json();
   return {
-    dataUrl: `data:application/pdf;base64,${data.data}`,
+    dataUrl: b64ToBlobUrl(data.data, 'application/pdf'),
     originalSize: data.originalSize,
     newSize: data.newSize,
     savedPercentage: data.savedPercentage,
@@ -485,7 +502,7 @@ export const makePdfSearchable = async (
   }
   const data = await res.json();
   return {
-    dataUrl: `data:application/pdf;base64,${data.data}`,
+    dataUrl: b64ToBlobUrl(data.data, 'application/pdf'),
     size: data.size,
     pages: data.pages,
   };
@@ -505,7 +522,7 @@ export const convertPdfToWord = async (file: File): Promise<{ dataUrl: string; s
   const data = await res.json();
   if (data.error) throw new Error(data.error);
   return {
-    dataUrl: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${data.data}`,
+    dataUrl: b64ToBlobUrl(data.data, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
     size: data.size,
   };
 };
@@ -524,7 +541,7 @@ export const convertPdfToPptx = async (file: File): Promise<{ dataUrl: string; s
   const data = await res.json();
   if (data.error) throw new Error(data.error);
   return {
-    dataUrl: `data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,${data.data}`,
+    dataUrl: b64ToBlobUrl(data.data, 'application/vnd.openxmlformats-officedocument.presentationml.presentation'),
     size: data.size,
     slideCount: data.slideCount,
   };
@@ -538,7 +555,7 @@ export const pdfToImages = async (file: File, dpi = 150): Promise<{ name: string
   const res = await fetch(`${BASE_URL}/pdf/to-images`, { method: 'POST', body: formData });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Server error: ${res.status}`);
   const data = await res.json();
-  return (data.results || []).map((r: { name: string; data: string }) => ({ name: r.name, dataUrl: `data:image/png;base64,${r.data}` }));
+  return (data.results || []).map((r: { name: string; data: string }) => ({ name: r.name, dataUrl: b64ToBlobUrl(r.data, 'image/png') }));
 };
 
 // 9.8 Images → PDF (Pillow)
@@ -548,7 +565,7 @@ export const pdfFromImages = async (files: File[]): Promise<{ dataUrl: string; s
   const res = await fetch(`${BASE_URL}/pdf/from-images`, { method: 'POST', body: formData });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Server error: ${res.status}`);
   const data = await res.json();
-  return { dataUrl: `data:application/pdf;base64,${data.data}`, size: data.size, pages: data.pages };
+  return { dataUrl: b64ToBlobUrl(data.data, 'application/pdf'), size: data.size, pages: data.pages };
 };
 
 // 9.9 Resize Image (Pillow)
@@ -563,7 +580,7 @@ export const resizeImage = async (file: File, opts: ResizeOptions): Promise<{ da
   const res = await fetch(`${BASE_URL}/resize`, { method: 'POST', body: formData });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Server error: ${res.status}`);
   const data = await res.json();
-  return { dataUrl: `data:${data.mime};base64,${data.data}`, width: data.width, height: data.height, size: data.size };
+  return { dataUrl: b64ToBlobUrl(data.data, data.mime), width: data.width, height: data.height, size: data.size };
 };
 
 // 9.10 Zip / Unzip (stdlib zipfile)
@@ -573,7 +590,7 @@ export const zipFiles = async (files: File[]): Promise<{ dataUrl: string; size: 
   const res = await fetch(`${BASE_URL}/zip`, { method: 'POST', body: formData });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Server error: ${res.status}`);
   const data = await res.json();
-  return { dataUrl: `data:application/zip;base64,${data.data}`, size: data.size };
+  return { dataUrl: b64ToBlobUrl(data.data, 'application/zip'), size: data.size };
 };
 export const unzipFile = async (file: File): Promise<{ name: string; dataUrl: string }[]> => {
   const formData = new FormData();
@@ -581,7 +598,7 @@ export const unzipFile = async (file: File): Promise<{ name: string; dataUrl: st
   const res = await fetch(`${BASE_URL}/unzip`, { method: 'POST', body: formData });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Server error: ${res.status}`);
   const data = await res.json();
-  return (data.results || []).map((r: { name: string; data: string }) => ({ name: r.name, dataUrl: `data:application/octet-stream;base64,${r.data}` }));
+  return (data.results || []).map((r: { name: string; data: string }) => ({ name: r.name, dataUrl: b64ToBlobUrl(r.data, 'application/octet-stream') }));
 };
 
 // 10. OCR - RapidOCR text extraction
@@ -637,7 +654,7 @@ export const convertImage = async (file: File, format: ImageFormat): Promise<Con
     throw new Error(err.error || `Server error: ${res.status}`);
   }
   const json = await res.json();
-  return { dataUrl: json.data, format: json.format, size: json.size };
+  return { dataUrl: dataUrlToBlobUrl(json.data), format: json.format, size: json.size };
 };
 
 export const startVideoConversion = async (file: File, format: ConvertFormat): Promise<VideoJobResult> => {
@@ -659,7 +676,12 @@ export const getVideoProgress = async (jobId: string): Promise<VideoProgressResu
     const err = await res.json().catch(() => ({ error: 'Unknown error' }));
     throw new Error(err.error || `Server error: ${res.status}`);
   }
-  return await res.json();
+  const json = await res.json();
+  // Videos as base64 strings are enormous — hold them as Blobs instead.
+  if (json.dataUrl && typeof json.dataUrl === 'string' && json.dataUrl.startsWith('data:')) {
+    json.dataUrl = dataUrlToBlobUrl(json.dataUrl);
+  }
+  return json;
 };
 
 // ── File Preview / Thumbnail ─────────────────────────────────────────

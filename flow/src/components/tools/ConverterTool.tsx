@@ -15,6 +15,7 @@ import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
 import { sessionStore, useSessionIngest } from '../../state/sessionStore';
 import { toolAccepts } from '../../state/toolCompat';
+import { runPool } from '../../utils/pool';
 
 interface ConverterToolProps {
     onClose: () => void;
@@ -218,6 +219,7 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, active, o
         setFiles(prev => {
             prev.filter(p => ids.includes(p.id)).forEach(p => {
                 if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl);
+                if (p.resultDataUrl?.startsWith('blob:')) URL.revokeObjectURL(p.resultDataUrl);
             });
             return prev.filter(p => !ids.includes(p.id));
         });
@@ -301,7 +303,7 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, active, o
     }, []);
 
     const convertAll = () => {
-        for (const item of files.filter(f => f.status === 'idle')) convertSingleFile(item);
+        runPool(files.filter(f => f.status === 'idle'), item => convertSingleFile(item));
     };
 
     const handleDownload = async () => {

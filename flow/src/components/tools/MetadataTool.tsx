@@ -13,6 +13,7 @@ import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
 import { sessionStore, useSessionIngest } from '../../state/sessionStore';
 import { toolAccepts } from '../../state/toolCompat';
+import { runPool } from '../../utils/pool';
 
 interface MetadataToolProps {
     onClose: () => void;
@@ -111,16 +112,14 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, active, onI
 
     // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
     // Direct drops auto-scrub; carried items (rail switch) wait for the Scrub button.
-    const ingestBatch = useCallback(async (batch: { id: string; file: File; direct: boolean }[]) => {
+    const ingestBatch = useCallback(async (batch: { id: string; file: File; revision: number; direct: boolean }[]) => {
         const items: MetaFileItem[] = [];
         const directIds = new Set(batch.filter(b => b.direct).map(b => b.id));
-        for (const { id, file } of batch) {
+        for (const { id, file, revision } of batch) {
             let previewUrl: string | undefined;
             let previewNeedsRevoke = false;
-            try {
-                const result = await getFileThumbnail(file, 64);
-                if (result) { previewUrl = result.url; previewNeedsRevoke = result.needsRevoke; }
-            } catch { /* proceed without preview */ }
+            const result = await sessionStore.getThumb(id, revision, () => getFileThumbnail(file, 64));
+            if (result) { previewUrl = result.url; previewNeedsRevoke = false; } // shared cache owns revocation
             items.push({
                 id, file, name: file.name, sizeBytes: file.size,
                 status: 'idle', previewUrl, previewNeedsRevoke,
@@ -129,20 +128,26 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, active, onI
         if (!items.length) return;
         setFiles(prev => {
             const kept = prev.filter(p => !items.some(n => n.id === p.id));
-            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => {
+                if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl);
+                if (p.resultUrl?.startsWith('blob:')) URL.revokeObjectURL(p.resultUrl);
+            });
             return [...kept, ...items];
         });
-        items.filter(it => directIds.has(it.id)).forEach(it => processSingle(it));
+        runPool(items.filter(it => directIds.has(it.id)), it => processSingle(it));
     }, [processSingle]);
 
     // Manual run for carried (idle) items.
     const processIdle = useCallback(() => {
-        files.filter(f => f.status === 'idle').forEach(f => processSingle(f));
+        runPool(files.filter(f => f.status === 'idle'), f => processSingle(f));
     }, [files, processSingle]);
 
     const removeLocal = useCallback((ids: string[]) => {
         setFiles(prev => {
-            prev.filter(p => ids.includes(p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            prev.filter(p => ids.includes(p.id)).forEach(p => {
+                if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl);
+                if (p.resultUrl?.startsWith('blob:')) URL.revokeObjectURL(p.resultUrl);
+            });
             return prev.filter(p => !ids.includes(p.id));
         });
     }, []);

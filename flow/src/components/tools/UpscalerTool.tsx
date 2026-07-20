@@ -16,6 +16,7 @@ import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
 import { sessionStore, useSessionIngest } from '../../state/sessionStore';
 import { toolAccepts } from '../../state/toolCompat';
+import { runPool } from '../../utils/pool';
 
 interface UpscalerToolProps {
     onClose: () => void;
@@ -220,10 +221,8 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, active, onI
     }, []);
 
     const upscaleAll = () => {
-        const idleFiles = files.filter(f => f.status === 'idle');
-        for (const item of idleFiles) {
-            upscaleSingleFile(item);
-        }
+        // Cap at 2 — each job spawns its own realesrgan process.
+        runPool(files.filter(f => f.status === 'idle'), item => upscaleSingleFile(item), 2);
     };
 
     const cancelAll = () => {
