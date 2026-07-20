@@ -11,7 +11,7 @@ import {
     checkBen2ModelLoaded,
     unloadBen2Model,
 } from '../services/api';
-import { sessionStore, useSessionHasFiles, useSessionIngest } from '../state/sessionStore';
+import { sessionStore, useSessionHasFiles, useSessionCount, useSessionIngest } from '../state/sessionStore';
 import { toolAccepts } from '../state/toolCompat';
 import { runPool } from '../utils/pool';
 
@@ -119,6 +119,10 @@ const DockAppInner: React.FC = () => {
     const [expandedToolId, setExpandedToolId] = useState<ToolId | null>(null);
     const expandedToolIdRef = useRef<ToolId | null>(null);
     useEffect(() => { expandedToolIdRef.current = expandedToolId; }, [expandedToolId]);
+    // Last tool the user worked in — the ONE tile that wears the session badge.
+    // (Per-tool counts would show the same shared file on every visited tile.)
+    const [lastToolId, setLastToolId] = useState<ToolId | null>(null);
+    useEffect(() => { if (expandedToolId) setLastToolId(expandedToolId); }, [expandedToolId]);
     const [lastFocusedItemId, setLastFocusedItemId] = useState<string | null>(null);
 
     // Self-contained tools now ingest files from the shared session store
@@ -176,6 +180,13 @@ const DockAppInner: React.FC = () => {
     // Shared session (self-contained tools + carry-over) also keeps the dock alive.
     // Boolean selector: re-renders the dock tree only when emptiness flips.
     const sessionHasFiles = useSessionHasFiles();
+    const sessionCount = useSessionCount();
+    // ONE badge for the shared session (on the last-used tool); shelf keeps its
+    // own count — it's separate persistent storage, not part of the session.
+    const badgeCounts: Partial<Record<ToolId, number>> = {};
+    if (lastToolId && lastToolId !== 'shelf' && sessionCount > 0) badgeCounts[lastToolId] = sessionCount;
+    const shelfCount = sessions['shelf']?.items.length ?? 0;
+    if (shelfCount > 0) badgeCounts['shelf'] = shelfCount;
     const [selfItemCounts, setSelfItemCounts] = useState<Partial<Record<string, number>>>({});
     // Last self-tool counts, read inside the count callback without making it
     // depend on (and re-subscribe to) those values.
@@ -745,6 +756,7 @@ const DockAppInner: React.FC = () => {
 
                 onUpdateItem={handleUpdateItem}
                 onSwitchTool={(id) => setExpandedToolId(id)}
+                badgeCounts={badgeCounts}
                 onProcessIdle={handleProcessIdle}
                 clearGen={clearGen}
                 compressorQuality={compressorQuality}

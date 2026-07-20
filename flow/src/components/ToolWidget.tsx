@@ -41,6 +41,8 @@ interface ToolWidgetProps {
     onUpdateItem?: (itemId: string, updates: Partial<SessionItem>) => void;
     /** Process carried (idle) items — wired to the action button. */
     onProcessIdle?: () => void;
+    /** Count shown on the collapsed tile (session badge, computed by DockApp). */
+    badgeCount?: number;
     onOpenSettings?: () => void;
     externalDragHover?: boolean;
     /** When true, the parent SideDock wrapper handles all file drag events.
@@ -167,6 +169,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     isReordering = false,
     onUpdateItem,
     onProcessIdle,
+    badgeCount = 0,
     onOpenSettings,
     externalDragHover = false,
     externalDragHandled = false,
@@ -572,9 +575,9 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
             {!isActive && (
                 <div className="relative flex items-center justify-center w-full h-full text-[var(--text-2)]">
                     <Icon className={`w-8 h-8 text-${colorClass}-400`} />
-                    {(itemCount || selfItemCount) > 0 && (
+                    {badgeCount > 0 && (
                         <div className="absolute top-4 right-4 translate-x-1/2 -translate-y-1/2 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border border-[var(--bg)] shadow-sm animate-in zoom-in">
-                            {itemCount || selfItemCount}
+                            {badgeCount}
                         </div>
                     )}
                 </div>

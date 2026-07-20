@@ -75,6 +75,8 @@ interface SideDockProps {
   onSwitchTool: (toolId: ToolId) => void;
   /** Manually process carried (idle) items in a session tool's panel. */
   onProcessIdle?: (toolId: ToolId) => void;
+  /** Session badge per tool — one badge on the last-used tool + shelf's own count. */
+  badgeCounts?: Partial<Record<ToolId, number>>;
   clearGen?: number;
   compressorQuality?: number;
   onRecompress?: (quality: number) => void;
@@ -105,6 +107,7 @@ export const SideDock: React.FC<SideDockProps> = ({
   onUpdateItem,
   onSwitchTool,
   onProcessIdle,
+  badgeCounts,
   clearGen,
   compressorQuality,
   onRecompress,
@@ -494,6 +497,7 @@ export const SideDock: React.FC<SideDockProps> = ({
                   isReordering={draggingId !== null}
                   onUpdateItem={(itemId, updates) => onUpdateItem(tool.id, itemId, updates)}
                   onProcessIdle={onProcessIdle ? () => onProcessIdle(tool.id) : undefined}
+                  badgeCount={badgeCounts?.[tool.id] ?? 0}
                   onOpenSettings={onOpenGallery}
                   externalDragHover={isFileDragHovered}
                   externalDragHandled={true}

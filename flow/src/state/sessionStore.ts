@@ -255,6 +255,12 @@ export function useSessionHasFiles(): boolean {
     return useSyncExternalStore(subscribe, () => snapshot.files.length > 0);
 }
 
+/** Session file count — re-renders only when the count changes (add/remove),
+ *  not when results land (applyResult keeps the length). Drives tile badges. */
+export function useSessionCount(): number {
+    return useSyncExternalStore(subscribe, () => snapshot.files.length);
+}
+
 /**
  * Tool-side ingestion. Reconciles the session into a tool's local item list
  * WHILE THE TOOL IS ACTIVE (hidden tools don't ingest — avoids background
