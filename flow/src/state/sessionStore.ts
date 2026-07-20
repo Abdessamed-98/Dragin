@@ -219,6 +219,12 @@ export function useSession(): SessionSnapshot {
  * mark it seen without re-ingesting, otherwise every result would immediately
  * reprocess itself in a loop.
  */
+/** How long a tool must stay active before it ingests (and auto-processes) the
+ *  session. Rapid rail-surfing through tools therefore costs ZERO processing —
+ *  only the tool the user lands on starts work. Once settled, later session
+ *  changes (drops, results) ingest immediately with no delay. */
+const INGEST_SETTLE_MS = 450;
+
 export function useSessionIngest(
     active: boolean,
     toolId: ToolId,
@@ -227,28 +233,39 @@ export function useSessionIngest(
     onRemove: (ids: string[]) => void,
 ): void {
     const seen = useRef<Map<string, number>>(new Map());
+    const settled = useRef(false);
     const { files: sessionFiles, gen: sessionGen } = useSession();
 
     useEffect(() => {
-        if (!active) return;
-        const fresh: { id: string; file: File; revision: number }[] = [];
-        const liveIds = new Set<string>();
-        for (const f of sessionFiles) {
-            if (!accept(f)) continue;
-            liveIds.add(f.id);
-            const prev = seen.current.get(f.id);
-            if (prev === f.revision) continue;
-            seen.current.set(f.id, f.revision);
-            // Own output landing back in the store — already reflected locally.
-            if (f.provenance[f.provenance.length - 1] === toolId && prev !== undefined) continue;
-            fresh.push({ id: f.id, file: f.currentFile, revision: f.revision });
-        }
-        const removed: string[] = [];
-        for (const id of Array.from(seen.current.keys())) {
-            if (!liveIds.has(id)) { seen.current.delete(id); removed.push(id); }
-        }
-        if (removed.length) onRemove(removed);
-        if (fresh.length) onIngest(fresh);
+        if (!active) { settled.current = false; return; }
+
+        const reconcile = () => {
+            settled.current = true;
+            const fresh: { id: string; file: File; revision: number }[] = [];
+            const liveIds = new Set<string>();
+            for (const f of sessionFiles) {
+                if (!accept(f)) continue;
+                liveIds.add(f.id);
+                const prev = seen.current.get(f.id);
+                if (prev === f.revision) continue;
+                seen.current.set(f.id, f.revision);
+                // Own output landing back in the store — already reflected locally.
+                if (f.provenance[f.provenance.length - 1] === toolId && prev !== undefined) continue;
+                fresh.push({ id: f.id, file: f.currentFile, revision: f.revision });
+            }
+            const removed: string[] = [];
+            for (const id of Array.from(seen.current.keys())) {
+                if (!liveIds.has(id)) { seen.current.delete(id); removed.push(id); }
+            }
+            if (removed.length) onRemove(removed);
+            if (fresh.length) onIngest(fresh);
+        };
+
+        // Already settled in this activation → session changes apply immediately.
+        if (settled.current) { reconcile(); return; }
+        // Newly active → wait for the user to actually LAND here before processing.
+        const timer = setTimeout(reconcile, INGEST_SETTLE_MS);
+        return () => clearTimeout(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active, sessionGen]);
 }
