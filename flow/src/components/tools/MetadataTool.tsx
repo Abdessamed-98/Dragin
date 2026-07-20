@@ -11,11 +11,13 @@ import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
 import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
+import { sessionStore, useSessionIngest } from '../../state/sessionStore';
+import { toolAccepts } from '../../state/toolCompat';
 
 interface MetadataToolProps {
     onClose: () => void;
-    droppedFiles: File[];
-    dropGeneration: number;
+    /** True while this tool is the expanded panel — session ingestion runs only then. */
+    active: boolean;
     onItemCountChange?: (count: number) => void;
     clearGen?: number;
 }
@@ -42,8 +44,6 @@ const formatSize = (bytes: number): string => {
     return `${(kb / 1024).toFixed(1)} MB`;
 };
 
-const genId = () => Math.random().toString(36).substring(2, 11);
-
 const ACCEPTED_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'gif', 'pdf']);
 
 const isAccepted = (file: File): boolean => {
@@ -51,7 +51,7 @@ const isAccepted = (file: File): boolean => {
     return ACCEPTED_EXTS.has(ext) || file.type.startsWith('image/');
 };
 
-export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
+export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, active, onItemCountChange, clearGen = 0 }) => {
     const { t } = useI18n();
     const [files, setFiles] = useState<MetaFileItem[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -62,16 +62,6 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
 
     // Report item count to parent
     useEffect(() => { onItemCountChange?.(files.length); }, [files.length, onItemCountChange]);
-
-    // Handle files dropped from DockApp
-    const lastDropGen = useRef(dropGeneration);
-    useEffect(() => {
-        if (dropGeneration === 0) return;
-        if (dropGeneration === lastDropGen.current) return;
-        lastDropGen.current = dropGeneration;
-        if (droppedFiles.length === 0) return;
-        addFiles(droppedFiles);
-    }, [dropGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Clear all files when global clear is triggered
     const lastClearGen = useRef(clearGen);
@@ -95,32 +85,6 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
         };
     }, []);
 
-    const addFiles = useCallback(async (newFiles: File[]) => {
-        const items: MetaFileItem[] = [];
-        for (const file of newFiles) {
-            if (!isAccepted(file)) continue;
-            let previewUrl: string | undefined;
-            let previewNeedsRevoke = false;
-            try {
-                const result = await getFileThumbnail(file, 64);
-                if (result) { previewUrl = result.url; previewNeedsRevoke = result.needsRevoke; }
-            } catch { /* proceed without preview */ }
-            items.push({
-                id: genId(), file, name: file.name, sizeBytes: file.size,
-                status: 'idle', previewUrl, previewNeedsRevoke,
-            });
-        }
-        if (items.length > 0) setFiles(prev => [...prev, ...items]);
-    }, []);
-
-    const removeFile = (fileId: string) => {
-        setFiles(prev => {
-            const removed = prev.find(f => f.id === fileId);
-            if (removed?.previewUrl && removed.previewNeedsRevoke) URL.revokeObjectURL(removed.previewUrl);
-            return prev.filter(f => f.id !== fileId);
-        });
-    };
-
     const updateFile = (fileId: string, updates: Partial<MetaFileItem>) => {
         setFiles(prev => prev.map(f => f.id === fileId ? { ...f, ...updates } : f));
     };
@@ -135,18 +99,59 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
                 resultSize: result.newSize,
                 removedFields: result.removedFields,
             });
+            // Session write-back: the scrubbed file becomes the file's current
+            // state, so switching tools carries the RESULT forward.
+            const ext = item.name.split('.').pop() || 'bin';
+            const base = item.name.replace(/\.[^.]+$/, '');
+            sessionStore.applyResult(item.id, result.url, `${base}_clean.${ext}`, 'metadata');
         } catch (err) {
             updateFile(item.id, { status: 'error', error: String(err) });
         }
     }, []);
 
-    // Auto-process files when added
-    useEffect(() => {
-        const idle = files.filter(f => f.status === 'idle');
-        if (idle.length > 0) {
-            idle.forEach(f => processSingle(f));
+    // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
+    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
+        const items: MetaFileItem[] = [];
+        for (const { id, file } of batch) {
+            let previewUrl: string | undefined;
+            let previewNeedsRevoke = false;
+            try {
+                const result = await getFileThumbnail(file, 64);
+                if (result) { previewUrl = result.url; previewNeedsRevoke = result.needsRevoke; }
+            } catch { /* proceed without preview */ }
+            items.push({
+                id, file, name: file.name, sizeBytes: file.size,
+                status: 'idle', previewUrl, previewNeedsRevoke,
+            });
         }
-    }, [files.length]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (!items.length) return;
+        setFiles(prev => {
+            const kept = prev.filter(p => !items.some(n => n.id === p.id));
+            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            return [...kept, ...items];
+        });
+        items.forEach(it => processSingle(it));
+    }, [processSingle]);
+
+    const removeLocal = useCallback((ids: string[]) => {
+        setFiles(prev => {
+            prev.filter(p => ids.includes(p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            return prev.filter(p => !ids.includes(p.id));
+        });
+    }, []);
+
+    useSessionIngest(active, 'metadata', f => (toolAccepts('metadata', f) || f.kind === 'pdf') && isAccepted(f.currentFile), ingestBatch, removeLocal);
+
+    // UI adds (drop on panel / file input / paste) go through the session store —
+    // the ingest above brings them into local state.
+    const addFiles = useCallback((incoming: File[]) => {
+        const accepted = incoming.filter(isAccepted);
+        if (accepted.length) sessionStore.addFiles(accepted);
+    }, []);
+
+    const removeFile = (fileId: string) => {
+        sessionStore.remove([fileId]);
+    };
 
     const handleDownload = useCallback(async () => {
         const done = files.filter(f => f.status === 'done' && f.resultUrl);
@@ -170,8 +175,7 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, droppedFile
     }, [files]);
 
     const handleClear = () => {
-        files.forEach(f => { if (f.previewUrl && f.previewNeedsRevoke) URL.revokeObjectURL(f.previewUrl); });
-        setFiles([]);
+        sessionStore.remove(files.map(f => f.id));
         onClose();
     };
 

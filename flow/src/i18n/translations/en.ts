@@ -148,6 +148,10 @@ export const en: Record<TranslationKey, string> = {
   'widget.qualityVeryLow': 'Very low',
   'widget.zipError': 'Error compressing files',
 
+  // --- Session / tool rail ---
+  'session.carried': '{{count}} results carried from {{tool}}',
+  'session.useOriginals': 'Use originals',
+
   // --- DockApp ---
   'dock.crashed': 'Dock stopped working',
   'dock.restart': 'Restart',

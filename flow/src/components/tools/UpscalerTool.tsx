@@ -14,11 +14,13 @@ import { useI18n } from '../../i18n/I18nContext';
 import { saveOutputs } from '../../services/saveOutput';
 import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
+import { sessionStore, useSessionIngest } from '../../state/sessionStore';
+import { toolAccepts } from '../../state/toolCompat';
 
 interface UpscalerToolProps {
     onClose: () => void;
-    droppedFiles: File[];
-    dropGeneration: number;
+    /** True while this tool is the expanded panel — session ingestion runs only then. */
+    active: boolean;
     onItemCountChange?: (count: number) => void;
     clearGen?: number;
 }
@@ -45,8 +47,6 @@ const formatSize = (bytes: number): string => {
     return `${(kb / 1024).toFixed(1)} MB`;
 };
 
-const genId = () => Math.random().toString(36).substring(2, 11);
-
 const isImageFile = (file: File): boolean => {
     if (file.type.startsWith('image/') && file.type !== 'image/gif') return true;
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
@@ -60,7 +60,7 @@ const MODEL_OPTIONS: { value: UpscaleModel; labelKey: 'upscaler.modelGeneral' | 
     { value: 'realesrgan-x4plus-anime', labelKey: 'upscaler.modelAnime' },
 ];
 
-export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
+export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, active, onItemCountChange, clearGen = 0 }) => {
     const { t } = useI18n();
     const [files, setFiles] = useState<UpscaleFileItem[]>([]);
     const [available, setAvailable] = useState<boolean | null>(null);
@@ -87,15 +87,9 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
             .catch(() => setAvailable(false));
     }, []);
 
-    // Handle files dropped from DockApp (skip stale props on remount)
-    const lastDropGen = useRef(dropGeneration);
-    useEffect(() => {
-        if (dropGeneration === 0) return;
-        if (dropGeneration === lastDropGen.current) return;
-        lastDropGen.current = dropGeneration;
-        if (droppedFiles.length === 0) return;
-        addFiles(droppedFiles);
-    }, [dropGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Refs so session ingestion picks up the CURRENT scale/model settings.
+    const scaleRef = useRef(globalScale); useEffect(() => { scaleRef.current = globalScale; }, [globalScale]);
+    const modelRef = useRef(globalModel); useEffect(() => { modelRef.current = globalModel; }, [globalModel]);
 
     // Clear all files when global clear is triggered
     const lastClearGen = useRef(clearGen);
@@ -122,39 +116,60 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
         };
     }, []);
 
-    const addFiles = useCallback((newFiles: File[]) => {
-        const items: UpscaleFileItem[] = [];
-        for (const file of newFiles) {
-            if (!isImageFile(file)) continue;
-            items.push({
-                id: genId(),
-                file,
-                name: file.name,
-                sizeBytes: file.size,
-                previewUrl: URL.createObjectURL(file),
-                status: 'idle',
-                scale: globalScale,
-                model: globalModel,
+    // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
+    const ingestBatch = useCallback((batch: { id: string; file: File }[]) => {
+        const items: UpscaleFileItem[] = batch.map(({ id, file }) => ({
+            id,
+            file,
+            name: file.name,
+            sizeBytes: file.size,
+            previewUrl: URL.createObjectURL(file),
+            status: 'idle' as const,
+            scale: scaleRef.current,
+            model: modelRef.current,
+        }));
+        if (!items.length) return;
+        setFiles(prev => {
+            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => {
+                URL.revokeObjectURL(p.previewUrl);
+                if (pollTimers.current[p.id]) {
+                    clearInterval(pollTimers.current[p.id]);
+                    delete pollTimers.current[p.id];
+                }
+                if (p.jobId) cleanupUpscaleJob(p.jobId);
             });
-        }
-        if (items.length > 0) {
-            setFiles(prev => [...prev, ...items]);
-        }
-    }, [globalScale, globalModel]);
+            const kept = prev.filter(p => !items.some(n => n.id === p.id));
+            return [...kept, ...items];
+        });
+    }, []);
+
+    const removeLocal = useCallback((ids: string[]) => {
+        ids.forEach(id => {
+            if (pollTimers.current[id]) {
+                clearInterval(pollTimers.current[id]);
+                delete pollTimers.current[id];
+            }
+        });
+        setFiles(prev => {
+            prev.filter(p => ids.includes(p.id)).forEach(p => {
+                URL.revokeObjectURL(p.previewUrl);
+                if (p.jobId) cleanupUpscaleJob(p.jobId);
+            });
+            return prev.filter(p => !ids.includes(p.id));
+        });
+    }, []);
+
+    useSessionIngest(active, 'upscaler', f => toolAccepts('upscaler', f) && isImageFile(f.currentFile), ingestBatch, removeLocal);
+
+    // UI adds (drop on panel / file input / paste) go through the session store —
+    // the ingest above brings them into local state.
+    const addFiles = useCallback((newFiles: File[]) => {
+        const imgs = newFiles.filter(isImageFile);
+        if (imgs.length) sessionStore.addFiles(imgs);
+    }, []);
 
     const removeFile = (fileId: string) => {
-        if (pollTimers.current[fileId]) {
-            clearInterval(pollTimers.current[fileId]);
-            delete pollTimers.current[fileId];
-        }
-        setFiles(prev => {
-            const removed = prev.find(f => f.id === fileId);
-            if (removed) {
-                URL.revokeObjectURL(removed.previewUrl);
-                if (removed.jobId) cleanupUpscaleJob(removed.jobId);
-            }
-            return prev.filter(f => f.id !== fileId);
-        });
+        sessionStore.remove([fileId]); // local cleanup (URL revoke, timers, backend job) happens via removeLocal
     };
 
     const updateFile = (fileId: string, updates: Partial<UpscaleFileItem>) => {
@@ -180,6 +195,11 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
                             progress: 100,
                             resultSize: prog.size,
                         });
+                        // Session write-back: the upscaled image becomes the file's
+                        // current state, so switching tools carries the RESULT forward.
+                        fetchUpscaleResultBlob(jobId)
+                            .then(blob => sessionStore.applyResult(item.id, blob, `${item.name.replace(/\.[^.]+$/, '')}-${item.scale}x.png`, 'upscaler'))
+                            .catch(() => {});
                     } else if (prog.status === 'error') {
                         clearInterval(timer);
                         delete pollTimers.current[item.id];
@@ -242,13 +262,7 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, droppedFile
     };
 
     const handleClear = () => {
-        Object.values(pollTimers.current).forEach(clearInterval);
-        pollTimers.current = {};
-        files.forEach(f => {
-            URL.revokeObjectURL(f.previewUrl);
-            if (f.jobId) cleanupUpscaleJob(f.jobId);
-        });
-        setFiles([]);
+        sessionStore.remove(files.map(f => f.id)); // local cleanup happens via removeLocal
         onClose();
     };
 

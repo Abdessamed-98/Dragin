@@ -13,11 +13,13 @@ import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
 import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
+import { sessionStore, useSessionIngest } from '../../state/sessionStore';
+import { toolAccepts } from '../../state/toolCompat';
 
 interface ConverterToolProps {
     onClose: () => void;
-    droppedFiles: File[];
-    dropGeneration: number;
+    /** True while this tool is the expanded panel — session ingestion runs only then. */
+    active: boolean;
     onItemCountChange?: (count: number) => void;
     clearGen?: number;
 }
@@ -55,8 +57,6 @@ const formatSize = (bytes: number): string => {
     if (kb < 1024) return `${kb.toFixed(1)} KB`;
     return `${(kb / 1024).toFixed(1)} MB`;
 };
-
-const genId = () => Math.random().toString(36).substring(2, 11);
 
 const detectFileType = (file: File): FileType | null => {
     if (file.type === 'image/gif') return 'gif';
@@ -113,7 +113,7 @@ const GROUP_ICON: Record<GroupId, React.ReactNode> = {
 
 const FILE_ACCEPT = 'image/*,video/*,audio/*,.gif,.mp4,.webm,.mov,.avi,.mkv,.psd,.ai,.tiff,.tif,.heic,.heif,.mp3,.wav,.ogg,.flac,.aac,.wma,.m4a';
 
-export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
+export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, active, onItemCountChange, clearGen = 0 }) => {
     const { t } = useI18n();
     const [files, setFiles] = useState<ConvertFileItem[]>([]);
     const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
@@ -141,15 +141,6 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
             .catch(() => setFfmpegAvailable(false));
     }, []);
 
-    const lastDropGen = useRef(dropGeneration);
-    useEffect(() => {
-        if (dropGeneration === 0) return;
-        if (dropGeneration === lastDropGen.current) return;
-        lastDropGen.current = dropGeneration;
-        if (droppedFiles.length === 0) return;
-        addFiles(droppedFiles);
-    }, [dropGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
-
     const lastClearGen = useRef(clearGen);
     useEffect(() => {
         if (clearGen === 0 || clearGen === lastClearGen.current) return;
@@ -170,9 +161,10 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
         };
     }, []);
 
-    const addFiles = useCallback(async (newFiles: File[]) => {
+    // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
+    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
         const items: ConvertFileItem[] = [];
-        for (const file of newFiles) {
+        for (const { id, file } of batch) {
             const type = detectFileType(file);
             if (!type) continue;
             const currentFormat = getCurrentFormat(file.name);
@@ -194,23 +186,60 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
                 previewNeedsRevoke = true;
             }
             items.push({
-                id: genId(), file, name: file.name, sizeBytes: file.size, type,
+                id, file, name: file.name, sizeBytes: file.size, type,
                 status: 'idle', targetFormat, previewUrl, previewNeedsRevoke,
             });
         }
-        if (items.length > 0) setFiles(prev => [...prev, ...items]);
+        if (items.length === 0) return;
+        // Cancel any in-flight job for an item that's being replaced (revision bump).
+        items.forEach(it => {
+            if (pollTimers.current[it.id]) {
+                clearInterval(pollTimers.current[it.id]);
+                delete pollTimers.current[it.id];
+            }
+        });
+        setFiles(prev => {
+            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => {
+                if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl);
+            });
+            const kept = prev.filter(p => !items.some(n => n.id === p.id));
+            return [...kept, ...items];
+        });
+    }, []);
+
+    const removeLocal = useCallback((ids: string[]) => {
+        // Cancel in-flight jobs for removed items.
+        ids.forEach(id => {
+            if (pollTimers.current[id]) {
+                clearInterval(pollTimers.current[id]);
+                delete pollTimers.current[id];
+            }
+        });
+        setFiles(prev => {
+            prev.filter(p => ids.includes(p.id)).forEach(p => {
+                if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl);
+            });
+            return prev.filter(p => !ids.includes(p.id));
+        });
+    }, []);
+
+    useSessionIngest(
+        active,
+        'converter',
+        f => toolAccepts('converter', f) && detectFileType(f.currentFile) !== null,
+        ingestBatch,
+        removeLocal,
+    );
+
+    // UI adds (drop on panel / file input / paste) go through the session store —
+    // the ingest above brings them into local state.
+    const addFiles = useCallback((newFiles: File[]) => {
+        const accepted = newFiles.filter(f => detectFileType(f) !== null);
+        if (accepted.length) sessionStore.addFiles(accepted);
     }, []);
 
     const removeFile = (fileId: string) => {
-        if (pollTimers.current[fileId]) {
-            clearInterval(pollTimers.current[fileId]);
-            delete pollTimers.current[fileId];
-        }
-        setFiles(prev => {
-            const removed = prev.find(f => f.id === fileId);
-            if (removed?.previewUrl && removed.previewNeedsRevoke) URL.revokeObjectURL(removed.previewUrl);
-            return prev.filter(f => f.id !== fileId);
-        });
+        sessionStore.remove([fileId]); // local removal + job cancel happen via removeLocal
     };
 
     const updateFile = (fileId: string, updates: Partial<ConvertFileItem>) => {
@@ -232,10 +261,14 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
 
     const convertSingleFile = useCallback(async (item: ConvertFileItem) => {
         updateFile(item.id, { status: 'converting', progress: 0, error: undefined });
+        const outputName = `${item.name.replace(/\.[^.]+$/, '')}.${fileExt(item.targetFormat)}`;
         try {
             if (item.type === 'image') {
                 const result = await convertImage(item.file, item.targetFormat as ImageFormat);
                 updateFile(item.id, { status: 'done', resultDataUrl: result.dataUrl, resultSize: result.size });
+                // Session write-back: the converted file becomes the session's
+                // current state, so switching tools carries the RESULT forward.
+                sessionStore.applyResult(item.id, result.dataUrl, outputName, 'converter');
             } else {
                 const { jobId } = await startVideoConversion(item.file, item.targetFormat);
                 updateFile(item.id, { jobId });
@@ -246,6 +279,7 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
                             clearInterval(timer);
                             delete pollTimers.current[item.id];
                             updateFile(item.id, { status: 'done', progress: 100, resultDataUrl: prog.dataUrl, resultSize: prog.size });
+                            if (prog.dataUrl) sessionStore.applyResult(item.id, prog.dataUrl, outputName, 'converter');
                         } else if (prog.status === 'error') {
                             clearInterval(timer);
                             delete pollTimers.current[item.id];
@@ -288,10 +322,8 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
     };
 
     const handleClear = () => {
-        Object.values(pollTimers.current).forEach(clearInterval);
-        pollTimers.current = {};
-        files.forEach(f => { if (f.previewUrl && f.previewNeedsRevoke) URL.revokeObjectURL(f.previewUrl); });
-        setFiles([]);
+        // Local cleanup (timers, preview URLs, items) happens via removeLocal.
+        sessionStore.remove(files.map(f => f.id));
         onClose();
     };
 
@@ -458,7 +490,7 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, droppedFi
                         </div>
                     )}
                     {item.status === 'done' && <Check className="w-3.5 h-3.5 text-[var(--green)]" />}
-                    {item.status === 'error' && <AlertCircle className="w-3 h-3 text-red-400" title={item.error} />}
+                    {item.status === 'error' && <span title={item.error}><AlertCircle className="w-3 h-3 text-red-400" /></span>}
                 </div>
 
                 {/* Remove */}

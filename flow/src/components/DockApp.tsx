@@ -11,6 +11,8 @@ import {
     checkBen2ModelLoaded,
     unloadBen2Model,
 } from '../services/api';
+import { sessionStore, useSession, useSessionIngest } from '../state/sessionStore';
+import { toolAccepts } from '../state/toolCompat';
 
 
 
@@ -118,45 +120,8 @@ const DockAppInner: React.FC = () => {
     useEffect(() => { expandedToolIdRef.current = expandedToolId; }, [expandedToolId]);
     const [lastFocusedItemId, setLastFocusedItemId] = useState<string | null>(null);
 
-    // PDF tool: forward dropped files via props (PdfTool is self-contained)
-    const [pdfDroppedFiles, setPdfDroppedFiles] = useState<File[]>([]);
-    const [pdfDropGen, setPdfDropGen] = useState(0);
-
-    // Converter tool: forward dropped files via props (ConverterTool is self-contained)
-    const [converterDroppedFiles, setConverterDroppedFiles] = useState<File[]>([]);
-    const [converterDropGen, setConverterDropGen] = useState(0);
-
-    // Upscaler tool: forward dropped files via props (UpscalerTool is self-contained)
-    const [upscalerDroppedFiles, setUpscalerDroppedFiles] = useState<File[]>([]);
-    const [upscalerDropGen, setUpscalerDropGen] = useState(0);
-
-    // Metadata tool: forward dropped files via props (MetadataTool is self-contained)
-    const [metadataDroppedFiles, setMetadataDroppedFiles] = useState<File[]>([]);
-    const [metadataDropGen, setMetadataDropGen] = useState(0);
-
-    // Watermark tool: forward dropped files via props (WatermarkTool is self-contained)
-    const [watermarkDroppedFiles, setWatermarkDroppedFiles] = useState<File[]>([]);
-    const [watermarkDropGen, setWatermarkDropGen] = useState(0);
-
-    // Palette tool: forward dropped files via props (PaletteTool is self-contained)
-    const [paletteDroppedFiles, setPaletteDroppedFiles] = useState<File[]>([]);
-    const [paletteDropGen, setPaletteDropGen] = useState(0);
-
-    // Vectorizer tool: forward dropped files via props (VectorizerTool is self-contained)
-    const [vectorizerDroppedFiles, setVectorizerDroppedFiles] = useState<File[]>([]);
-    const [vectorizerDropGen, setVectorizerDropGen] = useState(0);
-
-    // OCR tool: forward dropped files via props (OcrTool is self-contained)
-    const [ocrDroppedFiles, setOcrDroppedFiles] = useState<File[]>([]);
-    const [ocrDropGen, setOcrDropGen] = useState(0);
-
-    // Resize tool: forward dropped files via props (ResizeTool is self-contained)
-    const [resizeDroppedFiles, setResizeDroppedFiles] = useState<File[]>([]);
-    const [resizeDropGen, setResizeDropGen] = useState(0);
-
-    // Zip tool: forward dropped files via props (ZipTool is self-contained)
-    const [zipDroppedFiles, setZipDroppedFiles] = useState<File[]>([]);
-    const [zipDropGen, setZipDropGen] = useState(0);
+    // Self-contained tools now ingest files from the shared session store
+    // (src/state/sessionStore.ts) — the old per-tool droppedFiles plumbing is gone.
 
     // Whether the remover (BEN2) model is currently being loaded (first inference)
     const [removerModelLoading, setRemoverModelLoading] = useState(false);
@@ -168,6 +133,7 @@ const DockAppInner: React.FC = () => {
 
     useEffect(() => {
         onClearDataConfirmed(() => {
+            sessionStore.clear();
             setSessions({});
             setClearGen(g => g + 1);
         });
@@ -206,6 +172,9 @@ const DockAppInner: React.FC = () => {
     const hasAnyFiles = Object.values(sessions).some(
         session => session != null && session.items.length > 0
     );
+    // Shared session (self-contained tools + carry-over) also keeps the dock alive.
+    const { files: liveSessionFiles } = useSession();
+    const sessionHasFiles = liveSessionFiles.length > 0;
     const [selfItemCounts, setSelfItemCounts] = useState<Partial<Record<string, number>>>({});
     // Last self-tool counts, read inside the count callback without making it
     // depend on (and re-subscribe to) those values.
@@ -225,7 +194,7 @@ const DockAppInner: React.FC = () => {
         }
     }, []);
     const anySelfHasFiles = Object.values(selfItemCounts).some(c => (c ?? 0) > 0);
-    const isInteractionActive = expandedToolId !== null || isDragging || hasAnyFiles || isGalleryOpen || isDockPinned || anySelfHasFiles;
+    const isInteractionActive = expandedToolId !== null || isDragging || hasAnyFiles || sessionHasFiles || isGalleryOpen || isDockPinned || anySelfHasFiles;
     const isVisible = isDockEnabled && isInteractionActive;
 
     // --- Dock diagnostics ---
@@ -395,120 +364,112 @@ const DockAppInner: React.FC = () => {
     const [compressorQuality, setCompressorQuality] = useState(70);
 
     // --- Processing Logic ---
+    // ALL drops now land in the shared session store; every tool (self-contained
+    // via useSessionIngest inside the component, session tools via the bridge
+    // below) ingests from there. That single change is what makes tool-switching
+    // with carry-over work. Shelf is the exception: persistent storage, own path.
     const handleToolDrop = async (files: File[], toolId: ToolId) => {
         dlog('drop', { toolId, fileCount: files.length, names: files.map(f => f.name) });
         setExpandedToolId(toolId);
 
-        // OCR tool is self-contained. Forward files via state props.
-        if (toolId === 'ocr') {
-            setOcrDroppedFiles(Array.from(files));
-            setOcrDropGen(g => g + 1);
+        if (toolId === 'shelf') {
+            let sessionId: string;
+            const currentSession = sessions[toolId];
+            sessionId = currentSession ? currentSession.id : Math.random().toString(36).substring(2, 11);
+            const newItems: SessionItem[] = files.map(file => ({
+                id: Math.random().toString(36).substring(2, 11),
+                file,
+                originalUrl: URL.createObjectURL(file),
+                status: 'pending'
+            }));
+            setSessions(prev => {
+                const prevSession = prev[toolId];
+                const updatedItems = prevSession ? [...prevSession.items, ...newItems] : newItems;
+                return {
+                    ...prev,
+                    [toolId]: {
+                        id: sessionId, toolId, items: updatedItems,
+                        selectedItemIds: prevSession ? prevSession.selectedItemIds : [],
+                        status: 'processing'
+                    }
+                };
+            });
+            newItems.forEach(item => processItem(sessionId, item.id, item.file, toolId));
             return;
         }
 
-        // Resize tool is self-contained. Forward files via state props.
-        if (toolId === 'resize') {
-            setResizeDroppedFiles(Array.from(files));
-            setResizeDropGen(g => g + 1);
-            return;
-        }
+        sessionStore.addFiles(Array.from(files));
+    };
 
-        // Zip tool is self-contained. Forward files via state props.
-        if (toolId === 'zip') {
-            setZipDroppedFiles(Array.from(files));
-            setZipDropGen(g => g + 1);
-            return;
-        }
+    // ── Session-tool bridge ──────────────────────────────────────────────────
+    // remover/compressor/cropper still use the ToolWidget session UI. This bridge
+    // ingests session-store files into their ActiveSession while they're the
+    // expanded tool, and kicks their processing — same semantics as a direct drop.
+    const sessionsRef = useRef(sessions);
+    useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
 
-        // PDF tool is self-contained (like OCR). Forward files via state props.
-        if (toolId === 'pdf') {
-            setPdfDroppedFiles(Array.from(files));
-            setPdfDropGen(g => g + 1);
-            return;
-        }
+    const ingestSessionTool = useCallback((toolId: 'remover' | 'compressor' | 'cropper', batch: { id: string; file: File }[]) => {
+        if (!batch.length) return;
+        let incoming = batch;
+        if (SINGLE_FILE_TOOLS.has(toolId)) incoming = incoming.slice(0, 1);
 
-        // Converter tool is self-contained. Forward files via state props.
-        if (toolId === 'converter') {
-            setConverterDroppedFiles(Array.from(files));
-            setConverterDropGen(g => g + 1);
-            return;
-        }
-
-        // Upscaler tool is self-contained. Forward files via state props.
-        if (toolId === 'upscaler') {
-            setUpscalerDroppedFiles(Array.from(files));
-            setUpscalerDropGen(g => g + 1);
-            return;
-        }
-
-        // Metadata tool is self-contained. Forward files via state props.
-        if (toolId === 'metadata') {
-            setMetadataDroppedFiles(Array.from(files));
-            setMetadataDropGen(g => g + 1);
-            return;
-        }
-
-        // Watermark tool is self-contained. Forward files via state props.
-        if (toolId === 'watermark') {
-            setWatermarkDroppedFiles(Array.from(files));
-            setWatermarkDropGen(g => g + 1);
-            return;
-        }
-
-        // Palette tool is self-contained. Forward files via state props.
-        if (toolId === 'palette') {
-            setPaletteDroppedFiles(Array.from(files));
-            setPaletteDropGen(g => g + 1);
-            return;
-        }
-
-        // Vectorizer tool is self-contained. Forward files via state props.
-        if (toolId === 'vectorizer') {
-            setVectorizerDroppedFiles(Array.from(files));
-            setVectorizerDropGen(g => g + 1);
-            return;
-        }
-
-        // Overlay tools only operate on one file at a time — silently take the first.
-        if (SINGLE_FILE_TOOLS.has(toolId)) files = files.slice(0, 1);
-
-        let sessionId: string;
-        const currentSession = sessions[toolId];
-        if (currentSession) {
-            sessionId = currentSession.id;
-        } else {
-            sessionId = Math.random().toString(36).substring(2, 11);
-        }
-
-        const newItems: SessionItem[] = files.map(file => ({
-            id: Math.random().toString(36).substring(2, 11),
-            file,
-            originalUrl: URL.createObjectURL(file),
+        const prevSession = sessionsRef.current[toolId];
+        const sessionId = prevSession ? prevSession.id : Math.random().toString(36).substring(2, 11);
+        const newItems: SessionItem[] = incoming.map(b => ({
+            id: b.id, // session-store id — keys the write-back in applyResult
+            file: b.file,
+            originalUrl: URL.createObjectURL(b.file),
             status: 'pending'
         }));
 
         setSessions(prev => {
-            const prevSession = prev[toolId];
-            const updatedItems = prevSession ? [...prevSession.items, ...newItems] : newItems;
+            const s = prev[toolId];
+            // Re-ingest replaces same-id items (revision bumps), keeps the rest.
+            const kept = (s?.items || []).filter(i => !newItems.some(n => n.id === i.id));
             return {
                 ...prev,
                 [toolId]: {
-                    id: sessionId,
-                    toolId,
-                    items: updatedItems,
-                    selectedItemIds: prevSession ? prevSession.selectedItemIds : [],
+                    id: sessionId, toolId,
+                    items: [...kept, ...newItems],
+                    selectedItemIds: s?.selectedItemIds || [],
                     status: 'processing'
                 }
             };
         });
 
-        // Remover (BEN2): process one-by-one so each result appears immediately.
         if (toolId === 'remover') {
             newItems.forEach(item => updateItemStatus(toolId, sessionId, item.id, { status: 'processing' }));
             processRemoverBatch(sessionId, newItems);
         } else {
             newItems.forEach(item => processItem(sessionId, item.id, item.file, toolId));
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const removeSessionToolItems = useCallback((toolId: ToolId, ids: string[]) => {
+        setSessions(prev => {
+            const s = prev[toolId];
+            if (!s) return prev;
+            const items = s.items.filter(i => !ids.includes(i.id));
+            if (!items.length) return { ...prev, [toolId]: undefined };
+            return { ...prev, [toolId]: { ...s, items, selectedItemIds: s.selectedItemIds.filter(id => !ids.includes(id)) } };
+        });
+    }, []);
+
+    useSessionIngest(expandedToolId === 'remover', 'remover', f => toolAccepts('remover', f),
+        b => ingestSessionTool('remover', b), ids => removeSessionToolItems('remover', ids));
+    useSessionIngest(expandedToolId === 'compressor', 'compressor', f => toolAccepts('compressor', f),
+        b => ingestSessionTool('compressor', b), ids => removeSessionToolItems('compressor', ids));
+    useSessionIngest(expandedToolId === 'cropper', 'cropper', f => toolAccepts('cropper', f),
+        b => ingestSessionTool('cropper', b), ids => removeSessionToolItems('cropper', ids));
+
+    // Output name for a session-tool transform (mirrors ToolWidget's download naming).
+    const outNameFor = (originalName: string, toolId: ToolId): string => {
+        const suffix = ({ remover: 'BGremoved', compressor: 'compressed', cropper: 'cropped' } as Record<string, string>)[toolId] || 'processed';
+        const lastDot = originalName.lastIndexOf('.');
+        const base = lastDot === -1 ? originalName : originalName.substring(0, lastDot);
+        const ext = toolId === 'remover' ? '.png' : (lastDot === -1 ? '.png' : originalName.substring(lastDot));
+        return `${base}-${suffix}${ext}`;
     };
 
     /** Background Remover (BEN2): single model, no modes. The "Loading model..."
@@ -522,6 +483,9 @@ const DockAppInner: React.FC = () => {
                 const url = await removeBackgroundBen2(item.file);
                 if (i === 0 && !modelReady) setRemoverModelLoading(false);
                 updateItemStatus('remover', sessionId, item.id, { processedUrl: url, status: 'completed' });
+                // Session write-back: the cutout becomes the file's current state,
+                // so switching to another tool carries the RESULT.
+                sessionStore.applyResult(item.id, url, outNameFor(item.file.name, 'remover'), 'remover');
             } catch {
                 if (i === 0 && !modelReady) setRemoverModelLoading(false);
                 updateItemStatus('remover', sessionId, item.id, { status: 'error' });
@@ -546,6 +510,8 @@ const DockAppInner: React.FC = () => {
                         newSize: compResult.newSize,
                         savedPercentage: compResult.saved
                     };
+                    // Session write-back so the compressed file carries to the next tool.
+                    sessionStore.applyResult(itemId, compResult.url, outNameFor(file.name, 'compressor'), 'compressor');
                     break;
                 case 'shelf': {
                     const buffer = await file.arrayBuffer();
@@ -577,6 +543,12 @@ const DockAppInner: React.FC = () => {
         const session = sessions[toolId];
         if (!session) return;
         updateItemStatus(toolId, session.id, itemId, updates);
+        // Real transforms arriving via overlays (cropper save, magic brush, auto-crop)
+        // carry into the session so the next tool receives the edited file.
+        if (updates.processedUrl && toolId !== 'shelf') {
+            const item = session.items.find(i => i.id === itemId);
+            if (item) sessionStore.applyResult(itemId, updates.processedUrl, outNameFor(item.file.name, toolId), toolId);
+        }
     };
 
     const updateItemStatus = (toolId: ToolId, sessionId: string, itemId: string, updates: Partial<SessionItem>) => {
@@ -621,24 +593,6 @@ const DockAppInner: React.FC = () => {
         handleToolDrop(files, targetToolId);
     };
 
-    const handleCancelProcessing = (toolId: ToolId) => {
-        setSessions(prev => {
-            const session = prev[toolId];
-            if (!session) return prev;
-            return {
-                ...prev,
-                [toolId]: {
-                    ...session,
-                    items: session.items.map(item =>
-                        item.status === 'processing' ? { ...item, status: 'idle' as const } : item
-                    ),
-                    status: session.items.every(i => i.status === 'completed' || i.status === 'error' || i.status === 'processing')
-                        ? 'idle' as const : session.status,
-                },
-            };
-        });
-    };
-
     const handleRecompress = (newQuality: number) => {
         setCompressorQuality(newQuality);
         const session = sessions['compressor'];
@@ -661,6 +615,16 @@ const DockAppInner: React.FC = () => {
                     ? session.selectedItemIds
                     : session.items.map(i => i.id);
                 shelfDelete(idsToDelete);
+            }
+        } else {
+            // Session-tool items are session-store files — remove them there too
+            // so they don't reappear on the next tool switch.
+            const session = sessions[toolId];
+            if (session) {
+                const idsToDelete = session.selectedItemIds.length > 0
+                    ? session.selectedItemIds
+                    : session.items.map(i => i.id);
+                sessionStore.remove(idsToDelete);
             }
         }
 
@@ -760,26 +724,7 @@ const DockAppInner: React.FC = () => {
                 onOpenGallery={openGallery}
 
                 onUpdateItem={handleUpdateItem}
-                pdfDroppedFiles={pdfDroppedFiles}
-                pdfDropGen={pdfDropGen}
-                converterDroppedFiles={converterDroppedFiles}
-                converterDropGen={converterDropGen}
-                upscalerDroppedFiles={upscalerDroppedFiles}
-                upscalerDropGen={upscalerDropGen}
-                metadataDroppedFiles={metadataDroppedFiles}
-                metadataDropGen={metadataDropGen}
-                watermarkDroppedFiles={watermarkDroppedFiles}
-                watermarkDropGen={watermarkDropGen}
-                paletteDroppedFiles={paletteDroppedFiles}
-                paletteDropGen={paletteDropGen}
-                vectorizerDroppedFiles={vectorizerDroppedFiles}
-                vectorizerDropGen={vectorizerDropGen}
-                ocrDroppedFiles={ocrDroppedFiles}
-                ocrDropGen={ocrDropGen}
-                resizeDroppedFiles={resizeDroppedFiles}
-                resizeDropGen={resizeDropGen}
-                zipDroppedFiles={zipDroppedFiles}
-                zipDropGen={zipDropGen}
+                onSwitchTool={(id) => setExpandedToolId(id)}
                 clearGen={clearGen}
                 compressorQuality={compressorQuality}
                 onRecompress={handleRecompress}

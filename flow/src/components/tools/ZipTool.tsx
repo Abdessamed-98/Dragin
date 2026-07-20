@@ -5,20 +5,21 @@ import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
 import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
+import { sessionStore, useSessionIngest } from '../../state/sessionStore';
+import { toolAccepts } from '../../state/toolCompat';
 
 interface ZipToolProps {
     onClose: () => void;
-    droppedFiles: File[];
-    dropGeneration: number;
+    /** True while this tool is the expanded panel — session ingestion runs only then. */
+    active: boolean;
     onItemCountChange?: (count: number) => void;
     clearGen?: number;
 }
 
-const genId = () => Math.random().toString(36).substring(2, 11);
 const isZip = (f: File) => /\.zip$/i.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed';
 const fmtSize = (b: number) => b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`;
 
-export const ZipTool: React.FC<ZipToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
+export const ZipTool: React.FC<ZipToolProps> = ({ onClose, active, onItemCountChange, clearGen = 0 }) => {
     const { t } = useI18n();
     const [mode, setMode] = useState<'zip' | 'unzip'>('zip');
     const [inputs, setInputs] = useState<{ id: string; file: File }[]>([]);
@@ -33,27 +34,41 @@ export const ZipTool: React.FC<ZipToolProps> = ({ onClose, droppedFiles, dropGen
 
     const reset = () => { setInputs([]); setExtracted([]); setStatus('idle'); setError(null); };
 
-    const addFiles = useCallback(async (incoming: File[]) => {
-        if (incoming.length === 1 && isZip(incoming[0])) {
+    // Ingest session files (keyed by session id) — same auto-detect as the old
+    // drop handler (single .zip → unzip, anything else → collect for zipping);
+    // same-id re-ingest replaces.
+    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
+        if (!batch.length) return;
+        if (batch.length === 1 && isZip(batch[0].file)) {
             // Unzip
-            setMode('unzip'); setStatus('working'); setError(null); setExtracted([]); setInputs([{ id: genId(), file: incoming[0] }]);
+            const { id, file } = batch[0];
+            setMode('unzip'); setStatus('working'); setError(null); setExtracted([]); setInputs([{ id, file }]);
             try {
-                const results = await unzipFile(incoming[0]);
+                const results = await unzipFile(file);
                 setExtracted(results); setStatus('done');
             } catch (e: any) { setStatus('error'); setError(e?.message || 'Unzip failed'); }
         } else {
             // Collect for zipping
             setMode('zip'); setStatus('idle'); setError(null); setExtracted([]);
-            setInputs(prev => [...prev, ...incoming.map(f => ({ id: genId(), file: f }))]);
+            setInputs(prev => [...prev.filter(p => !batch.some(b => b.id === p.id)), ...batch.map(({ id, file }) => ({ id, file }))]);
         }
     }, []);
 
-    const lastDrop = useRef(dropGeneration);
-    useEffect(() => {
-        if (dropGeneration === 0 || dropGeneration === lastDrop.current) return;
-        lastDrop.current = dropGeneration;
-        if (droppedFiles.length) addFiles(droppedFiles);
-    }, [dropGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
+    const removeLocal = useCallback((ids: string[]) => {
+        setInputs(prev => {
+            const next = prev.filter(p => !ids.includes(p.id));
+            if (!next.length) { setMode('zip'); setExtracted([]); setStatus('idle'); setError(null); }
+            return next;
+        });
+    }, []);
+
+    useSessionIngest(active, 'zip', f => toolAccepts('zip', f), ingestBatch, removeLocal);
+
+    // UI adds (drop on panel / file input / "add more") go through the session
+    // store — the ingest above brings them into local state.
+    const addFiles = useCallback((incoming: File[]) => {
+        if (incoming.length) sessionStore.addFiles(incoming);
+    }, []);
 
     const lastClear = useRef(clearGen);
     useEffect(() => { if (clearGen === 0 || clearGen === lastClear.current) return; lastClear.current = clearGen; reset(); }, [clearGen]);
@@ -136,7 +151,7 @@ export const ZipTool: React.FC<ZipToolProps> = ({ onClose, droppedFiles, dropGen
                         {status === 'working' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderArchive className="w-4 h-4" />}{t('zip.zipBtn', { count: String(inputs.length) })}
                     </button>
                 )}
-                <ToolIconButton onClick={() => { reset(); onClose(); }} disabled={!hasItems} danger title={t('zip.clear')}><Trash2 className="w-4 h-4" /></ToolIconButton>
+                <ToolIconButton onClick={() => { sessionStore.remove(inputs.map(i => i.id)); onClose(); }} disabled={!hasItems} danger title={t('zip.clear')}><Trash2 className="w-4 h-4" /></ToolIconButton>
             </div>
         </div>
     );

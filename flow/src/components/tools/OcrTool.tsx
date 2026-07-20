@@ -7,16 +7,23 @@ import { saveOutputs } from '../../services/saveOutput';
 import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
 import { useI18n } from '../../i18n/I18nContext';
+import { sessionStore, useSessionIngest } from '../../state/sessionStore';
+import { toolAccepts } from '../../state/toolCompat';
 
 type OcrState = 'idle' | 'processing' | 'done' | 'error';
 
 interface OcrToolProps {
     onClose: () => void;
-    droppedFiles?: File[];
-    dropGeneration?: number;
+    /** True while this tool is the expanded panel — session ingestion runs only then. */
+    active: boolean;
+    onItemCountChange?: (count: number) => void;
+    clearGen?: number;
 }
 
-export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dropGeneration = 0 }) => {
+const isOcrFile = (f: File) =>
+    f.type.startsWith('image/') || f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+
+export const OcrTool: React.FC<OcrToolProps> = ({ onClose, active, onItemCountChange, clearGen = 0 }) => {
     const { t } = useI18n();
     const [state, setState] = useState<OcrState>('idle');
     const [extractedText, setExtractedText] = useState('');
@@ -26,7 +33,10 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
     const [isDragOver, setIsDragOver] = useState(false);
     const [copied, setCopied] = useState(false);
     const [cancelHover, setCancelHover] = useState(false);
-    const lastDropGen = useRef(0);
+    // Session id of the file currently loaded in the tool (null when idle).
+    const currentIdRef = useRef<string | null>(null);
+
+    useEffect(() => { onItemCountChange?.(state === 'idle' ? 0 : 1); }, [state, onItemCountChange]);
 
     const processFile = useCallback(async (file: File) => {
         const isImage = file.type.startsWith('image/');
@@ -53,13 +63,46 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
         }
     }, []);
 
-    // Handle files forwarded from DockApp drop handler
-    useEffect(() => {
-        if (dropGeneration > 0 && dropGeneration !== lastDropGen.current && droppedFiles.length > 0) {
-            lastDropGen.current = dropGeneration;
-            processFile(droppedFiles[0]);
+    const resetLocal = useCallback(() => {
+        setState('idle');
+        setExtractedText('');
+        setFileName('');
+        setErrorMsg('');
+        currentIdRef.current = null;
+    }, []);
+
+    // Ingest session files — single-file tool, so only the last entry of a batch is used.
+    const ingestBatch = useCallback((batch: { id: string; file: File }[]) => {
+        if (!batch.length) return;
+        const last = batch[batch.length - 1];
+        currentIdRef.current = last.id;
+        processFile(last.file);
+    }, [processFile]);
+
+    const removeLocal = useCallback((ids: string[]) => {
+        if (currentIdRef.current && ids.includes(currentIdRef.current)) resetLocal();
+    }, [resetLocal]);
+
+    useSessionIngest(active, 'ocr', f => toolAccepts('ocr', f), ingestBatch, removeLocal);
+
+    // UI adds (drop on panel / file input / paste) go through the session store —
+    // the ingest above brings them into local state.
+    const addFiles = useCallback((incoming: File[]) => {
+        const ok = incoming.filter(isOcrFile);
+        if (ok.length) { sessionStore.addFiles(ok); return; }
+        if (incoming.length) {
+            setErrorMsg(t('ocr.unsupportedFile'));
+            setState('error');
         }
-    }, [dropGeneration, droppedFiles, processFile]);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Global clear
+    const lastClear = useRef(clearGen);
+    useEffect(() => {
+        if (clearGen === 0 || clearGen === lastClear.current) return;
+        lastClear.current = clearGen;
+        resetLocal();
+    }, [clearGen, resetLocal]);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -68,8 +111,8 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
         if (state === 'processing') return;
         const files = Array.from(e.dataTransfer.files);
         if (files.length === 0) return;
-        processFile(files[0]);
-    }, [state, processFile]);
+        addFiles(files);
+    }, [state, addFiles]);
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
@@ -84,7 +127,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
 
     const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
-        if (files && files.length > 0) processFile(files[0]);
+        if (files && files.length > 0) addFiles(Array.from(files));
         e.target.value = '';
     };
 
@@ -116,7 +159,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                     const { dataUrl, name } = clipItems[0];
                     const res = await fetch(dataUrl);
                     const blob = await res.blob();
-                    processFile(new File([blob], name, { type: blob.type || 'image/png' }));
+                    addFiles([new File([blob], name, { type: blob.type || 'image/png' })]);
                     return;
                 }
             } else {
@@ -126,7 +169,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
                     if (imageType) {
                         const blob = await clipItem.getType(imageType);
                         const ext = imageType.split('/')[1] || 'png';
-                        processFile(new File([blob], `pasted.${ext}`, { type: imageType }));
+                        addFiles([new File([blob], `pasted.${ext}`, { type: imageType })]);
                         return;
                     }
                 }
@@ -137,10 +180,9 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, droppedFiles = [], dr
     };
 
     const handleClear = () => {
-        setState('idle');
-        setExtractedText('');
-        setFileName('');
-        setErrorMsg('');
+        // Trash semantics: discard the file from the shared session too.
+        if (currentIdRef.current) sessionStore.remove([currentIdRef.current]);
+        resetLocal();
         onClose();
     };
 

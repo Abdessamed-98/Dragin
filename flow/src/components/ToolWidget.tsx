@@ -46,34 +46,6 @@ interface ToolWidgetProps {
     externalDragHandled?: boolean;
     /** Number of other (non-expanded) tools in the dock — used to reserve vertical space. */
     otherToolCount?: number;
-    /** PDF tool: files forwarded from DockApp drop handler */
-    pdfDroppedFiles?: File[];
-    pdfDropGen?: number;
-    /** Converter tool: files forwarded from DockApp drop handler */
-    converterDroppedFiles?: File[];
-    converterDropGen?: number;
-    /** Upscaler tool: files forwarded from DockApp drop handler */
-    upscalerDroppedFiles?: File[];
-    upscalerDropGen?: number;
-    /** Metadata tool: files forwarded from DockApp drop handler */
-    metadataDroppedFiles?: File[];
-    metadataDropGen?: number;
-    /** Watermark tool: files forwarded from DockApp drop handler */
-    watermarkDroppedFiles?: File[];
-    watermarkDropGen?: number;
-    /** Palette tool: files forwarded from DockApp drop handler */
-    paletteDroppedFiles?: File[];
-    paletteDropGen?: number;
-    /** Vectorizer tool: files forwarded from DockApp drop handler */
-    vectorizerDroppedFiles?: File[];
-    vectorizerDropGen?: number;
-    /** OCR tool: files forwarded from DockApp drop handler */
-    ocrDroppedFiles?: File[];
-    ocrDropGen?: number;
-    resizeDroppedFiles?: File[];
-    resizeDropGen?: number;
-    zipDroppedFiles?: File[];
-    zipDropGen?: number;
     /** Clear signal — incremented when user confirms "clear all data" */
     clearGen?: number;
     /** Compressor tool: quality level (0-100) */
@@ -196,26 +168,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     externalDragHover = false,
     externalDragHandled = false,
     otherToolCount: _otherToolCount = 0,
-    pdfDroppedFiles,
-    pdfDropGen,
-    converterDroppedFiles,
-    converterDropGen,
-    upscalerDroppedFiles,
-    upscalerDropGen,
-    metadataDroppedFiles,
-    metadataDropGen,
-    watermarkDroppedFiles,
-    watermarkDropGen,
-    paletteDroppedFiles,
-    paletteDropGen,
-    vectorizerDroppedFiles,
-    vectorizerDropGen,
-    ocrDroppedFiles,
-    ocrDropGen,
-    resizeDroppedFiles,
-    resizeDropGen,
-    zipDroppedFiles,
-    zipDropGen,
     clearGen,
     isModelLoading,
     onCancelProcessing,
@@ -661,22 +613,6 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                         </div>
                     )}
 
-                    {/* OCR overlay — manages its own file-drop, no image preview */}
-                    {id === 'ocr' && (
-                        <motion.div
-                            className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                            animate={{ opacity: isActive ? 1 : 0 }}
-                            transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                            style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                        >
-                            <OcrTool
-                                onClose={onClose}
-                                droppedFiles={ocrDroppedFiles || []}
-                                dropGeneration={ocrDropGen || 0}
-                            />
-                        </motion.div>
-                    )}
-
                     {/* Hide ToolWidget content when an overlay tool covers it */}
                     {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark', 'vectorizer', 'palette', 'resize', 'zip'].includes(id)
                         || (id === 'cropper' && isCropping)
@@ -974,151 +910,35 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                 </motion.div>
             )}
 
-            {/* Self-contained tools — always mounted, fade in/out to match container expand animation */}
-            {id === 'pdf' && (
-                <motion.div
-                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                    animate={{ opacity: isActive ? 1 : 0 }}
-                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                >
-                    <PdfTool
-                        onClose={onClose}
-                        droppedFiles={pdfDroppedFiles || []}
-                        dropGeneration={pdfDropGen || 0}
-                        onItemCountChange={setSelfItemCount}
-                        clearGen={clearGen || 0}
-                    />
-                </motion.div>
-            )}
-            {id === 'converter' && (
-                <motion.div
-                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                    animate={{ opacity: isActive ? 1 : 0 }}
-                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                >
-                    <ConverterTool
-                        onClose={onClose}
-                        droppedFiles={converterDroppedFiles || []}
-                        dropGeneration={converterDropGen || 0}
-                        onItemCountChange={setSelfItemCount}
-                        clearGen={clearGen || 0}
-                    />
-                </motion.div>
-            )}
-            {id === 'upscaler' && (
-                <motion.div
-                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                    animate={{ opacity: isActive ? 1 : 0 }}
-                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                >
-                    <UpscalerTool
-                        onClose={onClose}
-                        droppedFiles={upscalerDroppedFiles || []}
-                        dropGeneration={upscalerDropGen || 0}
-                        onItemCountChange={setSelfItemCount}
-                        clearGen={clearGen || 0}
-                    />
-                </motion.div>
-            )}
-            {id === 'metadata' && (
-                <motion.div
-                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                    animate={{ opacity: isActive ? 1 : 0 }}
-                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                >
-                    <MetadataTool
-                        onClose={onClose}
-                        droppedFiles={metadataDroppedFiles || []}
-                        dropGeneration={metadataDropGen || 0}
-                        onItemCountChange={setSelfItemCount}
-                        clearGen={clearGen || 0}
-                    />
-                </motion.div>
-            )}
-            {id === 'watermark' && (
-                <motion.div
-                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                    animate={{ opacity: isActive ? 1 : 0 }}
-                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                >
-                    <WatermarkTool
-                        onClose={onClose}
-                        droppedFiles={watermarkDroppedFiles || []}
-                        dropGeneration={watermarkDropGen || 0}
-                        onItemCountChange={setSelfItemCount}
-                        clearGen={clearGen || 0}
-                    />
-                </motion.div>
-            )}
-            {id === 'palette' && (
-                <motion.div
-                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                    animate={{ opacity: isActive ? 1 : 0 }}
-                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                >
-                    <PaletteTool
-                        onClose={onClose}
-                        droppedFiles={paletteDroppedFiles || []}
-                        dropGeneration={paletteDropGen || 0}
-                        onItemCountChange={setSelfItemCount}
-                        clearGen={clearGen || 0}
-                    />
-                </motion.div>
-            )}
-            {id === 'resize' && (
-                <motion.div
-                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                    animate={{ opacity: isActive ? 1 : 0 }}
-                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                >
-                    <ResizeTool
-                        onClose={onClose}
-                        droppedFiles={resizeDroppedFiles || []}
-                        dropGeneration={resizeDropGen || 0}
-                        onItemCountChange={setSelfItemCount}
-                        clearGen={clearGen || 0}
-                    />
-                </motion.div>
-            )}
-            {id === 'zip' && (
-                <motion.div
-                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                    animate={{ opacity: isActive ? 1 : 0 }}
-                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                >
-                    <ZipTool
-                        onClose={onClose}
-                        droppedFiles={zipDroppedFiles || []}
-                        dropGeneration={zipDropGen || 0}
-                        onItemCountChange={setSelfItemCount}
-                        clearGen={clearGen || 0}
-                    />
-                </motion.div>
-            )}
-            {id === 'vectorizer' && (
-                <motion.div
-                    className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                    animate={{ opacity: isActive ? 1 : 0 }}
-                    transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                    style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                >
-                    <VectorizerTool
-                        onClose={onClose}
-                        droppedFiles={vectorizerDroppedFiles || []}
-                        dropGeneration={vectorizerDropGen || 0}
-                        onItemCountChange={setSelfItemCount}
-                        clearGen={clearGen || 0}
-                    />
-                </motion.div>
-            )}
+            {/* Self-contained tools — always mounted, fade in/out to match container
+                expand animation. They ingest files from the shared session store
+                while `active` (see useSessionIngest). */}
+            {(() => {
+                const SELF_TOOL_COMPONENTS: Partial<Record<ToolId, React.ComponentType<{
+                    onClose: () => void; active: boolean; onItemCountChange?: (n: number) => void; clearGen?: number;
+                }>>> = {
+                    pdf: PdfTool, converter: ConverterTool, upscaler: UpscalerTool,
+                    metadata: MetadataTool, watermark: WatermarkTool, palette: PaletteTool,
+                    resize: ResizeTool, zip: ZipTool, vectorizer: VectorizerTool, ocr: OcrTool,
+                };
+                const SelfTool = SELF_TOOL_COMPONENTS[id];
+                if (!SelfTool) return null;
+                return (
+                    <motion.div
+                        className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
+                        animate={{ opacity: isActive ? 1 : 0 }}
+                        transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
+                        style={{ pointerEvents: isActive ? 'auto' : 'none' }}
+                    >
+                        <SelfTool
+                            onClose={onClose}
+                            active={isActive}
+                            onItemCountChange={setSelfItemCount}
+                            clearGen={clearGen || 0}
+                        />
+                    </motion.div>
+                );
+            })()}
         </motion.div>
     );
 };

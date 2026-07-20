@@ -146,6 +146,10 @@ export const ar = {
   'widget.qualityVeryLow': 'منخفضة جداً',
   'widget.zipError': 'حدث خطأ أثناء ضغط الملفات',
 
+  // --- Session / tool rail ---
+  'session.carried': 'تم نقل {{count}} نتيجة من {{tool}}',
+  'session.useOriginals': 'استخدام الأصلية',
+
   // --- DockApp ---
   'dock.crashed': 'الشريط توقف عن العمل',
   'dock.restart': 'إعادة تشغيل',

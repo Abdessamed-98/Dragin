@@ -9,11 +9,13 @@ import type { PaletteColor } from '../../services/api';
 import { useI18n } from '../../i18n/I18nContext';
 import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
+import { sessionStore, useSessionIngest } from '../../state/sessionStore';
+import { toolAccepts } from '../../state/toolCompat';
 
 interface PaletteToolProps {
     onClose: () => void;
-    droppedFiles: File[];
-    dropGeneration: number;
+    /** True while this tool is the expanded panel — session ingestion runs only then. */
+    active: boolean;
     onItemCountChange?: (count: number) => void;
     clearGen?: number;
 }
@@ -34,7 +36,7 @@ const isLightColor = (rgb: [number, number, number]): boolean => {
 };
 
 export const PaletteTool: React.FC<PaletteToolProps> = ({
-    onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0,
+    onClose, active, onItemCountChange, clearGen = 0,
 }) => {
     const { t } = useI18n();
     const [state, setState] = useState<PaletteState>('idle');
@@ -48,27 +50,19 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
     const [showCopyAllSuccess, setShowCopyAllSuccess] = useState(false);
     const [isDragOver, setIsDragOver] = useState(false);
     const fileRef = useRef<File | null>(null);
+    /** Session id of the image currently loaded in the tool. */
+    const currentIdRef = useRef<string | null>(null);
 
     useEffect(() => {
         onItemCountChange?.(state === 'idle' ? 0 : 1);
     }, [state, onItemCountChange]);
-
-    // Consume dropped files from DockApp
-    const lastDropGen = useRef(dropGeneration);
-    useEffect(() => {
-        if (dropGeneration === 0) return;
-        if (dropGeneration === lastDropGen.current) return;
-        lastDropGen.current = dropGeneration;
-        if (droppedFiles.length === 0) return;
-        const img = droppedFiles.find(isImageFile);
-        if (img) processFile(img);
-    }, [dropGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Clear signal
     const lastClearGen = useRef(clearGen);
     useEffect(() => {
         if (clearGen === 0 || clearGen === lastClearGen.current) return;
         lastClearGen.current = clearGen;
+        currentIdRef.current = null;
         resetState();
     }, [clearGen]);
 
@@ -119,6 +113,33 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
         }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Ingest session files — single-image tool: the LAST entry of the batch
+    // becomes the current image (replaces any existing one). Palette only
+    // reads colors, it never transforms the file — no applyResult.
+    const ingestBatch = useCallback((batch: { id: string; file: File }[]) => {
+        if (!batch.length) return;
+        const { id, file } = batch[batch.length - 1];
+        currentIdRef.current = id;
+        processFile(file);
+    }, [processFile]);
+
+    const removeLocal = useCallback((ids: string[]) => {
+        if (currentIdRef.current && ids.includes(currentIdRef.current)) {
+            currentIdRef.current = null;
+            resetState();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [previewUrl, previewNeedsRevoke]);
+
+    useSessionIngest(active, 'palette', f => toolAccepts('palette', f) && isImageFile(f.currentFile), ingestBatch, removeLocal);
+
+    // UI adds (drop on panel / file input / paste) go through the session store —
+    // the ingest above brings them into local state.
+    const addFiles = useCallback((incoming: File[]) => {
+        const imgs = incoming.filter(isImageFile);
+        if (imgs.length) sessionStore.addFiles(imgs);
+    }, []);
+
     const handleCopySingle = async (hex: string, idx: number) => {
         try {
             await navigator.clipboard.writeText(hex);
@@ -148,7 +169,7 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
                     const res = await fetch(dataUrl);
                     const blob = await res.blob();
                     const file = new File([blob], name, { type: blob.type || 'image/png' });
-                    if (isImageFile(file)) processFile(file);
+                    addFiles([file]);
                     return;
                 }
             }
@@ -158,7 +179,7 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
                 if (imageType) {
                     const blob = await clipItem.getType(imageType);
                     const ext = imageType.split('/')[1] || 'png';
-                    processFile(new File([blob], `pasted.${ext}`, { type: imageType }));
+                    addFiles([new File([blob], `pasted.${ext}`, { type: imageType })]);
                     return;
                 }
             }
@@ -166,6 +187,8 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
     };
 
     const handleClear = () => {
+        if (currentIdRef.current) sessionStore.remove([currentIdRef.current]);
+        currentIdRef.current = null;
         resetState();
         onClose();
     };
@@ -174,10 +197,8 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
-        const files = Array.from(e.dataTransfer.files);
-        const img = files.find(isImageFile);
-        if (img) processFile(img);
-    }, [processFile]);
+        addFiles(Array.from(e.dataTransfer.files));
+    }, [addFiles]);
 
     const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); };
     const handleDragLeave = (e: React.DragEvent) => {
@@ -185,7 +206,7 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
     };
     const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
         const f = e.target.files?.[0];
-        if (f && isImageFile(f)) processFile(f);
+        if (f) addFiles([f]);
         e.target.value = '';
     };
 

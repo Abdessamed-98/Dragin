@@ -12,11 +12,13 @@ import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
 import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
+import { sessionStore, useSessionIngest } from '../../state/sessionStore';
+import { toolAccepts } from '../../state/toolCompat';
 
 interface WatermarkToolProps {
     onClose: () => void;
-    droppedFiles: File[];
-    dropGeneration: number;
+    /** True while this tool is the expanded panel — session ingestion runs only then. */
+    active: boolean;
     onItemCountChange?: (count: number) => void;
     clearGen?: number;
 }
@@ -41,8 +43,6 @@ const formatSize = (bytes: number): string => {
     return `${(kb / 1024).toFixed(1)} MB`;
 };
 
-const genId = () => Math.random().toString(36).substring(2, 11);
-
 const ACCEPTED_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'gif', 'pdf']);
 
 const isAccepted = (file: File): boolean => {
@@ -58,7 +58,7 @@ const STYLE_OPTIONS: { id: WatermarkStyle; labelKey: 'watermark.styleDiagonal' |
     { id: 'corner', labelKey: 'watermark.styleCorner', Icon: CornerRightDown },
 ];
 
-export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
+export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, active, onItemCountChange, clearGen = 0 }) => {
     const { t } = useI18n();
     const [files, setFiles] = useState<WatermarkFileItem[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -76,16 +76,6 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
 
     // Report item count
     useEffect(() => { onItemCountChange?.(files.length); }, [files.length, onItemCountChange]);
-
-    // Handle files dropped from DockApp
-    const lastDropGen = useRef(dropGeneration);
-    useEffect(() => {
-        if (dropGeneration === 0) return;
-        if (dropGeneration === lastDropGen.current) return;
-        lastDropGen.current = dropGeneration;
-        if (droppedFiles.length === 0) return;
-        addFiles(droppedFiles);
-    }, [dropGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Clear on global clear
     const lastClearGen = useRef(clearGen);
@@ -109,10 +99,10 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
         };
     }, []);
 
-    const addFiles = useCallback(async (newFiles: File[]) => {
+    // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
+    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
         const items: WatermarkFileItem[] = [];
-        for (const file of newFiles) {
-            if (!isAccepted(file)) continue;
+        for (const { id, file } of batch) {
             let previewUrl: string | undefined;
             let previewNeedsRevoke = false;
             try {
@@ -120,19 +110,40 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
                 if (result) { previewUrl = result.url; previewNeedsRevoke = result.needsRevoke; }
             } catch { /* proceed without preview */ }
             items.push({
-                id: genId(), file, name: file.name, sizeBytes: file.size,
+                id, file, name: file.name, sizeBytes: file.size,
                 status: 'idle', previewUrl, previewNeedsRevoke,
             });
         }
-        if (items.length > 0) setFiles(prev => [...prev, ...items]);
+        if (!items.length) return;
+        setFiles(prev => {
+            const kept = prev.filter(p => !items.some(n => n.id === p.id));
+            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            return [...kept, ...items];
+        });
+    }, []);
+
+    const removeLocal = useCallback((ids: string[]) => {
+        setFiles(prev => {
+            prev.filter(p => ids.includes(p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            return prev.filter(p => !ids.includes(p.id));
+        });
+    }, []);
+
+    useSessionIngest(
+        active, 'watermark',
+        f => (toolAccepts('watermark', f) || f.kind === 'pdf') && isAccepted(f.currentFile),
+        ingestBatch, removeLocal,
+    );
+
+    // UI adds (drop on panel / file input / paste) go through the session store —
+    // the ingest above brings them into local state.
+    const addFiles = useCallback((newFiles: File[]) => {
+        const accepted = newFiles.filter(isAccepted);
+        if (accepted.length) sessionStore.addFiles(accepted);
     }, []);
 
     const removeFile = (fileId: string) => {
-        setFiles(prev => {
-            const removed = prev.find(f => f.id === fileId);
-            if (removed?.previewUrl && removed.previewNeedsRevoke) URL.revokeObjectURL(removed.previewUrl);
-            return prev.filter(f => f.id !== fileId);
-        });
+        sessionStore.remove([fileId]);
     };
 
     const updateFile = (fileId: string, updates: Partial<WatermarkFileItem>) => {
@@ -144,6 +155,9 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
         try {
             const result = await addWatermark(item.file, options);
             updateFile(item.id, { status: 'done', resultUrl: result.url, resultSize: result.size });
+            // Session write-back: the watermarked file becomes the file's current
+            // state, so switching tools carries the RESULT forward.
+            sessionStore.applyResult(item.id, result.url, `${item.name.replace(/\.[^.]+$/, '')}_watermarked.png`, 'watermark');
         } catch (err) {
             updateFile(item.id, { status: 'error', error: String(err) });
         }
@@ -175,8 +189,7 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, droppedFi
     }, [files]);
 
     const handleClear = () => {
-        files.forEach(f => { if (f.previewUrl && f.previewNeedsRevoke) URL.revokeObjectURL(f.previewUrl); });
-        setFiles([]);
+        sessionStore.remove(files.map(f => f.id));
         onClose();
     };
 

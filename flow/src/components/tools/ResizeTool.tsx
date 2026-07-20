@@ -5,11 +5,13 @@ import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
 import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
+import { sessionStore, useSessionIngest } from '../../state/sessionStore';
+import { toolAccepts } from '../../state/toolCompat';
 
 interface ResizeToolProps {
     onClose: () => void;
-    droppedFiles: File[];
-    dropGeneration: number;
+    /** True while this tool is the expanded panel — session ingestion runs only then. */
+    active: boolean;
     onItemCountChange?: (count: number) => void;
     clearGen?: number;
 }
@@ -29,7 +31,6 @@ interface ResizeItem {
     error?: string;
 }
 
-const genId = () => Math.random().toString(36).substring(2, 11);
 const PRESETS = [3840, 2560, 1920, 1280, 640]; // 4K · QHD · 1080p · 720p · thumbnail
 // Aspect modes. 'original' = keep the image's own ratio (scale, no crop).
 // 'free' = unlocked, W/H independent. Others = cover-crop to that exact shape.
@@ -59,7 +60,7 @@ const widthFor = (h: number, mode: string, srcRatio: number | null): number | nu
 // Signature of the current target — used to skip redundant reprocessing (e.g. blur with no change).
 const sigOf = (w: number, h: number, m: string) => m === 'free' ? `f:${w}x${h}` : m === 'original' ? `o:${w}` : `${m}:${w}`;
 
-export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
+export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, active, onItemCountChange, clearGen = 0 }) => {
     const { t } = useI18n();
     const [files, setFiles] = useState<ResizeItem[]>([]);
     const [width, setWidth] = useState(1920);
@@ -102,34 +103,50 @@ export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, droppedFiles, d
             }
             const r = await resizeImage(item.file, opts);
             setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'done', resultDataUrl: r.dataUrl, resultW: r.width, resultH: r.height } : f));
+            // Session write-back: the resized image becomes the file's current
+            // state, so switching tools carries the RESULT forward.
+            const outExt = item.name.match(/\.[^.]+$/)?.[0] || '.png';
+            sessionStore.applyResult(item.id, r.dataUrl, `${item.name.replace(/\.[^.]+$/, '')}_${r.width}x${r.height}${outExt}`, 'resize');
         } catch (e: any) {
             setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'error', error: e?.message } : f));
         }
     }, []);
 
-    const addFiles = useCallback(async (incoming: File[]) => {
+    // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
+    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
         const items: ResizeItem[] = [];
-        for (const file of incoming) {
-            if (!isImg(file)) continue;
+        for (const { id, file } of batch) {
             let previewUrl: string | undefined; let previewNeedsRevoke = false;
             try { const r = await getFileThumbnail(file, 64); if (r) { previewUrl = r.url; previewNeedsRevoke = r.needsRevoke; } } catch {}
             let srcW: number | undefined, srcH: number | undefined;
             try { const bmp = await createImageBitmap(file); srcW = bmp.width; srcH = bmp.height; bmp.close(); } catch {}
-            items.push({ id: genId(), file, name: file.name, status: 'idle', previewUrl, previewNeedsRevoke, srcW, srcH });
+            items.push({ id, file, name: file.name, status: 'idle', previewUrl, previewNeedsRevoke, srcW, srcH });
         }
         if (!items.length) return;
-        setFiles(prev => [...prev, ...items]);
+        setFiles(prev => {
+            const kept = prev.filter(p => !items.some(n => n.id === p.id));
+            prev.filter(p => items.some(n => n.id === p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            return [...kept, ...items];
+        });
         lastSigRef.current = sigOf(widthRef.current, heightRef.current, modeRef.current);
         items.forEach(it => processOne(it, widthRef.current, heightRef.current, modeRef.current));
     }, [processOne]);
 
-    // Forward dropped files from DockApp
-    const lastDrop = useRef(dropGeneration);
-    useEffect(() => {
-        if (dropGeneration === 0 || dropGeneration === lastDrop.current) return;
-        lastDrop.current = dropGeneration;
-        if (droppedFiles.length) addFiles(droppedFiles);
-    }, [dropGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
+    const removeLocal = useCallback((ids: string[]) => {
+        setFiles(prev => {
+            prev.filter(p => ids.includes(p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            return prev.filter(p => !ids.includes(p.id));
+        });
+    }, []);
+
+    useSessionIngest(active, 'resize', f => toolAccepts('resize', f) && isImg(f.currentFile), ingestBatch, removeLocal);
+
+    // UI adds (drop on panel / file input / paste) go through the session store —
+    // the ingest above brings them into local state.
+    const addFiles = useCallback((incoming: File[]) => {
+        const imgs = incoming.filter(isImg);
+        if (imgs.length) sessionStore.addFiles(imgs);
+    }, []);
 
     // Global clear
     const lastClear = useRef(clearGen);
@@ -377,7 +394,7 @@ export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, droppedFiles, d
                 <div className="flex-1 flex items-center gap-1">
                     <ToolIconButton onClick={handleCopy} disabled={!anyDone || isCopying} title={t('resize.copy')}>{isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}</ToolIconButton>
                     <ToolIconButton onClick={handlePaste} title={t('resize.paste')}><ClipboardPaste className="w-4 h-4" /></ToolIconButton>
-                    <ToolIconButton onClick={() => { setFiles([]); onClose(); }} disabled={!hasFiles} danger title={t('resize.clear')}><Trash2 className="w-4 h-4" /></ToolIconButton>
+                    <ToolIconButton onClick={() => { sessionStore.remove(files.map(f => f.id)); onClose(); }} disabled={!hasFiles} danger title={t('resize.clear')}><Trash2 className="w-4 h-4" /></ToolIconButton>
                 </div>
             </div>
         </div>

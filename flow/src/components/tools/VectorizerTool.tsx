@@ -11,11 +11,13 @@ import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
 import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
+import { sessionStore, useSessionIngest } from '../../state/sessionStore';
+import { toolAccepts } from '../../state/toolCompat';
 
 interface VectorizerToolProps {
     onClose: () => void;
-    droppedFiles: File[];
-    dropGeneration: number;
+    /** True while this tool is the expanded panel — session ingestion runs only then. */
+    active: boolean;
     onItemCountChange?: (count: number) => void;
     clearGen?: number;
 }
@@ -32,8 +34,6 @@ interface VecFileItem {
     svgSize?: number;
     error?: string;
 }
-
-const genId = () => Math.random().toString(36).substring(2, 11);
 
 // VTracer tuning presets per content type. Each sets the engine params that
 // matter for that kind of image (curve mode, layering, color depth, noise floor).
@@ -61,7 +61,7 @@ const isAccepted = (file: File) => {
 };
 
 export const VectorizerTool: React.FC<VectorizerToolProps> = ({
-    onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0,
+    onClose, active, onItemCountChange, clearGen = 0,
 }) => {
     const { t } = useI18n();
     const [files, setFiles] = useState<VecFileItem[]>([]);
@@ -81,16 +81,6 @@ export const VectorizerTool: React.FC<VectorizerToolProps> = ({
 
     // Report item count to parent
     useEffect(() => { onItemCountChange?.(files.length); }, [files.length, onItemCountChange]);
-
-    // Handle files dropped from DockApp
-    const lastDropGen = useRef(dropGeneration);
-    useEffect(() => {
-        if (dropGeneration === 0) return;
-        if (dropGeneration === lastDropGen.current) return;
-        lastDropGen.current = dropGeneration;
-        if (droppedFiles.length === 0) return;
-        addFiles(droppedFiles);
-    }, [dropGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Clear on global clear signal
     const lastClearGen = useRef(clearGen);
@@ -144,22 +134,45 @@ export const VectorizerTool: React.FC<VectorizerToolProps> = ({
         setTimeout(() => handleVectorizeRef.current(), 0);
     }, []);
 
-    const addFiles = useCallback(async (newFiles: File[]) => {
-        const items: VecFileItem[] = [];
-        for (const file of newFiles) {
-            if (!isAccepted(file)) continue;
-            let previewUrl: string | undefined;
-            let previewNeedsRevoke = false;
-            try {
-                const result = await getFileThumbnail(file, 64);
-                if (result) { previewUrl = result.url; previewNeedsRevoke = result.needsRevoke; }
-            } catch { /* no preview */ }
-            items.push({ id: genId(), file, status: 'idle', previewUrl, previewNeedsRevoke });
-        }
-        if (items.length > 0) {
-            setFiles(prev => [...prev, ...items]);
-            setTimeout(() => handleVectorizeRef.current(), 0);
-        }
+    // Ingest session files (keyed by session id). Vectorizer is a SINGLE-image
+    // tool: each ingest batch replaces the current image with the batch's last entry.
+    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
+        const last = batch[batch.length - 1];
+        if (!last) return;
+        let previewUrl: string | undefined;
+        let previewNeedsRevoke = false;
+        try {
+            const result = await getFileThumbnail(last.file, 64);
+            if (result) { previewUrl = result.url; previewNeedsRevoke = result.needsRevoke; }
+        } catch { /* no preview */ }
+        const item: VecFileItem = { id: last.id, file: last.file, status: 'idle', previewUrl, previewNeedsRevoke };
+        setFiles(prev => {
+            prev.forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            return [item];
+        });
+        setSelectedIds(new Set());
+        setTimeout(() => handleVectorizeRef.current(), 0);
+    }, []);
+
+    const removeLocal = useCallback((ids: string[]) => {
+        setFiles(prev => {
+            prev.filter(p => ids.includes(p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
+            return prev.filter(p => !ids.includes(p.id));
+        });
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            ids.forEach(id => next.delete(id));
+            return next;
+        });
+    }, []);
+
+    useSessionIngest(active, 'vectorizer', f => toolAccepts('vectorizer', f) && isAccepted(f.currentFile), ingestBatch, removeLocal);
+
+    // UI adds (drop on panel / file input / paste) go through the session store —
+    // the ingest above brings them into local state.
+    const addFiles = useCallback((newFiles: File[]) => {
+        const accepted = newFiles.filter(isAccepted);
+        if (accepted.length) sessionStore.addFiles(accepted);
     }, []);
 
     const toggleSelection = (id: string) => {
@@ -198,6 +211,14 @@ const handleVectorize = useCallback(async () => {
                     pathCount: result.pathCount,
                     svgSize: result.svgSize,
                 } : f));
+                // Session write-back: the SVG becomes the file's current state,
+                // so switching tools carries the RESULT forward.
+                sessionStore.applyResult(
+                    item.id,
+                    new Blob([result.svgString], { type: 'image/svg+xml' }),
+                    `${item.file.name.replace(/\.[^.]+$/, '')}.svg`,
+                    'vectorizer',
+                );
             } catch (err: any) {
                 if (!abortRef.current) {
                     setFiles(prev => prev.map(f => f.id === item.id ? {
@@ -250,6 +271,7 @@ const handleVectorize = useCallback(async () => {
     const handleClear = () => {
         abortRef.current = true;
         files.forEach(f => { if (f.previewUrl && f.previewNeedsRevoke) URL.revokeObjectURL(f.previewUrl); });
+        sessionStore.remove(files.map(f => f.id));
         setFiles([]);
         setSelectedIds(new Set());
         onClose();

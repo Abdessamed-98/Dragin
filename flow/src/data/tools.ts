@@ -1,5 +1,5 @@
 
-import { Sparkles, Minimize2, Archive, ArrowRightLeft, PenTool, ScanText, Palette, Crop, Maximize2, FileText, ShieldAlert, Copyright, Layers, Scaling, FileArchive } from 'lucide-react';
+import { Sparkles, Minimize2, Archive, ArrowRightLeft, PenTool, ScanText, Palette, Crop, Maximize2, FileText, ShieldAlert, Copyright, Scaling, FileArchive } from 'lucide-react';
 import { ToolDefinition } from '../types';
 import type { TranslationKey } from '../i18n';
 import type { LucideIcon } from 'lucide-react';

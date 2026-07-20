@@ -12,6 +12,8 @@ import { saveOutputs } from '../../services/saveOutput';
 import { useI18n } from '../../i18n/I18nContext';
 import { ToolHeader } from '../ToolHeader';
 import { ToolIconButton } from '../ToolIconButton';
+import { sessionStore, useSessionIngest } from '../../state/sessionStore';
+import { toolAccepts } from '../../state/toolCompat';
 
 type PdfSubtool = 'merge' | 'organize' | 'compress' | 'convert' | 'searchable' | 'toImages' | 'fromImages' | null;
 
@@ -37,8 +39,8 @@ interface PageItem {
 
 interface PdfToolProps {
     onClose: () => void;
-    droppedFiles: File[];
-    dropGeneration: number;
+    /** True while this tool is the expanded panel — session ingestion runs only then. */
+    active: boolean;
     onItemCountChange?: (count: number) => void;
     clearGen?: number;
 }
@@ -55,7 +57,7 @@ const genId = () => Math.random().toString(36).substring(2, 11);
 const isPdf = (file: File) =>
     file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
-export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGeneration, onItemCountChange, clearGen = 0 }) => {
+export const PdfTool: React.FC<PdfToolProps> = ({ onClose, active, onItemCountChange, clearGen = 0 }) => {
     const { t } = useI18n();
     const [pdfFiles, setPdfFiles] = useState<PdfFileItem[]>([]);
     const [activeSubtool, setActiveSubtool] = useState<PdfSubtool>(null);
@@ -102,16 +104,6 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
     // Report item count to parent (for collapsed badge)
     useEffect(() => { onItemCountChange?.(pdfFiles.length); }, [pdfFiles.length, onItemCountChange]);
 
-    // Consume dropped files forwarded from DockApp
-    const lastGenRef = useRef(dropGeneration);
-    useEffect(() => {
-        if (dropGeneration === 0) return;
-        if (dropGeneration === lastGenRef.current) return;
-        lastGenRef.current = dropGeneration;
-        if (droppedFiles.length === 0) return;
-        addFiles(droppedFiles);
-    }, [dropGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
-
     // Clear all files when global clear is triggered
     const lastClearGen = useRef(clearGen);
     useEffect(() => {
@@ -132,8 +124,66 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
         prevHadFilesRef.current = pdfFiles.length > 0;
     }, [pdfFiles.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // ── Session ingestion ──────────────────────────────────────────────
+    // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
+    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
+        if (batch.length === 0) return;
+        setIsLoadingFiles(true);
+        setError(null);
+
+        try {
+            const newItems: PdfFileItem[] = [];
+            for (const { id, file } of batch) {
+                if (!isPdf(file)) {
+                    let thumb: string | undefined;
+                    try { const r = await getFileThumbnail(file, 72); if (r) thumb = r.url; } catch {}
+                    newItems.push({ id, file, name: file.name, pageCount: 1, sizeBytes: file.size, thumbnailUrl: thumb, isImage: true });
+                    continue;
+                }
+                try {
+                    const result = await getPdfThumbnails(file, 72);
+                    newItems.push({
+                        id,
+                        file,
+                        name: file.name,
+                        pageCount: result.pageCount,
+                        sizeBytes: file.size,
+                        thumbnailUrl: result.thumbnails[0]?.data,
+                    });
+                } catch {
+                    newItems.push({
+                        id,
+                        file,
+                        name: file.name,
+                        pageCount: 0,
+                        sizeBytes: file.size,
+                    });
+                }
+            }
+            setPdfFiles(prev => {
+                const kept = prev.filter(p => !newItems.some(n => n.id === p.id));
+                return [...kept, ...newItems];
+            });
+        } finally {
+            setIsLoadingFiles(false);
+        }
+    }, []);
+
+    const removeLocal = useCallback((ids: string[]) => {
+        setPdfFiles(prev => prev.filter(p => !ids.includes(p.id)));
+        setSelectedFileIds(prev => {
+            const next = new Set(prev);
+            ids.forEach(id => next.delete(id));
+            return next;
+        });
+    }, []);
+
+    useSessionIngest(active, 'pdf', f => toolAccepts('pdf', f), ingestBatch, removeLocal);
+
     // ── Add files ──────────────────────────────────────────────────────
-    const addFiles = useCallback(async (files: File[]) => {
+    // UI adds (drop on panel / file inputs / paste) go through the session
+    // store — the ingest above brings them into local state.
+    const addFiles = useCallback((files: File[]) => {
         const pdfOnly = files.filter(isPdf);
         const imageOnly = files.filter(f => f.type.startsWith('image/') && !isPdf(f));
         // Images (with no PDFs) → image-input mode for "Images → PDF". Otherwise PDFs.
@@ -144,44 +194,8 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
             setTimeout(() => setError(null), 3000);
             return;
         }
-
-        setIsLoadingFiles(true);
-        setError(null);
-
-        try {
-            const newItems: PdfFileItem[] = [];
-            for (const file of accepted) {
-                if (useImages) {
-                    let thumb: string | undefined;
-                    try { const r = await getFileThumbnail(file, 72); if (r) thumb = r.url; } catch {}
-                    newItems.push({ id: genId(), file, name: file.name, pageCount: 1, sizeBytes: file.size, thumbnailUrl: thumb, isImage: true });
-                    continue;
-                }
-                try {
-                    const result = await getPdfThumbnails(file, 72);
-                    newItems.push({
-                        id: genId(),
-                        file,
-                        name: file.name,
-                        pageCount: result.pageCount,
-                        sizeBytes: file.size,
-                        thumbnailUrl: result.thumbnails[0]?.data,
-                    });
-                } catch {
-                    newItems.push({
-                        id: genId(),
-                        file,
-                        name: file.name,
-                        pageCount: 0,
-                        sizeBytes: file.size,
-                    });
-                }
-            }
-            setPdfFiles(prev => [...prev, ...newItems]);
-        } finally {
-            setIsLoadingFiles(false);
-        }
-    }, []);
+        sessionStore.addFiles(accepted);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Own drop handler (intercepts before SideDock) ──────────────────
     const handleDrop = useCallback((e: React.DragEvent) => {
@@ -206,8 +220,14 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
     };
 
     const removeFile = (id: string) => {
-        setPdfFiles(prev => prev.filter(f => f.id !== id));
-        setSelectedFileIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+        // Session-backed items are removed from the shared session (local removal
+        // happens via onRemove); tool-generated outputs (merged/organized/… PDFs)
+        // only exist locally.
+        if (sessionStore.getSnapshot().files.some(f => f.id === id)) {
+            sessionStore.remove([id]);
+        } else {
+            removeLocal([id]);
+        }
     };
 
     const toggleFileSelection = (id: string) => {
@@ -1093,16 +1113,18 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, droppedFiles, dropGen
                         </label>
                         <ToolIconButton
                             onClick={() => {
-                                if (selectedFileIds.size > 0) {
-                                    const remaining = pdfFiles.filter(f => !selectedFileIds.has(f.id));
-                                    setPdfFiles(remaining);
-                                    setSelectedFileIds(new Set());
-                                    if (remaining.length === 0) {
-                                        setActiveSubtool(null); setError(null); setShowDownload(false);
-                                        onClose();
-                                    }
-                                } else {
-                                    setPdfFiles([]); setActiveSubtool(null); setError(null); setShowDownload(false);
+                                const targets = selectedFileIds.size > 0
+                                    ? pdfFiles.filter(f => selectedFileIds.has(f.id)).map(f => f.id)
+                                    : pdfFiles.map(f => f.id);
+                                const sessionIds = new Set(sessionStore.getSnapshot().files.map(f => f.id));
+                                const inSession = targets.filter(id => sessionIds.has(id));
+                                if (inSession.length > 0) sessionStore.remove(inSession);
+                                // Local removal for tool-generated outputs (session-backed ids are
+                                // also covered — removeLocal is idempotent with onRemove).
+                                removeLocal(targets);
+                                setSelectedFileIds(new Set());
+                                if (pdfFiles.length === targets.length) {
+                                    setActiveSubtool(null); setError(null); setShowDownload(false);
                                     onClose();
                                 }
                             }}

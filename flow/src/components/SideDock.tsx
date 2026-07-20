@@ -2,6 +2,8 @@
 import React, { useState, useEffect, Component, ErrorInfo } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion';
 import { ToolWidget } from './ToolWidget';
+import { ToolRail, RAIL_W } from './ToolRail';
+import { CarryBanner } from './CarryBanner';
 import { ActiveSession, ToolId, SessionItem } from '../types';
 import { useLocalizedTools } from '../i18n/useLocalizedTools';
 import { useI18n } from '../i18n/I18nContext';
@@ -69,26 +71,8 @@ interface SideDockProps {
   onMouseLeave?: () => void;
   onOpenGallery?: () => void;
   onUpdateItem: (toolId: ToolId, itemId: string, updates: Partial<SessionItem>) => void;
-  pdfDroppedFiles?: File[];
-  pdfDropGen?: number;
-  converterDroppedFiles?: File[];
-  converterDropGen?: number;
-  upscalerDroppedFiles?: File[];
-  upscalerDropGen?: number;
-  metadataDroppedFiles?: File[];
-  metadataDropGen?: number;
-  watermarkDroppedFiles?: File[];
-  watermarkDropGen?: number;
-  paletteDroppedFiles?: File[];
-  paletteDropGen?: number;
-  vectorizerDroppedFiles?: File[];
-  vectorizerDropGen?: number;
-  ocrDroppedFiles?: File[];
-  ocrDropGen?: number;
-  resizeDroppedFiles?: File[];
-  resizeDropGen?: number;
-  zipDroppedFiles?: File[];
-  zipDropGen?: number;
+  /** Switch the open tool in place (tool rail) — session files carry over. */
+  onSwitchTool: (toolId: ToolId) => void;
   clearGen?: number;
   compressorQuality?: number;
   onRecompress?: (quality: number) => void;
@@ -117,26 +101,7 @@ export const SideDock: React.FC<SideDockProps> = ({
   onMouseEnter,
   onMouseLeave,
   onUpdateItem,
-  pdfDroppedFiles,
-  pdfDropGen,
-  converterDroppedFiles,
-  converterDropGen,
-  upscalerDroppedFiles,
-  upscalerDropGen,
-  metadataDroppedFiles,
-  metadataDropGen,
-  watermarkDroppedFiles,
-  watermarkDropGen,
-  paletteDroppedFiles,
-  paletteDropGen,
-  vectorizerDroppedFiles,
-  vectorizerDropGen,
-  ocrDroppedFiles,
-  ocrDropGen,
-  resizeDroppedFiles,
-  resizeDropGen,
-  zipDroppedFiles,
-  zipDropGen,
+  onSwitchTool,
   clearGen,
   compressorQuality,
   onRecompress,
@@ -205,10 +170,12 @@ export const SideDock: React.FC<SideDockProps> = ({
     ? tileCount * TILE + (tileCount - 1) * GAP + PAD * 2
     : TILE + PAD * 2;
   // Expanded tool panel stays portrait (420×672) in SCREEN space on every edge.
-  const PANEL_W = Math.min(420, window.innerWidth - 20);
+  // The tool rail (RAIL_W) rides on the screen-edge side of the panel, so the
+  // expanded PERP extent is panel + rail.
+  const PANEL_W = Math.min(420, window.innerWidth - 20 - RAIL_W);
   const PANEL_H = Math.min(Math.round(PANEL_W * 8 / 5), window.innerHeight - 24);
   const ONE_TOOL_LEN = TILE + PAD * 2;             // LEN at one-tool reveal start
-  const perpExpanded = isVertical ? PANEL_W : PANEL_H;
+  const perpExpanded = (isVertical ? PANEL_W : PANEL_H) + RAIL_W;
   const lenExpanded = isVertical ? PANEL_H : PANEL_W;
 
   const perpTarget = expandedToolId ? perpExpanded : railThickness;
@@ -282,6 +249,18 @@ export const SideDock: React.FC<SideDockProps> = ({
   const slideAxis: 'x' | 'y' = isVertical ? 'x' : 'y';
   const slideDist = railThickness * (edge === 'right' || edge === 'bottom' ? 1 : -1);
   const railFlex = isVertical ? 'flex-col' : 'flex-row';
+
+  // Tool-rail placement: the rail strip hugs the screen edge; the expanded panel
+  // is inset by RAIL_W on that side.
+  const panelInset: React.CSSProperties = ({
+    right: { right: RAIL_W }, left: { left: RAIL_W }, top: { top: RAIL_W }, bottom: { bottom: RAIL_W },
+  } as const)[edge];
+  const railPos: React.CSSProperties = ({
+    right: { right: 0, top: 0, bottom: 0, width: RAIL_W },
+    left: { left: 0, top: 0, bottom: 0, width: RAIL_W },
+    top: { top: 0, left: 0, right: 0, height: RAIL_W },
+    bottom: { bottom: 0, left: 0, right: 0, height: RAIL_W },
+  } as const)[edge];
 
   // ── REORDER HANDLERS ──────────────────────────────────────────────────────
   const handleDragStart = (e: React.DragEvent, toolId: ToolId) => {
@@ -465,7 +444,7 @@ export const SideDock: React.FC<SideDockProps> = ({
                 onMouseEnter={onMouseEnter}
                 onMouseLeave={onMouseLeave}
                 className={`group/dock-item pointer-events-auto shrink-0 ${isActive ? 'absolute inset-0 z-10' : 'relative z-10'}`}
-                style={hiddenByExpand ? { display: 'none' } : undefined}
+                style={hiddenByExpand ? { display: 'none' } : (isActive ? panelInset : undefined)}
                 data-interactive
               >
                 {/* Delete Button (rail only) */}
@@ -509,26 +488,6 @@ export const SideDock: React.FC<SideDockProps> = ({
                   externalDragHover={isFileDragHovered}
                   externalDragHandled={true}
                   otherToolCount={activeToolIds.length - 1}
-                  pdfDroppedFiles={tool.id === 'pdf' ? pdfDroppedFiles : undefined}
-                  pdfDropGen={tool.id === 'pdf' ? pdfDropGen : undefined}
-                  converterDroppedFiles={tool.id === 'converter' ? converterDroppedFiles : undefined}
-                  converterDropGen={tool.id === 'converter' ? converterDropGen : undefined}
-                  upscalerDroppedFiles={tool.id === 'upscaler' ? upscalerDroppedFiles : undefined}
-                  upscalerDropGen={tool.id === 'upscaler' ? upscalerDropGen : undefined}
-                  metadataDroppedFiles={tool.id === 'metadata' ? metadataDroppedFiles : undefined}
-                  metadataDropGen={tool.id === 'metadata' ? metadataDropGen : undefined}
-                  watermarkDroppedFiles={tool.id === 'watermark' ? watermarkDroppedFiles : undefined}
-                  watermarkDropGen={tool.id === 'watermark' ? watermarkDropGen : undefined}
-                  paletteDroppedFiles={tool.id === 'palette' ? paletteDroppedFiles : undefined}
-                  paletteDropGen={tool.id === 'palette' ? paletteDropGen : undefined}
-                  vectorizerDroppedFiles={tool.id === 'vectorizer' ? vectorizerDroppedFiles : undefined}
-                  vectorizerDropGen={tool.id === 'vectorizer' ? vectorizerDropGen : undefined}
-                  ocrDroppedFiles={tool.id === 'ocr' ? ocrDroppedFiles : undefined}
-                  ocrDropGen={tool.id === 'ocr' ? ocrDropGen : undefined}
-                  resizeDroppedFiles={tool.id === 'resize' ? resizeDroppedFiles : undefined}
-                  resizeDropGen={tool.id === 'resize' ? resizeDropGen : undefined}
-                  zipDroppedFiles={tool.id === 'zip' ? zipDroppedFiles : undefined}
-                  zipDropGen={tool.id === 'zip' ? zipDropGen : undefined}
                   clearGen={clearGen}
                   compressorQuality={tool.id === 'compressor' ? compressorQuality : undefined}
                   onRecompress={tool.id === 'compressor' ? onRecompress : undefined}
@@ -551,6 +510,34 @@ export const SideDock: React.FC<SideDockProps> = ({
           </motion.div>
         )}
         </div>
+
+        {/* Tool rail — switch tools in place while a panel is open (session carries) */}
+        {expandedToolId && isVisible && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.15, delay: 0.18 }}
+            className="absolute z-20 pointer-events-auto"
+            style={railPos}
+            data-interactive
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
+          >
+            <ToolRail
+              edge={edge}
+              activeToolIds={effectiveToolIds}
+              expandedToolId={expandedToolId}
+              onSwitch={onSwitchTool}
+            />
+          </motion.div>
+        )}
+
+        {/* Carry banner — floats over the open panel after a switch with results */}
+        {expandedToolId && isVisible && (
+          <div className="absolute inset-0 z-[70] pointer-events-none" style={panelInset}>
+            <CarryBanner expandedToolId={expandedToolId} />
+          </div>
+        )}
       </motion.div>
     </div>
   );
