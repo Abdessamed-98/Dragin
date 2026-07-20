@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flow — Tool Rail + Unified Session (design mock)</title>
+<style>
+  :root {
+    --bg: #0b0d12; --surface: #14171f; --surface-2: #1a1e28; --surface-3: #232837;
+    --separator: rgba(255,255,255,.07); --border: rgba(255,255,255,.10); --border-2: rgba(255,255,255,.18);
+    --text: #f1f3f7; --text-2: #b7bdc9; --text-3: #6f7686;
+    --green: #34d399; --red: #f87171;
+    --accent: #818cf8; --accent-deep: #6366f1;  /* set per tool via JS */
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font: 14px/1.45 "Segoe UI", system-ui, sans-serif; color: var(--text);
+    background:
+      radial-gradient(900px 500px at 80% 10%, rgba(112,111,251,.10), transparent 60%),
+      radial-gradient(700px 500px at 10% 90%, rgba(181,167,252,.06), transparent 60%),
+      var(--bg);
+    overflow: hidden;
+  }
+
+  /* ── Explainer card ─────────────────────────────── */
+  .explainer {
+    position: fixed; top: 24px; left: 24px; width: 380px; z-index: 5;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+  .explainer h1 { font-size: 15px; margin-bottom: 6px; }
+  .explainer p { font-size: 12.5px; color: var(--text-2); margin-bottom: 10px; }
+  .explainer ol { margin: 0 0 4px 18px; font-size: 12.5px; color: var(--text-2); }
+  .explainer li { margin-bottom: 6px; }
+  .explainer li b { color: var(--text); }
+  .kbd { background: var(--surface-3); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font-size: 11px; color: var(--text); }
+
+  /* ── Dock: rail + panel anchored to right edge ──── */
+  .dock {
+    position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+    display: flex; align-items: stretch; z-index: 10;
+    filter: drop-shadow(-14px 0 34px rgba(0,0,0,.45));
+  }
+  .panel {
+    width: 420px; height: 640px; display: flex; flex-direction: column;
+    background: #101319; border: 1px solid var(--border); border-right: none;
+    border-radius: 18px 0 0 18px; overflow: hidden;
+  }
+  /* rail sits at the very screen edge */
+  .rail {
+    width: 56px; background: #0d1016; border-left: 1px solid var(--separator);
+    display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0;
+  }
+  .rail-tile {
+    width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+    color: var(--tile, var(--text-3)); background: transparent; border: 1px solid transparent;
+    cursor: pointer; transition: all .15s; position: relative;
+  }
+  .rail-tile:hover { background: var(--surface-2); color: var(--tile-hi, var(--text)); }
+  .rail-tile.active {
+    background: color-mix(in srgb, var(--tile-hi) 16%, transparent);
+    border-color: color-mix(in srgb, var(--tile-hi) 45%, transparent);
+    color: var(--tile-hi);
+  }
+  .rail-tile.disabled { opacity: .28; cursor: not-allowed; }
+  .rail-tile.disabled:hover { background: transparent; }
+  .rail-tile svg { width: 19px; height: 19px; }
+  .rail-tile .dl {
+    position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--surface-3); border: 1px solid var(--border); display: grid; place-items: center;
+  }
+  .rail-tile .dl svg { width: 8px; height: 8px; color: var(--text-2); }
+  .rail-sep { width: 26px; height: 1px; background: var(--separator); margin: 4px 0; }
+  .rail-tile .tip {
+    position: absolute; right: 48px; top: 50%; transform: translateY(-50%);
+    background: #05070b; border: 1px solid var(--border); color: var(--text);
+    font-size: 11px; padding: 4px 9px; border-radius: 7px; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity .12s;
+  }
+  .rail-tile:hover .tip { opacity: 1; }
+
+  /* ── Panel chrome ───────────────────────────────── */
+  .hdr {
+    display: flex; align-items: center; gap: 8px; padding: 13px 16px;
+    border-bottom: 1px solid var(--separator); flex-shrink: 0;
+  }
+  .hdr svg { width: 16px; height: 16px; color: var(--accent); }
+  .hdr .title { font-weight: 700; font-size: 14px; }
+  .hdr .count { font-size: 11px; background: var(--surface-3); color: var(--text-2); padding: 2px 9px; border-radius: 99px; }
+  .hdr .sp { flex: 1; }
+  .hdr .ghost { color: var(--text-3); cursor: pointer; padding: 4px; border-radius: 8px; }
+  .hdr .ghost:hover { color: var(--text); background: var(--surface-3); }
+  .hdr .ghost svg { color: currentColor; width: 15px; height: 15px; }
+
+  /* carry banner */
+  .carry {
+    display: none; align-items: center; gap: 8px; margin: 10px 14px 0;
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    border-radius: 10px; padding: 7px 11px; font-size: 12px; color: var(--text-2); flex-shrink: 0;
+  }
+  .carry.show { display: flex; }
+  .carry b { color: var(--text); font-weight: 600; }
+  .carry a { color: var(--accent); cursor: pointer; margin-left: auto; font-size: 11.5px; }
+  .carry a:hover { text-decoration: underline; }
+
+  /* per-tool controls strip */
+  .controls { padding: 10px 14px 0; flex-shrink: 0; display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 9px;
+    background: var(--surface); border: 1px solid var(--separator); color: var(--text-3); cursor: pointer;
+  }
+  .chip.on { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent); }
+
+  /* ── Body: grid / focus / list ──────────────────── */
+  .body { flex: 1; min-height: 0; padding: 12px 14px; overflow-y: auto; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .card {
+    position: relative; aspect-ratio: 1; border-radius: 11px; overflow: hidden;
+    border: 1px solid var(--separator); background: var(--surface);
+  }
+  .thumb { position: absolute; inset: 0; transition: all .25s; }
+  .checker {
+    background:
+      repeating-conic-gradient(#262b38 0 25%, #1b202c 0 50%) 0 0/14px 14px;
+  }
+  .subject { position: absolute; inset: 18% 22%; border-radius: 40% 45% 42% 46%; }
+  .badge {
+    position: absolute; left: 5px; bottom: 5px; font-size: 9px; font-weight: 700;
+    padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,.62); color: #fff; letter-spacing: .03em;
+  }
+  .st { position: absolute; right: 5px; top: 5px; width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center; }
+  .st svg { width: 10px; height: 10px; }
+  .st.done { background: rgba(16,185,129,.9); color: #fff; }
+  .st.spin { background: rgba(0,0,0,.55); color: var(--accent); }
+  .st.spin svg { animation: rot 1s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .card .undo {
+    position: absolute; right: 5px; bottom: 5px; width: 18px; height: 18px; border-radius: 6px;
+    background: rgba(0,0,0,.55); color: #cfd4de; display: none; place-items: center; cursor: pointer;
+  }
+  .card:hover .undo { display: grid; }
+  .card .undo svg { width: 10px; height: 10px; }
+
+  /* focus view (cropper) */
+  .focus { display: none; flex-direction: column; gap: 10px; height: 100%; }
+  .stage { position: relative; flex: 1; border-radius: 12px; overflow: hidden; border: 1px solid var(--separator); background: #0d1016; }
+  .stage .thumb { inset: 0; }
+  .cropbox { position: absolute; inset: 14% 18%; border: 1.5px solid #fff; box-shadow: 0 0 0 9999px rgba(0,0,0,.55); }
+  .cropbox i { position: absolute; width: 11px; height: 11px; border: 2.5px solid #fff; }
+  .cropbox i:nth-child(1) { left: -2px; top: -2px; border-right: 0; border-bottom: 0; }
+  .cropbox i:nth-child(2) { right: -2px; top: -2px; border-left: 0; border-bottom: 0; }
+  .cropbox i:nth-child(3) { left: -2px; bottom: -2px; border-right: 0; border-top: 0; }
+  .cropbox i:nth-child(4) { right: -2px; bottom: -2px; border-left: 0; border-top: 0; }
+  .strip { display: flex; gap: 6px; flex-shrink: 0; }
+  .strip .card { width: 52px; height: 52px; aspect-ratio: auto; border-radius: 9px; cursor: pointer; }
+  .strip .card.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* list view (pdf/zip) */
+  .list { display: none; flex-direction: column; gap: 6px; }
+  .row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    background: var(--surface); border: 1px solid var(--separator); border-radius: 10px;
+  }
+  .row .mini { width: 34px; height: 34px; border-radius: 7px; position: relative; overflow: hidden; flex-shrink: 0; }
+  .row .nm { font-size: 12.5px; font-weight: 600; }
+  .row .sz { font-size: 10.5px; color: var(--text-3); }
+  .row .sp { flex: 1; }
+  .row .hx { color: var(--text-3); cursor: grab; }
+
+  /* footer */
+  .ftr { display: flex; gap: 6px; padding: 12px 14px; flex-shrink: 0; border-top: 1px solid var(--separator); }
+  .action {
+    flex: 1; height: 40px; border: none; border-radius: 12px; font-size: 13.5px; font-weight: 700;
+    color: #fff; background: var(--accent-deep); cursor: pointer; transition: filter .15s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .action:hover { filter: brightness(1.12); }
+  .action:disabled { background: var(--surface-2); color: var(--text-3); cursor: not-allowed; }
+  .action svg { width: 15px; height: 15px; }
+  .icobtn {
+    width: 46px; height: 40px; border-radius: 12px; border: none; background: var(--surface-2);
+    color: var(--text-2); display: grid; place-items: center; cursor: pointer;
+  }
+  .icobtn:hover { background: var(--surface-3); color: var(--text); }
+  .icobtn.danger:hover { color: var(--red); }
+  .icobtn svg { width: 15px; height: 15px; }
+
+  /* pipeline chip */
+  .pipe { display: none; margin: 10px 14px 0; font-size: 11px; color: var(--text-3); flex-shrink: 0; }
+  .pipe.show { display: block; }
+  .pipe b { color: var(--text-2); font-weight: 600; }
+
+  /* callout dots */
+  .dot {
+    position: fixed; z-index: 20; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent-deep); color: #fff; font-size: 11.5px; font-weight: 800;
+    display: grid; place-items: center; cursor: help; box-shadow: 0 0 0 4px rgba(99,102,241,.25);
+  }
+  .dot .t {
+    position: absolute; right: 30px; top: 50%; transform: translateY(-50%); width: 240px;
+    background: #05070b; border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px;
+    font-size: 11.5px; font-weight: 500; color: var(--text-2); opacity: 0; pointer-events: none; transition: opacity .15s;
+  }
+  .dot:hover .t { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="explainer">
+  <h1>Tool Rail + Unified Session — interactive mock</h1>
+  <p>One session of files; tools are lenses over it. Try the flow:</p>
+  <ol>
+    <li>Press <span class="kbd">Remove Background</span> — the 6 images process.</li>
+    <li>Click <b>Vectorizer</b> (pen icon) in the rail — same files carry over as <b>results</b>, chrome &amp; action swap.</li>
+    <li>Click <b>Cropper</b> — same session, <b>focus view</b> (canvas + filmstrip).</li>
+    <li>Click <b>PDF</b> — same session, <b>list view</b>. Action becomes “Images → PDF”.</li>
+    <li>Hover a thumb → <b>revert-to-original</b>. Hover the dimmed <b>Upscaler</b> → why it's disabled.</li>
+  </ol>
+</div>
+
+<div class="dock">
+  <div class="panel">
+    <div class="hdr">
+      <span id="hIcon"></span>
+      <span class="title" id="hTitle">Background Remover</span>
+      <span class="count" id="hCount">6</span>
+      <span class="sp"></span>
+      <span class="ghost" id="gear"></span>
+      <span class="ghost" id="close"></span>
+    </div>
+
+    <div class="carry" id="carry">
+      <b id="carryN">6 results</b>&nbsp;carried from <b id="carryFrom">Background Remover</b>
+      <a onclick="toggleCarry()">use originals</a>
+    </div>
+    <div class="pipe" id="pipe"></div>
+
+    <div class="controls" id="controls"></div>
+
+    <div class="body">
+      <div class="grid" id="grid"></div>
+      <div class="focus" id="focus">
+        <div class="stage" id="stage">
+          <div class="cropbox"><i></i><i></i><i></i><i></i></div>
+        </div>
+        <div class="strip" id="strip"></div>
+      </div>
+      <div class="list" id="list"></div>
+    </div>
+
+    <div class="ftr">
+      <button class="action" id="action"></button>
+      <button class="icobtn" id="bCopy"></button>
+      <button class="icobtn" id="bPaste"></button>
+      <button class="icobtn danger" id="bTrash"></button>
+    </div>
+  </div>
+
+  <div class="rail" id="rail"></div>
+</div>
+
+<div class="dot" style="right: 500px; top: calc(50% - 300px);">1<span class="t">Chrome swaps per tool: icon, title, accent color, controls, action button. Everything else stays put.</span></div>
+<div class="dot" style="right: 68px;  top: calc(50% - 300px);">2<span class="t">The rail: every installed tool, one click away, while a tool is open. Active = ringed. Incompatible / not-installed = dimmed.</span></div>
+<div class="dot" style="right: 500px; top: calc(50% + 60px);">3<span class="t">The unified FileGrid. Same component in every batch tool — thumbs, status, badges, selection. It persists across tool switches.</span></div>
+<div class="dot" style="right: 500px; top: calc(50% - 210px);">4<span class="t">Carry-over semantics: processed items travel as their RESULTS (cutouts → vectorizer). One click to use originals instead. Originals are never lost.</span></div>
+
+<script>
+// ── lucide-ish inline icons ────────────────────────────────────────────────
+const I = {
+  sparkles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.287 1.288L3 12l5.8 1.9a2 2 0 0 1 1.288 1.287L12 21l1.9-5.8a2 2 0 0 1 1.287-1.288L21 12l-5.8-1.9a2 2 0 0 1-1.288-1.287Z"/></svg>',
+  shrink:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 15 6 6"/><path d="m15 9 6-6"/><path d="M21 16v5h-5"/><path d="M21 8V3h-5"/><path d="M3 16v5h5"/><path d="m3 21 6-6"/><path d="M3 8V3h5"/><path d="M9 9 3 3"/></svg>',
+  scaling:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M16 3h5v5"/><path d="M14 10 21 3"/></svg>',
+  pen:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"/><path d="m2.3 2.3 7.286 7.286"/><circle cx="11" cy="11" r="2"/></svg>',
+  crop:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>',
+  filetext: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>',
+  archive:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>',
+  maximize: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
+  x:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+  copy:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
+  paste:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1"/></svg>',
+  trash:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>',
+  undo:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>',
+  check:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  loader:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
+};
+
+// ── model ──────────────────────────────────────────────────────────────────
+const HUES = [[212,68],[16,74],[268,60],[152,50],[338,62],[46,80]];
+let items = HUES.map((h, i) => ({ id: i, name: `IMG_19${80+i}.png`, stage: 'original', hue: h }));
+let processing = false;
+
+const TOOLS = {
+  remover:    { name:'Background Remover', tile:'#818cf8', deep:'#6366f1', icon:I.sparkles, body:'grid',  action:'Remove Background',
+                controls: [], process: it => it.stage = 'cutout', doneBadge:'PNG · alpha' },
+  vectorizer: { name:'Vectorize',          tile:'#fb7185', deep:'#e11d48', icon:I.pen,      body:'grid',  action:'Vectorize',
+                controls: ['Photo','Logo','Sketch','Pixel'], process: it => it.stage = 'svg', doneBadge:'SVG' },
+  resize:     { name:'Resize Image',       tile:'#38bdf8', deep:'#0284c7', icon:I.scaling,  body:'grid',  action:'Save',
+                controls: ['3840','2560','1920','1280','640'], process: it => it.stage = 'resized', doneBadge:'1920×…' },
+  compressor: { name:'Compress Image',     tile:'#34d399', deep:'#059669', icon:I.shrink,   body:'grid',  action:'Compress',
+                controls: [], process: it => it.stage = 'compressed', doneBadge:'−62%' },
+  cropper:    { name:'Crop Image',         tile:'#fb923c', deep:'#ea580c', icon:I.crop,     body:'focus', action:'Crop', controls: [] },
+  pdf:        { name:'PDF Tools',          tile:'#f87171', deep:'#dc2626', icon:I.filetext, body:'list',  action:'Images → PDF', controls: [] },
+  zip:        { name:'Zip / Unzip',        tile:'#2dd4bf', deep:'#0d9488', icon:I.archive,  body:'list',  action:'Zip 6 files', controls: [] },
+  upscaler:   { name:'Upscaler',           tile:'#f472b6', deep:'#db2777', icon:I.maximize, body:'grid',  action:'Upscale',
+                controls: [], disabled: true, tipNote: 'Upscaler — not installed (get it in the Store)' },
+};
+const ORDER = ['remover','compressor','resize','vectorizer','cropper','upscaler','pdf','zip'];
+let current = 'remover';
+let cameFrom = null;         // pipeline provenance
+let selected = 0;            // focus-view selection
+
+// ── rendering ──────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function thumbHTML(it, mini) {
+  const [h, s] = it.hue;
+  const photo = `background: linear-gradient(145deg, hsl(${h} ${s}% 62%), hsl(${(h+40)%360} ${s-12}% 38%));`;
+  const cut = it.stage !== 'original';
+  const svgish = it.stage === 'svg';
+  return `
+    <div class="thumb ${cut ? 'checker' : ''}" style="${cut ? '' : photo}"></div>
+    ${cut ? `<div class="subject" style="background: hsl(${h} ${s}% 58%); ${svgish ? 'border: 2px dashed rgba(255,255,255,.85); background: transparent;' : ''}"></div>` : ''}`;
+}
+
+function renderRail() {
+  $('rail').innerHTML = ORDER.map(k => {
+    const t = TOOLS[k];
+    const cls = ['rail-tile', k === current ? 'active' : '', t.disabled ? 'disabled' : ''].join(' ');
+    const tip = t.tipNote || t.name;
+    const dl = t.disabled ? `<span class="dl">${I.download}</span>` : '';
+    return `<div class="${cls}" style="--tile-hi:${t.tile}" onclick="${t.disabled ? '' : `switchTool('${k}')`}">${t.icon}${dl}<span class="tip">${tip}</span></div>`;
+  }).join('');
+}
+
+function renderControls(t) {
+  $('controls').innerHTML = t.controls.map((c, i) =>
+    `<span class="chip ${i === 2 || (t.controls.length < 5 && i === 0) ? 'on' : ''}">${c}</span>`).join('');
+}
+
+function renderBody(t) {
+  $('grid').style.display  = t.body === 'grid'  ? 'grid' : 'none';
+  $('focus').style.display = t.body === 'focus' ? 'flex' : 'none';
+  $('list').style.display  = t.body === 'list'  ? 'flex' : 'none';
+
+  if (t.body === 'grid') {
+    $('grid').innerHTML = items.map(it => `
+      <div class="card">
+        ${thumbHTML(it)}
+        ${it.status === 'spin' ? `<span class="st spin">${I.loader}</span>` : ''}
+        ${it.status === 'done' ? `<span class="st done">${I.check}</span>` : ''}
+        ${it.stage !== 'original' && it.status !== 'spin' ? `<span class="badge">${it.badge || ''}</span>` : ''}
+        ${it.stage !== 'original' ? `<span class="undo" title="Revert to original" onclick="revert(${it.id})">${I.undo}</span>` : ''}
+      </div>`).join('');
+  } else if (t.body === 'focus') {
+    const sel = items[selected];
+    $('stage').innerHTML = thumbHTML(sel) + '<div class="cropbox"><i></i><i></i><i></i><i></i></div>';
+    $('strip').innerHTML = items.map((it, i) => `
+      <div class="card ${i === selected ? 'sel' : ''}" onclick="selectItem(${i})">${thumbHTML(it, true)}</div>`).join('');
+  } else {
+    $('list').innerHTML = items.map(it => `
+      <div class="row">
+        <div class="mini">${thumbHTML(it, true)}</div>
+        <div><div class="nm">${it.name}</div><div class="sz">${it.stage === 'original' ? '2.3 MB' : it.stage.toUpperCase() + ' · 1.1 MB'}</div></div>
+        <span class="sp"></span>
+        <span class="hx">⋮⋮</span>
+      </div>`).join('');
+  }
+}
+
+function render() {
+  const t = TOOLS[current];
+  document.documentElement.style.setProperty('--accent', t.tile);
+  document.documentElement.style.setProperty('--accent-deep', t.deep);
+  $('hIcon').innerHTML = t.icon.replace('<svg', `<svg style="width:16px;height:16px;color:${t.tile}"`);
+  $('hTitle').textContent = t.name;
+  $('hCount').textContent = items.length;
+  $('action').innerHTML = (t.body === 'grid' && !t.disabled ? t.icon : '') + `<span>${t.action}</span>`;
+  $('action').disabled = !!t.disabled;
+
+  // carry banner + pipeline chip
+  const carried = cameFrom && cameFrom !== current && items.some(i => i.stage !== 'original');
+  $('carry').classList.toggle('show', !!carried);
+  if (carried) {
+    $('carryN').textContent = `${items.length} results`;
+    $('carryFrom').textContent = TOOLS[cameFrom].name;
+  }
+  const chain = window._chain || [];
+  $('pipe').classList.toggle('show', chain.length > 1);
+  $('pipe').innerHTML = 'Session: ' + chain.map(k => `<b>${TOOLS[k].name}</b>`).join(' → ');
+
+  renderRail();
+  renderControls(t);
+  renderBody(t);
+}
+
+// ── interactions ───────────────────────────────────────────────────────────
+window._chain = ['remover'];
+
+function switchTool(k) {
+  if (processing || k === current) return;
+  const hadResults = items.some(i => i.stage !== 'original');
+  cameFrom = hadResults ? current : cameFrom;
+  current = k;
+  const chain = window._chain;
+  if (chain[chain.length - 1] !== k) chain.push(k);
+  items.forEach(i => { i.status = null; });
+  selected = 0;
+  render();
+}
+
+function toggleCarry() {
+  items.forEach(i => { i.stage = 'original'; i.badge = null; i.status = null; });
+  cameFrom = null;
+  window._chain = [current];
+  render();
+}
+
+function revert(id) {
+  const it = items.find(i => i.id === id);
+  it.stage = 'original'; it.badge = null; it.status = null;
+  render();
+}
+
+function selectItem(i) { selected = i; render(); }
+
+$('action').onclick = () => {
+  const t = TOOLS[current];
+  if (!t.process || processing) return;
+  processing = true;
+  let done = 0;
+  items.forEach((it, idx) => {
+    setTimeout(() => { it.status = 'spin'; render(); }, idx * 220);
+    setTimeout(() => {
+      t.process(it); it.badge = t.doneBadge; it.status = 'done'; done++;
+      if (done === items.length) processing = false;
+      render();
+    }, idx * 220 + 620);
+  });
+};
+
+$('gear').innerHTML = I.settings;
+$('close').innerHTML = I.x;
+$('bCopy').innerHTML = I.copy;
+$('bPaste').innerHTML = I.paste;
+$('bTrash').innerHTML = I.trash;
+
+render();
+</script>
+</body>
+</html>
