@@ -110,8 +110,10 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, active, onI
     }, []);
 
     // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
-    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
+    // Direct drops auto-scrub; carried items (rail switch) wait for the Scrub button.
+    const ingestBatch = useCallback(async (batch: { id: string; file: File; direct: boolean }[]) => {
         const items: MetaFileItem[] = [];
+        const directIds = new Set(batch.filter(b => b.direct).map(b => b.id));
         for (const { id, file } of batch) {
             let previewUrl: string | undefined;
             let previewNeedsRevoke = false;
@@ -130,8 +132,13 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, active, onI
             prev.filter(p => items.some(n => n.id === p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
             return [...kept, ...items];
         });
-        items.forEach(it => processSingle(it));
+        items.filter(it => directIds.has(it.id)).forEach(it => processSingle(it));
     }, [processSingle]);
+
+    // Manual run for carried (idle) items.
+    const processIdle = useCallback(() => {
+        files.filter(f => f.status === 'idle').forEach(f => processSingle(f));
+    }, [files, processSingle]);
 
     const removeLocal = useCallback((ids: string[]) => {
         setFiles(prev => {
@@ -146,7 +153,7 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, active, onI
     // the ingest above brings them into local state.
     const addFiles = useCallback((incoming: File[]) => {
         const accepted = incoming.filter(isAccepted);
-        if (accepted.length) sessionStore.addFiles(accepted);
+        if (accepted.length) sessionStore.addFiles(accepted, 'metadata');
     }, []);
 
     const removeFile = (fileId: string) => {
@@ -441,6 +448,14 @@ export const MetadataTool: React.FC<MetadataToolProps> = ({ onClose, active, onI
                     >
                         {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                         {totalRemoved > 0 ? t('metadata.downloadWithCount', { count: totalRemoved }) : t('metadata.download')}
+                    </button>
+                ) : files.some(f => f.status === 'idle') ? (
+                    <button
+                        onClick={processIdle}
+                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-red-600 hover:bg-red-500 text-white"
+                    >
+                        <ShieldAlert className="w-4 h-4" />
+                        {t('metadata.defaultBtn')}
                     </button>
                 ) : (
                     <button

@@ -398,17 +398,19 @@ const DockAppInner: React.FC = () => {
             return;
         }
 
-        sessionStore.addFiles(Array.from(files));
+        sessionStore.addFiles(Array.from(files), toolId);
     };
 
     // ── Session-tool bridge ──────────────────────────────────────────────────
     // remover/compressor/cropper still use the ToolWidget session UI. This bridge
     // ingests session-store files into their ActiveSession while they're the
-    // expanded tool, and kicks their processing — same semantics as a direct drop.
+    // expanded tool. DIRECT drops auto-process (same beloved behavior as always);
+    // files CARRIED here via a rail switch enter 'idle' and wait for the manual
+    // action button (see handleProcessIdle) — switching tools never burns CPU.
     const sessionsRef = useRef(sessions);
     useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
 
-    const ingestSessionTool = useCallback((toolId: 'remover' | 'compressor' | 'cropper', batch: { id: string; file: File }[]) => {
+    const ingestSessionTool = useCallback((toolId: 'remover' | 'compressor' | 'cropper', batch: { id: string; file: File; direct: boolean }[]) => {
         if (!batch.length) return;
         let incoming = batch;
         if (SINGLE_FILE_TOOLS.has(toolId)) incoming = incoming.slice(0, 1);
@@ -419,7 +421,7 @@ const DockAppInner: React.FC = () => {
             id: b.id, // session-store id — keys the write-back in applyResult
             file: b.file,
             originalUrl: URL.createObjectURL(b.file),
-            status: 'pending'
+            status: b.direct ? 'pending' : 'idle'
         }));
 
         setSessions(prev => {
@@ -432,16 +434,33 @@ const DockAppInner: React.FC = () => {
                     id: sessionId, toolId,
                     items: [...kept, ...newItems],
                     selectedItemIds: s?.selectedItemIds || [],
-                    status: 'processing'
+                    status: newItems.some(n => n.status === 'pending') ? 'processing' : (s?.status || 'idle')
                 }
             };
         });
 
+        const toProcess = newItems.filter(n => n.status === 'pending');
+        if (!toProcess.length) return;
         if (toolId === 'remover') {
-            newItems.forEach(item => updateItemStatus(toolId, sessionId, item.id, { status: 'processing' }));
-            processRemoverBatch(sessionId, newItems);
+            toProcess.forEach(item => updateItemStatus(toolId, sessionId, item.id, { status: 'processing' }));
+            processRemoverBatch(sessionId, toProcess);
         } else {
-            newItems.forEach(item => processItem(sessionId, item.id, item.file, toolId));
+            toProcess.forEach(item => processItem(sessionId, item.id, item.file, toolId));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Manual trigger for carried (idle) items — wired to the tool's action button.
+    const handleProcessIdle = useCallback((toolId: ToolId) => {
+        const session = sessionsRef.current[toolId];
+        if (!session) return;
+        const idle = session.items.filter(i => i.status === 'idle');
+        if (!idle.length) return;
+        if (toolId === 'remover') {
+            idle.forEach(item => updateItemStatus(toolId, session.id, item.id, { status: 'processing' }));
+            processRemoverBatch(session.id, idle);
+        } else {
+            idle.forEach(item => processItem(session.id, item.id, item.file, toolId));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -725,6 +744,7 @@ const DockAppInner: React.FC = () => {
 
                 onUpdateItem={handleUpdateItem}
                 onSwitchTool={(id) => setExpandedToolId(id)}
+                onProcessIdle={handleProcessIdle}
                 clearGen={clearGen}
                 compressorQuality={compressorQuality}
                 onRecompress={handleRecompress}

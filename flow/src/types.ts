@@ -34,7 +34,9 @@ export interface SessionItem {
   originalUrl: string;
   processedUrl?: string;
 
-  status: 'pending' | 'processing' | 'completed' | 'error';
+  /** 'idle' = carried into this tool via a rail switch — waits for the manual
+   *  action button. 'pending' = queued for auto-processing (direct drop). */
+  status: 'idle' | 'pending' | 'processing' | 'completed' | 'error';
   metadata?: {
     originalSize?: string;
     newSize?: string;

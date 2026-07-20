@@ -39,6 +39,8 @@ interface ToolWidgetProps {
     isToolDragging: boolean;
     isReordering?: boolean;
     onUpdateItem?: (itemId: string, updates: Partial<SessionItem>) => void;
+    /** Process carried (idle) items — wired to the action button. */
+    onProcessIdle?: () => void;
     onOpenSettings?: () => void;
     externalDragHover?: boolean;
     /** When true, the parent SideDock wrapper handles all file drag events.
@@ -164,6 +166,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     onSelectItem,
     isReordering = false,
     onUpdateItem,
+    onProcessIdle,
     onOpenSettings,
     externalDragHover = false,
     externalDragHandled = false,
@@ -222,6 +225,8 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     // Footer main-button state
     const anyProcessing = items.some(i => i.status === 'processing' || i.status === 'pending');
     const hasCompleted = items.some(i => i.status === 'completed');
+    // Carried items (rail switch) wait for a manual run via the action button.
+    const hasIdle = items.some(i => i.status === 'idle');
     const hasOverlay = id === 'cropper';
     const showSplit = isSingleCompleted && !isMultiple && hasOverlay;
 
@@ -849,6 +854,14 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                                         ? <><Ban className="w-4 h-4" />{t('widget.cancel')}</>
                                         : <><Loader2 className="w-4 h-4 animate-spin" />{isModelLoading ? t('widget.loadingModel') : t('widget.processing')}</>
                                     }
+                                </button>
+                            ) : hasIdle && onProcessIdle ? (
+                                <button
+                                    onClick={onProcessIdle}
+                                    className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-${colorClass}-600 hover:bg-${colorClass}-500 text-white`}
+                                >
+                                    <Icon className="w-4 h-4" />
+                                    {idleActionLabel}
                                 </button>
                             ) : hasCompleted ? (
                                 <button

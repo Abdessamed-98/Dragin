@@ -73,6 +73,8 @@ interface SideDockProps {
   onUpdateItem: (toolId: ToolId, itemId: string, updates: Partial<SessionItem>) => void;
   /** Switch the open tool in place (tool rail) — session files carry over. */
   onSwitchTool: (toolId: ToolId) => void;
+  /** Manually process carried (idle) items in a session tool's panel. */
+  onProcessIdle?: (toolId: ToolId) => void;
   clearGen?: number;
   compressorQuality?: number;
   onRecompress?: (quality: number) => void;
@@ -102,6 +104,7 @@ export const SideDock: React.FC<SideDockProps> = ({
   onMouseLeave,
   onUpdateItem,
   onSwitchTool,
+  onProcessIdle,
   clearGen,
   compressorQuality,
   onRecompress,
@@ -490,6 +493,7 @@ export const SideDock: React.FC<SideDockProps> = ({
                   isToolDragging={isToolDragging}
                   isReordering={draggingId !== null}
                   onUpdateItem={(itemId, updates) => onUpdateItem(tool.id, itemId, updates)}
+                  onProcessIdle={onProcessIdle ? () => onProcessIdle(tool.id) : undefined}
                   onOpenSettings={onOpenGallery}
                   externalDragHover={isFileDragHovered}
                   externalDragHandled={true}

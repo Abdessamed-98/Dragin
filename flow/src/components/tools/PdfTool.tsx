@@ -194,7 +194,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, active, onItemCountCh
             setTimeout(() => setError(null), 3000);
             return;
         }
-        sessionStore.addFiles(accepted);
+        sessionStore.addFiles(accepted, 'pdf');
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Own drop handler (intercepts before SideDock) ──────────────────

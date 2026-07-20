@@ -137,7 +137,7 @@ export const PaletteTool: React.FC<PaletteToolProps> = ({
     // the ingest above brings them into local state.
     const addFiles = useCallback((incoming: File[]) => {
         const imgs = incoming.filter(isImageFile);
-        if (imgs.length) sessionStore.addFiles(imgs);
+        if (imgs.length) sessionStore.addFiles(imgs, 'palette');
     }, []);
 
     const handleCopySingle = async (hex: string, idx: number) => {

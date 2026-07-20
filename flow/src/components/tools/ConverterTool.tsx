@@ -235,7 +235,7 @@ export const ConverterTool: React.FC<ConverterToolProps> = ({ onClose, active, o
     // the ingest above brings them into local state.
     const addFiles = useCallback((newFiles: File[]) => {
         const accepted = newFiles.filter(f => detectFileType(f) !== null);
-        if (accepted.length) sessionStore.addFiles(accepted);
+        if (accepted.length) sessionStore.addFiles(accepted, 'converter');
     }, []);
 
     const removeFile = (fileId: string) => {

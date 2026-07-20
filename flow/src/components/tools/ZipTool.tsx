@@ -67,7 +67,7 @@ export const ZipTool: React.FC<ZipToolProps> = ({ onClose, active, onItemCountCh
     // UI adds (drop on panel / file input / "add more") go through the session
     // store — the ingest above brings them into local state.
     const addFiles = useCallback((incoming: File[]) => {
-        if (incoming.length) sessionStore.addFiles(incoming);
+        if (incoming.length) sessionStore.addFiles(incoming, 'zip');
     }, []);
 
     const lastClear = useRef(clearGen);

@@ -136,7 +136,7 @@ export const VectorizerTool: React.FC<VectorizerToolProps> = ({
 
     // Ingest session files (keyed by session id). Vectorizer is a SINGLE-image
     // tool: each ingest batch replaces the current image with the batch's last entry.
-    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
+    const ingestBatch = useCallback(async (batch: { id: string; file: File; direct: boolean }[]) => {
         const last = batch[batch.length - 1];
         if (!last) return;
         let previewUrl: string | undefined;
@@ -151,7 +151,8 @@ export const VectorizerTool: React.FC<VectorizerToolProps> = ({
             return [item];
         });
         setSelectedIds(new Set());
-        setTimeout(() => handleVectorizeRef.current(), 0);
+        // Direct drops auto-vectorize; carried items (rail switch) wait for the button.
+        if (last.direct) setTimeout(() => handleVectorizeRef.current(), 0);
     }, []);
 
     const removeLocal = useCallback((ids: string[]) => {
@@ -172,7 +173,7 @@ export const VectorizerTool: React.FC<VectorizerToolProps> = ({
     // the ingest above brings them into local state.
     const addFiles = useCallback((newFiles: File[]) => {
         const accepted = newFiles.filter(isAccepted);
-        if (accepted.length) sessionStore.addFiles(accepted);
+        if (accepted.length) sessionStore.addFiles(accepted, 'vectorizer');
     }, []);
 
     const toggleSelection = (id: string) => {
@@ -608,6 +609,14 @@ const handleVectorize = useCallback(async () => {
                             ? <><Ban className="w-4 h-4" />{t('vectorizer.cancel')}</>
                             : <><Loader2 className="w-4 h-4 animate-spin" />{t('vectorizer.converting')}</>
                         }
+                    </button>
+                ) : files.some(f => f.status === 'idle') ? (
+                    <button
+                        onClick={() => handleVectorizeRef.current()}
+                        className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-rose-600 hover:bg-rose-500 text-white"
+                    >
+                        <PenTool className="w-4 h-4" />
+                        {t('vectorizer.run')}
                     </button>
                 ) : (
                     <button

@@ -165,7 +165,7 @@ export const UpscalerTool: React.FC<UpscalerToolProps> = ({ onClose, active, onI
     // the ingest above brings them into local state.
     const addFiles = useCallback((newFiles: File[]) => {
         const imgs = newFiles.filter(isImageFile);
-        if (imgs.length) sessionStore.addFiles(imgs);
+        if (imgs.length) sessionStore.addFiles(imgs, 'upscaler');
     }, []);
 
     const removeFile = (fileId: string) => {

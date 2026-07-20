@@ -113,14 +113,15 @@ export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, active, onItemC
     }, []);
 
     // Ingest session files (keyed by session id) — replaces same-id items on re-ingest.
-    const ingestBatch = useCallback(async (batch: { id: string; file: File }[]) => {
-        const items: ResizeItem[] = [];
-        for (const { id, file } of batch) {
+    // Direct drops auto-resize; carried items (rail switch) wait for the Resize button.
+    const ingestBatch = useCallback(async (batch: { id: string; file: File; direct: boolean }[]) => {
+        const items: (ResizeItem & { _direct?: boolean })[] = [];
+        for (const { id, file, direct } of batch) {
             let previewUrl: string | undefined; let previewNeedsRevoke = false;
             try { const r = await getFileThumbnail(file, 64); if (r) { previewUrl = r.url; previewNeedsRevoke = r.needsRevoke; } } catch {}
             let srcW: number | undefined, srcH: number | undefined;
             try { const bmp = await createImageBitmap(file); srcW = bmp.width; srcH = bmp.height; bmp.close(); } catch {}
-            items.push({ id, file, name: file.name, status: 'idle', previewUrl, previewNeedsRevoke, srcW, srcH });
+            items.push({ id, file, name: file.name, status: 'idle', previewUrl, previewNeedsRevoke, srcW, srcH, _direct: direct });
         }
         if (!items.length) return;
         setFiles(prev => {
@@ -128,9 +129,17 @@ export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, active, onItemC
             prev.filter(p => items.some(n => n.id === p.id)).forEach(p => { if (p.previewUrl && p.previewNeedsRevoke) URL.revokeObjectURL(p.previewUrl); });
             return [...kept, ...items];
         });
+        const toProcess = items.filter(it => it._direct);
+        if (!toProcess.length) return;
         lastSigRef.current = sigOf(widthRef.current, heightRef.current, modeRef.current);
-        items.forEach(it => processOne(it, widthRef.current, heightRef.current, modeRef.current));
+        toProcess.forEach(it => processOne(it, widthRef.current, heightRef.current, modeRef.current));
     }, [processOne]);
+
+    // Manual run for carried (idle) items at the current W/H/mode.
+    const processIdle = useCallback(() => {
+        lastSigRef.current = sigOf(widthRef.current, heightRef.current, modeRef.current);
+        files.filter(f => f.status === 'idle').forEach(f => processOne(f, widthRef.current, heightRef.current, modeRef.current));
+    }, [files, processOne]);
 
     const removeLocal = useCallback((ids: string[]) => {
         setFiles(prev => {
@@ -145,7 +154,7 @@ export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, active, onItemC
     // the ingest above brings them into local state.
     const addFiles = useCallback((incoming: File[]) => {
         const imgs = incoming.filter(isImg);
-        if (imgs.length) sessionStore.addFiles(imgs);
+        if (imgs.length) sessionStore.addFiles(imgs, 'resize');
     }, []);
 
     // Global clear
@@ -387,10 +396,17 @@ export const ResizeTool: React.FC<ResizeToolProps> = ({ onClose, active, onItemC
 
             {/* Footer */}
             <div className="flex items-center gap-1.5 px-3 pb-3 shrink-0">
+                {files.some(f => f.status === 'idle') && !anyProcessing ? (
+                <button onClick={processIdle}
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all bg-sky-600 hover:bg-sky-500 text-white">
+                    <Scaling className="w-4 h-4" />{t('resize.run')}
+                </button>
+                ) : (
                 <button onClick={handleDownload} disabled={!anyDone || isDownloading || anyProcessing}
                     className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold transition-all ${!anyDone || anyProcessing ? 'bg-[var(--surface-2)] text-[var(--text-3)] cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}>
                     {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}{t('resize.download')}
                 </button>
+                )}
                 <div className="flex-1 flex items-center gap-1">
                     <ToolIconButton onClick={handleCopy} disabled={!anyDone || isCopying} title={t('resize.copy')}>{isCopying ? <Loader2 className="w-4 h-4 animate-spin" /> : copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}</ToolIconButton>
                     <ToolIconButton onClick={handlePaste} title={t('resize.paste')}><ClipboardPaste className="w-4 h-4" /></ToolIconButton>

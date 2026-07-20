@@ -89,7 +89,7 @@ export const OcrTool: React.FC<OcrToolProps> = ({ onClose, active, onItemCountCh
     // the ingest above brings them into local state.
     const addFiles = useCallback((incoming: File[]) => {
         const ok = incoming.filter(isOcrFile);
-        if (ok.length) { sessionStore.addFiles(ok); return; }
+        if (ok.length) { sessionStore.addFiles(ok, 'ocr'); return; }
         if (incoming.length) {
             setErrorMsg(t('ocr.unsupportedFile'));
             setState('error');

@@ -34,6 +34,10 @@ export interface SessionFile {
     /** Bumped whenever currentFile changes (applyResult/revert) so tool views
      *  know to re-ingest this item. */
     revision: number;
+    /** The tool the user dropped/pasted this file INTO (null = unknown). Only
+     *  that tool auto-processes it; every other tool receives it as a CARRIED
+     *  item that waits for a manual action-button click. */
+    addedFor: ToolId | null;
 }
 
 interface SessionSnapshot {
@@ -74,8 +78,9 @@ function getSnapshot(): SessionSnapshot {
     return snapshot;
 }
 
-/** Add OS-dropped/pasted files to the session. Returns the created entries. */
-function addFiles(incoming: File[]): SessionFile[] {
+/** Add OS-dropped/pasted files to the session. `targetToolId` = the tool the
+ *  user dropped them into — only that tool auto-processes them. */
+function addFiles(incoming: File[], targetToolId: ToolId | null = null): SessionFile[] {
     const added: SessionFile[] = incoming.map(file => {
         const url = URL.createObjectURL(file);
         return {
@@ -88,6 +93,7 @@ function addFiles(incoming: File[]): SessionFile[] {
             originalUrl: url,
             provenance: [],
             revision: 0,
+            addedFor: targetToolId,
         };
     });
     if (!added.length) return added;
@@ -225,11 +231,21 @@ export function useSession(): SessionSnapshot {
  *  changes (drops, results) ingest immediately with no delay. */
 const INGEST_SETTLE_MS = 450;
 
+export interface IngestItem {
+    id: string;
+    file: File;
+    revision: number;
+    /** True = the user dropped/pasted this file into THIS tool (auto-process).
+     *  False = it arrived by switching tools (carried) — show it idle and wait
+     *  for the manual action button. */
+    direct: boolean;
+}
+
 export function useSessionIngest(
     active: boolean,
     toolId: ToolId,
     accept: (f: SessionFile) => boolean,
-    onIngest: (batch: { id: string; file: File; revision: number }[]) => void,
+    onIngest: (batch: IngestItem[]) => void,
     onRemove: (ids: string[]) => void,
 ): void {
     const seen = useRef<Map<string, number>>(new Map());
@@ -241,7 +257,7 @@ export function useSessionIngest(
 
         const reconcile = () => {
             settled.current = true;
-            const fresh: { id: string; file: File; revision: number }[] = [];
+            const fresh: IngestItem[] = [];
             const liveIds = new Set<string>();
             for (const f of sessionFiles) {
                 if (!accept(f)) continue;
@@ -251,7 +267,9 @@ export function useSessionIngest(
                 seen.current.set(f.id, f.revision);
                 // Own output landing back in the store — already reflected locally.
                 if (f.provenance[f.provenance.length - 1] === toolId && prev !== undefined) continue;
-                fresh.push({ id: f.id, file: f.currentFile, revision: f.revision });
+                // Direct only on FIRST ingest of an untouched file targeted at this tool.
+                const direct = f.addedFor === toolId && prev === undefined && f.provenance.length === 0;
+                fresh.push({ id: f.id, file: f.currentFile, revision: f.revision, direct });
             }
             const removed: string[] = [];
             for (const id of Array.from(seen.current.keys())) {

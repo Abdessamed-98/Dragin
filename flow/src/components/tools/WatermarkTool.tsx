@@ -139,7 +139,7 @@ export const WatermarkTool: React.FC<WatermarkToolProps> = ({ onClose, active, o
     // the ingest above brings them into local state.
     const addFiles = useCallback((newFiles: File[]) => {
         const accepted = newFiles.filter(isAccepted);
-        if (accepted.length) sessionStore.addFiles(accepted);
+        if (accepted.length) sessionStore.addFiles(accepted, 'watermark');
     }, []);
 
     const removeFile = (fileId: string) => {
