@@ -4,6 +4,8 @@ import { motion, AnimatePresence, useMotionValue, useTransform, animate } from '
 import { ToolWidget } from './ToolWidget';
 import { ToolRail, RAIL_W } from './ToolRail';
 import { CarryBanner } from './CarryBanner';
+import { ToolShell } from './shell/ToolShell';
+import { SHELL_TOOLS } from './shell/shellTools';
 import { ActiveSession, ToolId, SessionItem } from '../types';
 import { useLocalizedTools } from '../i18n/useLocalizedTools';
 import { useI18n } from '../i18n/I18nContext';
@@ -140,6 +142,10 @@ export const SideDock: React.FC<SideDockProps> = ({
   const prevExpandedRef = React.useRef<ToolId | null>(null);
   const instantSwap = expandedToolId != null && prevExpandedRef.current != null && prevExpandedRef.current !== expandedToolId;
   useEffect(() => { prevExpandedRef.current = expandedToolId; }, [expandedToolId]);
+
+  // Shell + slots trial: these tools render into ONE persistent ToolShell (below)
+  // instead of their own ToolWidget, so switching among them keeps the grid alive.
+  const isShellExpanded = !!expandedToolId && !!SHELL_TOOLS[expandedToolId];
 
   const activeTools = effectiveToolIds
     .map(id => ALL_TOOLS.find(t => t.id === id))
@@ -480,7 +486,11 @@ export const SideDock: React.FC<SideDockProps> = ({
                   </motion.button>
                 )}
 
-                {/* Tool Widget — file drag is handled by this wrapper */}
+                {/* Tool Widget — file drag is handled by this wrapper.
+                    Suppressed for the ACTIVE shell tool: the persistent ToolShell
+                    overlay (below) renders it instead, so its grid survives switches.
+                    Collapsed rail tiles of shell tools still render normally. */}
+                {!(isActive && SHELL_TOOLS[tool.id]) && (
                 <ToolErrorBoundary toolId={tool.id}>
                 <ToolWidget
                   id={tool.id}
@@ -517,6 +527,7 @@ export const SideDock: React.FC<SideDockProps> = ({
                   onSelfItemCountChange={(count) => onSelfItemCountChange?.(tool.id, count)}
                 />
                 </ToolErrorBoundary>
+                )}
               </motion.div>
             )
           })}
@@ -532,6 +543,20 @@ export const SideDock: React.FC<SideDockProps> = ({
           </motion.div>
         )}
         </div>
+
+        {/* Shell + slots: ONE persistent panel for shell tools. Kept mounted across
+            shell↔shell switches (toolId prop changes) so its FileGrid — and the
+            <img> nodes — survive; only header/controls/action/accent swap. */}
+        {isShellExpanded && expandedToolId && (
+          <div className="absolute inset-0 z-10 pointer-events-auto" style={panelInset} data-interactive
+            onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+            <ToolShell
+              toolId={expandedToolId}
+              onClose={() => onCloseSession(expandedToolId)}
+              onOpenSettings={onOpenGallery}
+            />
+          </div>
+        )}
 
         {/* Tool rail — switch tools in place while a panel is open (session carries) */}
         {expandedToolId && isVisible && (

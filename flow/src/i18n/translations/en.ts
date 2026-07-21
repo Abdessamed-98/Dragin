@@ -153,6 +153,12 @@ export const en: Record<TranslationKey, string> = {
   'session.carried': '{{count}} results carried from {{tool}}',
   'session.useOriginals': 'Use originals',
 
+  // Shell chrome — shared footer (shell + slots)
+  'shell.copy': 'Copy',
+  'shell.paste': 'Paste',
+  'shell.clear': 'Clear all',
+  'shell.download': 'Save',
+
   // --- DockApp ---
   'dock.crashed': 'Dock stopped working',
   'dock.restart': 'Restart',

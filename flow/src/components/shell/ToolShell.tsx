@@ -1,0 +1,198 @@
+/**
+ * ToolShell — the ONE persistent panel chrome for shell-enabled tools.
+ *
+ * Rendered once by SideDock; the `toolId` prop changes as the user rail-switches
+ * among shell tools. Because this instance (and its FileGrid) never remounts on
+ * a switch, the <img> nodes persist — only the header, the Controls slot, the
+ * footer action, and the accent change. That's the whole "shared container"
+ * win: switching a tool ≠ rebuilding a tool.
+ *
+ * Structure:
+ *   ToolHeader (reused)                     ← title/icon/count, props change
+ *   descriptor.Controls (keyed by toolId)   ← the only rich per-tool UI; swaps
+ *   FileGrid (persistent)                   ← session files + this tool's overlay
+ *   ToolFooter                              ← run/save + copy/paste/clear
+ *   <ShellIngestor key={toolId}/>           ← headless; fresh `seen` per tool
+ *
+ * The controller lives here (not in the keyed ingestor) so the footer's Run can
+ * call it. Two correctness points the design turns on:
+ *   • REPROCESS FROM INPUT, not currentFile. Each item's `input` is captured at
+ *     ingest (currentFile at arrival). The tool's own applyResult bumps revision
+ *     but is self-output-guarded (no re-ingest), so `input` stays the pre-tool
+ *     file — re-running with new settings never double-applies. A DIFFERENT tool
+ *     changing the file DOES re-ingest, updating `input` (correct pipeline).
+ *   • DONE STATE CARRIES THE POST-applyResult REVISION, so the grid sees it as
+ *     fresh; a later change by another tool bumps revision → ingest resets idle.
+ */
+import React, { useCallback, useEffect, useRef } from 'react';
+import { sessionStore, useSession, useSessionIngest, IngestItem, SessionFile } from '../../state/sessionStore';
+import { processingStore, useToolItems, ItemState } from '../../state/processingStore';
+import { useToolUi } from '../../state/toolUiStore';
+import { runPool } from '../../utils/pool';
+import { useI18n } from '../../i18n/I18nContext';
+import { ToolId } from '../../types';
+import { ToolHeader } from '../ToolHeader';
+import { FileGrid } from './FileGrid';
+import { ToolFooter, DoneOutput } from './ToolFooter';
+import { SHELL_TOOLS } from './shellTools';
+import { accentOf } from './accents';
+
+interface ToolShellProps {
+    toolId: ToolId;
+    onClose: () => void;
+    onOpenSettings?: () => void;
+}
+
+// Headless ingest binding, keyed by toolId so each tool gets a FRESH `seen` map
+// (a single shared useSessionIngest would leak seen-revisions across tools).
+const ShellIngestor: React.FC<{
+    toolId: ToolId;
+    accept: (f: SessionFile) => boolean;
+    onIngest: (batch: IngestItem[]) => void;
+    onRemove: (ids: string[]) => void;
+}> = ({ toolId, accept, onIngest, onRemove }) => {
+    useSessionIngest(true, toolId, accept, onIngest, onRemove);
+    return null;
+};
+
+export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSettings }) => {
+    const { t: tt } = useI18n();
+    // Descriptor i18n keys are plain strings (dynamic per tool), so bypass the
+    // strict compile-time key union.
+    const t = tt as (k: string) => string;
+    const desc = SHELL_TOOLS[toolId]!;
+    const ac = accentOf(desc.accent);
+
+    const [state, set] = useToolUi(toolId, desc.defaults);
+    const stateRef = useRef(state);
+    stateRef.current = state;
+
+    const { files: allFiles } = useSession();
+    const files = allFiles.filter(desc.accept);
+    const items = useToolItems(toolId);
+
+    // Transform ONE file by id: read its `input` (captured at ingest, pre-tool),
+    // run the descriptor, then write `done` with the POST-applyResult revision.
+    const runOne = useCallback(async (fileId: string) => {
+        const snap = () => sessionStore.getSnapshot().files.find(f => f.id === fileId);
+        const f = snap();
+        if (!f) return;
+        const prev = processingStore.getTool(toolId)[fileId];
+        const input = prev?.input ?? f.currentFile;
+        processingStore.setItem(toolId, fileId, { status: 'processing', revision: f.revision, input });
+        try {
+            const { resultUrl, badge } = await desc.process({ id: fileId, file: input, name: f.name }, stateRef.current);
+            const nf = snap();
+            processingStore.setItem(toolId, fileId, { status: 'done', revision: nf?.revision ?? f.revision, resultUrl, badge, input });
+        } catch (e: any) {
+            processingStore.setItem(toolId, fileId, { status: 'error', revision: f.revision, error: e?.message ?? String(e), input });
+        }
+    }, [toolId, desc]);
+
+    // Ingest: seed idle (capturing input = currentFile at arrival); auto-run the
+    // direct drops when the tool opts in.
+    const onIngest = useCallback((batch: IngestItem[]) => {
+        const snap = sessionStore.getSnapshot().files;
+        const direct: string[] = [];
+        for (const it of batch) {
+            const f = snap.find(x => x.id === it.id);
+            processingStore.setItem(toolId, it.id, { status: 'idle', revision: it.revision, input: f?.currentFile ?? it.file });
+            if (it.direct && desc.autoProcessDirect) direct.push(it.id);
+        }
+        if (direct.length) runPool(direct, runOne);
+    }, [toolId, desc, runOne]);
+
+    const onRemove = useCallback((ids: string[]) => processingStore.removeItems(toolId, ids), [toolId]);
+
+    // Manual run of every idle item (the footer action button).
+    const processIdle = useCallback(() => {
+        const map = processingStore.getTool(toolId);
+        const idle = files.filter(f => map[f.id]?.status === 'idle').map(f => f.id);
+        if (idle.length) runPool(idle, runOne);
+    }, [toolId, files, runOne]);
+
+    // Settings changed WITHIN this tool → mark processed items idle so the user
+    // re-runs with the new settings (manual, matching the carried-files policy).
+    // Skip on tool switch (state legitimately changes to the new tool's values).
+    const stateKey = JSON.stringify(state);
+    const lastToolRef = useRef(toolId);
+    const lastKeyRef = useRef(stateKey);
+    useEffect(() => {
+        if (lastToolRef.current !== toolId) { lastToolRef.current = toolId; lastKeyRef.current = stateKey; return; }
+        if (lastKeyRef.current === stateKey) return;
+        lastKeyRef.current = stateKey;
+        const map = processingStore.getTool(toolId);
+        for (const f of files) {
+            const st = map[f.id];
+            if (st && st.status !== 'idle' && st.status !== 'processing') {
+                processingStore.setItem(toolId, f.id, { status: 'idle', revision: f.revision, input: st.input });
+            }
+        }
+    }, [stateKey, toolId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const addFiles = useCallback((incoming: File[]) => {
+        const ok = incoming.filter(f => desc.accept({ currentFile: f, kind: 'image' } as SessionFile));
+        if (ok.length) sessionStore.addFiles(ok, toolId);
+    }, [toolId, desc]);
+
+    // Footer derived state.
+    const fresh = (f: SessionFile): ItemState | undefined => { const s = items[f.id]; return s && s.revision === f.revision ? s : undefined; };
+    const hasIdle = files.some(f => { const s = items[f.id]; return !s || s.status === 'idle'; });
+    const anyProcessing = files.some(f => fresh(f)?.status === 'processing');
+    const doneOutputs: DoneOutput[] = files.filter(f => fresh(f)?.status === 'done')
+        .map(f => ({ name: f.name, url: fresh(f)!.resultUrl || f.currentUrl, path: (f.currentFile as any).path ?? null }));
+    const canRun = desc.canRun ? desc.canRun(state, files) : true;
+
+    // Global "clear all data" removes files from the session → useSessionIngest's
+    // onRemove fires → processingStore is pruned automatically. No local handler.
+    const clearAll = () => { sessionStore.remove(files.map(f => f.id)); onClose(); };
+
+    const Controls = desc.Controls;
+
+    return (
+        <div className="absolute inset-0 flex flex-col rounded-2xl overflow-hidden">
+            <ToolHeader
+                icon={<desc.Icon className={`w-4 h-4 ${ac.icon}`} />}
+                title={t(desc.titleKey)}
+                count={files.length}
+                onClose={onClose}
+                onSettings={onOpenSettings}
+            />
+
+            {Controls && files.length > 0 && (
+                <div key={toolId}>
+                    <Controls state={state} set={set} files={files} />
+                </div>
+            )}
+
+            <FileGrid
+                files={files}
+                items={items}
+                accent={desc.accent}
+                inputAccept={desc.inputAccept}
+                emptyIcon={<desc.Icon className="w-8 h-8 text-[var(--text-3)]" />}
+                emptyTitle={t(desc.emptyTitleKey)}
+                emptyHint={desc.emptyHintKey ? t(desc.emptyHintKey) : undefined}
+                onAddFiles={addFiles}
+                cellAspect={undefined}
+            />
+
+            <ToolFooter
+                accent={desc.accent}
+                actionIcon={<desc.Icon className="w-4 h-4" />}
+                actionLabel={t(desc.actionLabelKey)}
+                hasIdle={hasIdle}
+                canRun={canRun}
+                anyProcessing={anyProcessing}
+                hasFiles={files.length > 0}
+                onRun={processIdle}
+                doneOutputs={doneOutputs}
+                saveFolder={toolId}
+                onAddFiles={addFiles}
+                onClear={clearAll}
+            />
+
+            <ShellIngestor key={toolId} toolId={toolId} accept={desc.accept} onIngest={onIngest} onRemove={onRemove} />
+        </div>
+    );
+};

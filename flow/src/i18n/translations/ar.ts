@@ -151,6 +151,12 @@ export const ar = {
   'session.carried': 'تم نقل {{count}} نتيجة من {{tool}}',
   'session.useOriginals': 'استخدام الأصلية',
 
+  // Shell chrome — shared footer (shell + slots)
+  'shell.copy': 'نسخ',
+  'shell.paste': 'لصق',
+  'shell.clear': 'مسح الكل',
+  'shell.download': 'حفظ',
+
   // --- DockApp ---
   'dock.crashed': 'الشريط توقف عن العمل',
   'dock.restart': 'إعادة تشغيل',
