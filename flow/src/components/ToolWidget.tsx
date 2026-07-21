@@ -43,6 +43,8 @@ interface ToolWidgetProps {
     onProcessIdle?: () => void;
     /** Count shown on the collapsed tile (session badge, computed by DockApp). */
     badgeCount?: number;
+    /** Rail switch with the panel already open — show content instantly (no fade). */
+    instantContent?: boolean;
     onOpenSettings?: () => void;
     externalDragHover?: boolean;
     /** When true, the parent SideDock wrapper handles all file drag events.
@@ -170,6 +172,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     onUpdateItem,
     onProcessIdle,
     badgeCount = 0,
+    instantContent = false,
     onOpenSettings,
     externalDragHover = false,
     externalDragHandled = false,
@@ -588,7 +591,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    transition={{ duration: 0.15, delay: 0.14 }}
+                    transition={instantContent ? { duration: 0 } : { duration: 0.15, delay: 0.14 }}
                     className="absolute inset-0 flex flex-col p-4 w-full h-full cursor-default select-none"
                     onClick={(e) => e.stopPropagation()}
                 >
@@ -943,7 +946,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     <motion.div
                         className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
                         animate={{ opacity: isActive ? 1 : 0 }}
-                        transition={{ duration: 0.15, delay: isActive ? 0.14 : 0 }}
+                        transition={instantContent ? { duration: 0 } : { duration: 0.15, delay: isActive ? 0.14 : 0 }}
                         style={{ pointerEvents: isActive ? 'auto' : 'none' }}
                     >
                         <SelfTool

@@ -134,6 +134,13 @@ export const SideDock: React.FC<SideDockProps> = ({
   const draggingId = internalDraggingId; // only in-tongue reorder now
   const effectiveToolIds = localOrder || activeToolIds;
 
+  // Tool→tool switch (rail): the tongue is already expanded, so the incoming
+  // tool's content must appear INSTANTLY — the 0.15s fade + 0.14s delay only
+  // exists to mask the first-open panel growth.
+  const prevExpandedRef = React.useRef<ToolId | null>(null);
+  const instantSwap = expandedToolId != null && prevExpandedRef.current != null && prevExpandedRef.current !== expandedToolId;
+  useEffect(() => { prevExpandedRef.current = expandedToolId; }, [expandedToolId]);
+
   const activeTools = effectiveToolIds
     .map(id => ALL_TOOLS.find(t => t.id === id))
     .filter((t): t is typeof ALL_TOOLS[0] => t !== undefined);
@@ -497,6 +504,7 @@ export const SideDock: React.FC<SideDockProps> = ({
                   isReordering={draggingId !== null}
                   onUpdateItem={(itemId, updates) => onUpdateItem(tool.id, itemId, updates)}
                   onProcessIdle={onProcessIdle ? () => onProcessIdle(tool.id) : undefined}
+                  instantContent={instantSwap}
                   badgeCount={badgeCounts?.[tool.id] ?? 0}
                   onOpenSettings={onOpenGallery}
                   externalDragHover={isFileDragHovered}

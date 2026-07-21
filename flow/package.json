@@ -10,7 +10,8 @@
     "build": "tsc && vite build",
     "build:dist": "node scripts/build.js",
     "preview": "vite preview",
-    "start": "node launch-electron.js"
+    "start": "node launch-electron.js",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/react": "^19.0.8",
@@ -27,6 +28,7 @@
     "vite": "^6.1.0",
     "vite-plugin-electron": "^0.29.0",
     "vite-plugin-electron-renderer": "^0.14.6",
+    "vitest": "^4.1.10",
     "wait-on": "^9.0.4"
   },
   "dependencies": {
