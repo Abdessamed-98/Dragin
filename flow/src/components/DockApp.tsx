@@ -187,17 +187,12 @@ const DockAppInner: React.FC = () => {
     if (lastToolId && lastToolId !== 'shelf' && sessionCount > 0) badgeCounts[lastToolId] = sessionCount;
     const shelfCount = sessions['shelf']?.items.length ?? 0;
     if (shelfCount > 0) badgeCounts['shelf'] = shelfCount;
-    const [selfItemCounts, setSelfItemCounts] = useState<Partial<Record<string, number>>>({});
-    // Last self-tool counts, read inside the count callback without making it
-    // depend on (and re-subscribe to) those values.
+    // Last self-tool counts (ref only — visibility no longer reads these, since
+    // hidden tools' counts go stale until they reconcile on activation).
     const selfCountRef = useRef<Record<string, number>>({});
     const handleSelfItemCountChange = useCallback((toolId: string, count: number) => {
         const prevCount = selfCountRef.current[toolId] ?? 0;
         selfCountRef.current[toolId] = count;
-        setSelfItemCounts(prev => {
-            if (prev[toolId] === count) return prev; // no-op: skip re-render if unchanged
-            return { ...prev, [toolId]: count };
-        });
         // Collapse back to the rail when a self-contained tool empties out while
         // expanded (last item dragged out / cleared). Guard the initial-mount
         // 0→0 report by requiring a real >0 → 0 transition.
@@ -205,8 +200,9 @@ const DockAppInner: React.FC = () => {
             setExpandedToolId(null);
         }
     }, []);
-    const anySelfHasFiles = Object.values(selfItemCounts).some(c => (c ?? 0) > 0);
-    const isInteractionActive = expandedToolId !== null || isDragging || hasAnyFiles || sessionHasFiles || isGalleryOpen || isDockPinned || anySelfHasFiles;
+    // NOTE: hidden tools' local counts go stale (they only reconcile while active),
+    // so visibility must NOT depend on them — the session store is the truth.
+    const isInteractionActive = expandedToolId !== null || isDragging || hasAnyFiles || sessionHasFiles || isGalleryOpen || isDockPinned;
     const isVisible = isDockEnabled && isInteractionActive;
 
     // --- Dock diagnostics ---
@@ -485,6 +481,31 @@ const DockAppInner: React.FC = () => {
             if (!items.length) return { ...prev, [toolId]: undefined };
             return { ...prev, [toolId]: { ...s, items, selectedItemIds: s.selectedItemIds.filter(id => !ids.includes(id)) } };
         });
+    }, []);
+
+    // Deleting session files in ANY tool must immediately clean the hidden
+    // session-tool mirrors too (their ingest hooks only reconcile while active).
+    useEffect(() => {
+        const prune = () => {
+            const live = new Set(sessionStore.getSnapshot().files.map(f => f.id));
+            setSessions(prev => {
+                let changed = false;
+                const next = { ...prev };
+                for (const toolId of ['remover', 'compressor', 'cropper'] as ToolId[]) {
+                    const s = prev[toolId];
+                    if (!s) continue;
+                    const items = s.items.filter(i => live.has(i.id));
+                    if (items.length !== s.items.length) {
+                        changed = true;
+                        next[toolId] = items.length
+                            ? { ...s, items, selectedItemIds: s.selectedItemIds.filter(id => items.some(i => i.id === id)) }
+                            : undefined;
+                    }
+                }
+                return changed ? next : prev;
+            });
+        };
+        return sessionStore.subscribe(prune);
     }, []);
 
     useSessionIngest(expandedToolId === 'remover', 'remover', f => toolAccepts('remover', f),
