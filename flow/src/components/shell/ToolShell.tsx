@@ -143,6 +143,10 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
     const anyProcessing = files.some(f => fresh(f)?.status === 'processing');
     const doneOutputs: DoneOutput[] = files.filter(f => fresh(f)?.status === 'done')
         .map(f => ({ name: f.name, url: fresh(f)!.resultUrl || f.currentUrl, path: (f.currentFile as any).path ?? null }));
+    // Cell-editor overlay (remover magic-brush). Reset on tool switch.
+    const [editingId, setEditingId] = React.useState<string | null>(null);
+    useEffect(() => { setEditingId(null); }, [toolId]);
+
     // Backend capability probe (e.g. upscaler → Real-ESRGAN). Undefined = unknown/ok.
     const [available, setAvailable] = React.useState<boolean | undefined>(undefined);
     useEffect(() => {
@@ -200,7 +204,22 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
                 emptyHint={desc.emptyHintKey ? t(desc.emptyHintKey) : undefined}
                 onAddFiles={addFiles}
                 cellAspect={undefined}
+                showOriginal={(state as any).showOriginal === true}
+                transparent={desc.transparent}
+                onCellClick={desc.CellEditor ? (f => setEditingId(f.id)) : undefined}
             />
+
+            {/* Per-cell editor overlay (remover magic-brush) */}
+            {desc.CellEditor && editingId && (() => {
+                const ef = files.find(f => f.id === editingId);
+                if (!ef) return null;
+                const Editor = desc.CellEditor;
+                return (
+                    <div className="absolute inset-0 z-[60] rounded-2xl overflow-hidden">
+                        <Editor file={ef} onClose={() => setEditingId(null)} />
+                    </div>
+                );
+            })()}
 
             {available === false && desc.unavailableKey && (
                 <div className="mx-3 mb-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-[11px] text-amber-300 shrink-0">

@@ -45,6 +45,11 @@ export interface ShellTool<S = any> {
     kind?: 'grid' | 'focus';
     /** FOCUS tools only: renders the entire body (preview/editor/result + actions). */
     Body?: React.FC<FocusBodyProps>;
+    /** GRID tools: clicking a DONE cell opens this editor overlay for that file
+     *  (remover magic-brush). */
+    CellEditor?: React.FC<{ file: SessionFile; onClose: () => void }>;
+    /** GRID tools: render cutout cells on a transparency checkerboard. */
+    transparent?: boolean;
     /** Footer run-button label (grid tools). */
     actionLabelKey?: string;
     accept: (f: SessionFile) => boolean;
@@ -375,8 +380,10 @@ const compressorTool: ShellTool<{ quality: number }> = {
 };
 
 import { paletteTool, ocrTool, cropperTool } from './focusTools';
+import { removerTool } from './removerTool';
 
 export const SHELL_TOOLS: Partial<Record<ToolId, ShellTool>> = {
+    remover: removerTool as ShellTool,
     resize: resizeTool as ShellTool,
     watermark: watermarkTool as ShellTool,
     metadata: metadataTool as ShellTool,

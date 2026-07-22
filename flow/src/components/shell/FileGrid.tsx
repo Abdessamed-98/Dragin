@@ -29,10 +29,18 @@ interface FileGridProps {
     onAddFiles: (files: File[]) => void;
     /** Optional per-cell CSS aspect-ratio (Resize varies it by chosen shape). */
     cellAspect?: string;
+    /** Show each file's ORIGINAL instead of its result (remover eye-toggle). */
+    showOriginal?: boolean;
+    /** Checkered transparency backdrop (cutouts). */
+    transparent?: boolean;
+    /** Click a done cell → open an editor (remover magic-brush). */
+    onCellClick?: (file: SessionFile) => void;
 }
 
+const CHECKER = 'repeating-conic-gradient(#808080 0% 25%, #a0a0a0 0% 50%) 50% / 16px 16px';
+
 /** One cell: shared thumbnail (or this tool's result) + status overlay. */
-const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClasses; cellAspect?: string }> = ({ file, state, ac, cellAspect }) => {
+const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClasses; cellAspect?: string; showOriginal?: boolean; transparent?: boolean; onClick?: (f: SessionFile) => void }> = ({ file, state, ac, cellAspect, showOriginal, transparent, onClick }) => {
     const [thumb, setThumb] = useState<string | null>(null);
 
     // Pull the shared thumbnail (cached across tools, keyed by id+revision).
@@ -45,14 +53,16 @@ const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClass
 
     // A result for THIS revision wins over the thumbnail; stale results are ignored.
     const fresh = state && state.revision === file.revision;
-    const src = (fresh && state.resultUrl) || thumb;
     const processing = fresh && state.status === 'processing';
     const error = fresh && state.status === 'error';
     const done = fresh && state.status === 'done';
+    const src = showOriginal ? file.originalUrl : ((fresh && state.resultUrl) || thumb);
+    const clickable = !!onClick && !!done && !showOriginal;
 
     return (
-        <div style={cellAspect ? { aspectRatio: cellAspect } : undefined}
-            className="relative rounded-lg border border-[var(--separator)] overflow-hidden bg-[var(--surface)] aspect-square">
+        <div onClick={clickable ? () => onClick!(file) : undefined}
+            style={{ ...(cellAspect ? { aspectRatio: cellAspect } : {}), ...(transparent ? { background: CHECKER } : {}) }}
+            className={`relative rounded-lg border overflow-hidden aspect-square ${transparent ? 'border-[var(--separator)]' : 'border-[var(--separator)] bg-[var(--surface)]'} ${clickable ? 'cursor-pointer hover:ring-2 hover:ring-white/40' : ''}`}>
             {src
                 ? <img src={src} className={`w-full h-full object-cover ${processing ? 'opacity-40' : ''}`} alt="" draggable={false} />
                 : <div className="w-full h-full flex items-center justify-center"><Loader2 className={`w-4 h-4 ${ac.spinnerDim} animate-spin`} /></div>}
@@ -69,7 +79,7 @@ const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClass
     );
 };
 
-export const FileGrid: React.FC<FileGridProps> = ({ files, items, accent, inputAccept, emptyIcon, emptyTitle, emptyHint, onAddFiles, cellAspect }) => {
+export const FileGrid: React.FC<FileGridProps> = ({ files, items, accent, inputAccept, emptyIcon, emptyTitle, emptyHint, onAddFiles, cellAspect, showOriginal, transparent, onCellClick }) => {
     const [isDragOver, setIsDragOver] = useState(false);
     const ac = accentOf(accent);
 
@@ -102,7 +112,7 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, items, accent, inputA
             ) : (
                 <div className="flex-1 min-h-0 overflow-y-auto -mr-1 pr-1">
                     <div className="grid grid-cols-3 gap-1.5">
-                        {files.map(f => <GridCell key={f.id} file={f} state={items[f.id]} ac={ac} cellAspect={cellAspect} />)}
+                        {files.map(f => <GridCell key={f.id} file={f} state={items[f.id]} ac={ac} cellAspect={cellAspect} showOriginal={showOriginal} transparent={transparent} onClick={onCellClick} />)}
                         <label style={cellAspect ? { aspectRatio: cellAspect } : undefined}
                             className="rounded-lg border border-dashed border-[var(--border)] cursor-pointer flex items-center justify-center hover:border-[var(--border-2)] aspect-square">
                             <Upload className="w-4 h-4 text-[var(--text-3)]" />

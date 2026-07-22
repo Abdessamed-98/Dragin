@@ -512,7 +512,10 @@ const DockAppInner: React.FC = () => {
         return sessionStore.subscribe(prune);
     }, []);
 
-    useSessionIngest(expandedToolId === 'remover', 'remover', f => toolAccepts('remover', f),
+    // Remover migrated to the shell (grid + magic-brush editor). Disabled here.
+    // The DockApp session path is now dormant (all its tools live on the shell);
+    // it will be removed with the ToolWidget session UI in the cleanup pass.
+    useSessionIngest(false, 'remover', f => toolAccepts('remover', f),
         b => ingestSessionTool('remover', b), ids => removeSessionToolItems('remover', ids));
     // Compressor migrated to the shell (SHELL_TOOLS) — its ToolShell owns ingest
     // + processing now. Disabled here so it can't double-process. (remover/cropper
