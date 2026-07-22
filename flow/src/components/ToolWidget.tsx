@@ -4,18 +4,9 @@ import { motion } from 'framer-motion';
 import { LucideIcon, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, File as FileIcon, ClipboardPaste, Brush, Ban } from 'lucide-react';
 import { ActiveSession, ToolId, SessionItem } from '../types';
 import { CropperTool } from './tools/CropperTool';
-import { VectorizerTool } from './tools/VectorizerTool';
-import { OcrTool } from './tools/OcrTool';
-// CompressorTool overlay removed — quality slider is now inline
-import { PdfTool } from './tools/PdfTool';
-import { ConverterTool } from './tools/ConverterTool';
-import { UpscalerTool } from './tools/UpscalerTool';
-import { MetadataTool } from './tools/MetadataTool';
-import { WatermarkTool } from './tools/WatermarkTool';
-import { PaletteTool } from './tools/PaletteTool';
 import { MagicBrushTool } from './tools/MagicBrushTool';
-import { ResizeTool } from './tools/ResizeTool';
-import { ZipTool } from './tools/ZipTool';
+// Every tool now renders via the shell (ToolShell). ToolWidget keeps only the
+// collapsed rail tile + the legacy cropper/magic-brush overlays.
 import { clipboardState } from '../state/clipboardState';
 import { ToolHeader } from './ToolHeader';
 import { getFileThumbnail } from '../services/api';
@@ -178,22 +169,18 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
     externalDragHover = false,
     externalDragHandled = false,
     otherToolCount: _otherToolCount = 0,
-    clearGen,
+    clearGen: _clearGen,
     isModelLoading,
     onCancelProcessing,
     emptyHint,
     emptySubHint,
     formatLines,
-    onSelfItemCountChange,
+    onSelfItemCountChange: _onSelfItemCountChange,
 }) => {
     const { t } = useI18n();
     const [cancelHover, setCancelHover] = useState(false);
     const [showOriginal, setShowOriginal] = useState(false);
     const [, forceUpdate] = useState(0);
-    const [selfItemCount, setSelfItemCount] = useState(0); // count from self-contained tools (always mounted)
-
-    // Propagate self-contained item count up to DockApp for dock visibility
-    useEffect(() => { onSelfItemCountChange?.(selfItemCount); }, [selfItemCount, onSelfItemCountChange]);
 
     // Keep dimensions fresh when the Electron window is resized
     useEffect(() => {
@@ -919,35 +906,8 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                 </motion.div>
             )}
 
-            {/* Self-contained tools — always mounted, fade in/out to match container
-                expand animation. They ingest files from the shared session store
-                while `active` (see useSessionIngest). */}
-            {(() => {
-                const SELF_TOOL_COMPONENTS: Partial<Record<ToolId, React.ComponentType<{
-                    onClose: () => void; active: boolean; onItemCountChange?: (n: number) => void; clearGen?: number;
-                }>>> = {
-                    pdf: PdfTool, converter: ConverterTool, upscaler: UpscalerTool,
-                    metadata: MetadataTool, watermark: WatermarkTool, palette: PaletteTool,
-                    resize: ResizeTool, zip: ZipTool, vectorizer: VectorizerTool, ocr: OcrTool,
-                };
-                const SelfTool = SELF_TOOL_COMPONENTS[id];
-                if (!SelfTool) return null;
-                return (
-                    <motion.div
-                        className="absolute inset-0 z-50 rounded-2xl overflow-hidden"
-                        animate={{ opacity: isActive ? 1 : 0 }}
-                        transition={instantContent ? { duration: 0 } : { duration: 0.15, delay: isActive ? 0.14 : 0 }}
-                        style={{ pointerEvents: isActive ? 'auto' : 'none' }}
-                    >
-                        <SelfTool
-                            onClose={onClose}
-                            active={isActive}
-                            onItemCountChange={setSelfItemCount}
-                            clearGen={clearGen || 0}
-                        />
-                    </motion.div>
-                );
-            })()}
+            {/* Self-contained tool overlays removed — every tool now renders via
+                the shell (ToolShell); ToolWidget only draws the collapsed rail tile. */}
         </motion.div>
     );
 };
