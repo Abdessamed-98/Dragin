@@ -190,15 +190,19 @@ const DockAppInner: React.FC = () => {
     // Last self-tool counts (ref only — visibility no longer reads these, since
     // hidden tools' counts go stale until they reconcile on activation).
     const selfCountRef = useRef<Record<string, number>>({});
+    // Whether the CURRENTLY expanded tool has shown files during THIS activation.
+    // Reset on every switch — so opening an already-empty tool (its files were
+    // deleted elsewhere) does NOT read a stale >0 and collapse itself (the
+    // open-then-close flicker). Only a genuine files→empty while viewing collapses.
+    const sawFilesRef = useRef(false);
+    useEffect(() => { sawFilesRef.current = false; }, [expandedToolId]);
     const handleSelfItemCountChange = useCallback((toolId: string, count: number) => {
-        const prevCount = selfCountRef.current[toolId] ?? 0;
         selfCountRef.current[toolId] = count;
-        // Collapse back to the rail when a self-contained tool empties out while
-        // expanded (last item dragged out / cleared). Guard the initial-mount
-        // 0→0 report by requiring a real >0 → 0 transition.
-        if (count === 0 && prevCount > 0 && expandedToolIdRef.current === (toolId as ToolId)) {
-            setExpandedToolId(null);
-        }
+        if (expandedToolIdRef.current !== (toolId as ToolId)) return;
+        if (count > 0) { sawFilesRef.current = true; return; }
+        // Emptied while viewing (last item cleared/dragged out) → collapse to rail.
+        // Opened already-empty (sawFiles=false) → stay open on the dropzone.
+        if (sawFilesRef.current) setExpandedToolId(null);
     }, []);
     // NOTE: hidden tools' local counts go stale (they only reconcile while active),
     // so visibility must NOT depend on them — the session store is the truth.
