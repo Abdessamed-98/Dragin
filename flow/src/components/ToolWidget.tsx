@@ -1,7 +1,7 @@
 
 import React, { DragEvent, useState, useEffect, useRef, MouseEvent } from 'react';
 import { motion } from 'framer-motion';
-import { LucideIcon, X, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, Settings, File as FileIcon, ClipboardPaste, Brush, Ban } from 'lucide-react';
+import { LucideIcon, Download, Loader2, CheckCircle2, Eye, EyeOff, Scissors, Trash2, Copy, Check, Crop as CropIcon, File as FileIcon, ClipboardPaste, Brush, Ban } from 'lucide-react';
 import { ActiveSession, ToolId, SessionItem } from '../types';
 import { CropperTool } from './tools/CropperTool';
 import { VectorizerTool } from './tools/VectorizerTool';
@@ -17,6 +17,7 @@ import { MagicBrushTool } from './tools/MagicBrushTool';
 import { ResizeTool } from './tools/ResizeTool';
 import { ZipTool } from './tools/ZipTool';
 import { clipboardState } from '../state/clipboardState';
+import { ToolHeader } from './ToolHeader';
 import { getFileThumbnail } from '../services/api';
 import { saveOutputs } from '../services/saveOutput';
 import { useI18n } from '../i18n/I18nContext';
@@ -592,7 +593,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={instantContent ? { duration: 0 } : { duration: 0.15, delay: 0.14 }}
-                    className="absolute inset-0 flex flex-col p-4 w-full h-full cursor-default select-none"
+                    className="absolute inset-0 flex flex-col w-full h-full cursor-default select-none"
                     onClick={(e) => e.stopPropagation()}
                 >
                     {/* Crop overlay - takes over entire widget when active */}
@@ -628,31 +629,19 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                     {!(['ocr', 'pdf', 'converter', 'upscaler', 'metadata', 'watermark', 'vectorizer', 'palette', 'resize', 'zip'].includes(id)
                         || (id === 'cropper' && isCropping)
                         || ((id === 'remover') && isBrushing)) && (<>
-                    <div className="flex items-center pb-3 border-b border-[var(--separator)] mb-3 shrink-0">
-                        {/* Left: Title + count */}
-                        <div className="flex items-center gap-2">
-                            <Icon className={`w-4 h-4 text-${colorClass}-400`} />
-                            <span className="text-sm font-bold text-[var(--text)]">{title}</span>
-                            {isMultiple && <span className="text-xs bg-[var(--surface-3)] px-2 py-0.5 rounded-full text-[var(--text-2)]">{itemCount}</span>}
-                        </div>
+                    {/* Header — shared ToolHeader so session tools match every
+                        other tool's chrome (full-bleed separator, px-4 py-3). */}
+                    <ToolHeader
+                        icon={<Icon className={`w-4 h-4 text-${colorClass}-400`} />}
+                        title={title}
+                        count={itemCount}
+                        onClose={onClose}
+                        onSettings={onOpenSettings}
+                    />
 
-                        <div className="flex-1" />
-
-                        {/* Right: Settings + close */}
-                        <div className="flex items-center gap-0.5">
-                            {onOpenSettings && (
-                                <button onClick={onOpenSettings} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1 rounded-lg hover:bg-[var(--surface-3)]" title={t('widget.settings')}>
-                                    <Settings className="w-4 h-4" />
-                                </button>
-                            )}
-                            <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors p-1">
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Content Body */}
-                    <div className="flex-1 relative rounded-xl overflow-hidden bg-black/20 mb-3 min-h-0 border border-[var(--separator)]"
+                    {/* Content Body — padded to match the shared p-3 body inset. */}
+                    <div className="flex-1 flex flex-col min-h-0 p-3">
+                    <div className="flex-1 relative rounded-xl overflow-hidden bg-black/20 min-h-0 border border-[var(--separator)]"
                         onClick={(e) => { if (e.target === e.currentTarget && isMultiple) { /* Deselect logic optional */ } }}>
 
                         {!items.length ? (
@@ -768,9 +757,10 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                             </>
                         )}
                     </div>
+                    </div>
 
                     {/* Actions Footer */}
-                    <div className="flex flex-col gap-1.5 shrink-0 w-full px-1">
+                    <div className="flex flex-col gap-1.5 shrink-0 w-full px-3 pb-3">
                         {/* Row 1: Extra tool-specific buttons (only when present) */}
                         {(id === 'remover') && (
                             <>
@@ -890,7 +880,7 @@ export const ToolWidget: React.FC<ToolWidgetProps> = ({
                             )}
 
                             {/* Right half: Copy | Paste | Delete */}
-                            <div className="flex-1 flex items-center gap-1.5">
+                            <div className="flex-1 flex items-center gap-1">
                                 <button
                                     onClick={handleCopy}
                                     disabled={isCopying || items.length === 0}

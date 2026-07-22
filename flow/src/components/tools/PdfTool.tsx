@@ -1081,7 +1081,7 @@ export const PdfTool: React.FC<PdfToolProps> = ({ onClose, active, onItemCountCh
                     )}
 
                     {/* Right: Copy | Paste | Delete */}
-                    <div className="flex-1 flex items-center gap-1.5">
+                    <div className="flex-1 flex items-center gap-1">
                         <ToolIconButton
                             onClick={handleCopy}
                             disabled={!hasFiles || isProcessing || isCopying}
