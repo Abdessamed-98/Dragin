@@ -11,11 +11,27 @@
  * (see the old tools/ResizeTool.tsx grid cells).
  */
 import React, { useEffect, useState } from 'react';
-import { Loader2, AlertCircle, Upload, Check } from 'lucide-react';
+import { Loader2, AlertCircle, Upload, Check, Music, Film } from 'lucide-react';
 import { SessionFile, sessionStore } from '../../state/sessionStore';
 import { getFileThumbnail } from '../../services/api';
 import { ItemState } from '../../state/processingStore';
 import { accentOf, AccentClasses } from './accents';
+
+/** Grab a still frame (~0.1s) from a video file as a data-URL, for grid cells. */
+function videoFrame(file: File): Promise<string | null> {
+    return new Promise(resolve => {
+        const url = URL.createObjectURL(file);
+        const v = document.createElement('video');
+        v.muted = true; v.preload = 'metadata'; v.src = url;
+        const done = (out: string | null) => { URL.revokeObjectURL(url); resolve(out); };
+        v.addEventListener('loadeddata', () => { try { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); } catch { done(null); } });
+        v.addEventListener('seeked', () => {
+            try { const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d')!.drawImage(v, 0, 0); done(c.toDataURL('image/jpeg', 0.7)); }
+            catch { done(null); }
+        }, { once: true });
+        v.addEventListener('error', () => done(null), { once: true });
+    });
+}
 
 interface FileGridProps {
     files: SessionFile[];
@@ -42,14 +58,22 @@ const CHECKER = 'repeating-conic-gradient(#808080 0% 25%, #a0a0a0 0% 50%) 50% / 
 /** One cell: shared thumbnail (or this tool's result) + status overlay. */
 const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClasses; cellAspect?: string; showOriginal?: boolean; transparent?: boolean; onClick?: (f: SessionFile) => void }> = ({ file, state, ac, cellAspect, showOriginal, transparent, onClick }) => {
     const [thumb, setThumb] = useState<string | null>(null);
+    const isVideo = file.kind === 'video';
+    const isAudio = file.kind === 'audio';
 
-    // Pull the shared thumbnail (cached across tools, keyed by id+revision).
+    // Thumbnail per kind: images via the shared cache; video → a still frame;
+    // audio → no thumbnail (icon placeholder).
     useEffect(() => {
+        if (isAudio) { setThumb(null); return; }
         let alive = true;
-        sessionStore.getThumb(file.id, file.revision, () => getFileThumbnail(file.currentFile, 96))
-            .then(t => { if (alive) setThumb(t?.url ?? null); });
+        if (isVideo) {
+            videoFrame(file.currentFile).then(f => { if (alive) setThumb(f); });
+        } else {
+            sessionStore.getThumb(file.id, file.revision, () => getFileThumbnail(file.currentFile, 96))
+                .then(t => { if (alive) setThumb(t?.url ?? null); });
+        }
         return () => { alive = false; };
-    }, [file.id, file.revision]);
+    }, [file.id, file.revision, isVideo, isAudio]);
 
     // A result for THIS revision wins over the thumbnail; stale results are ignored.
     const fresh = state && state.revision === file.revision;
@@ -65,7 +89,10 @@ const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClass
             className={`relative rounded-lg border overflow-hidden aspect-square ${transparent ? 'border-[var(--separator)]' : 'border-[var(--separator)] bg-[var(--surface)]'} ${clickable ? 'cursor-pointer hover:ring-2 hover:ring-white/40' : ''}`}>
             {src
                 ? <img src={src} className={`w-full h-full object-cover ${processing ? 'opacity-40' : ''}`} alt="" draggable={false} />
-                : <div className="w-full h-full flex items-center justify-center"><Loader2 className={`w-4 h-4 ${ac.spinnerDim} animate-spin`} /></div>}
+                : <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-1">
+                    {isAudio ? <Music className={`w-5 h-5 ${ac.spinnerDim}`} /> : isVideo ? <Film className={`w-5 h-5 ${ac.spinnerDim}`} /> : <Loader2 className={`w-4 h-4 ${ac.spinnerDim} animate-spin`} />}
+                    {(isAudio || isVideo) && <span className="text-[8px] text-[var(--text-3)] truncate max-w-full">{file.name}</span>}
+                </div>}
             {processing && (
                 <div className="absolute inset-0 flex items-center justify-center">
                     {typeof state?.progress === 'number'

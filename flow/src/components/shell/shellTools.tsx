@@ -382,10 +382,12 @@ const compressorTool: ShellTool<{ quality: number }> = {
 import { paletteTool, ocrTool, cropperTool } from './focusTools';
 import { removerTool } from './removerTool';
 import { zipTool } from './zipTool';
+import { converterTool } from './converterTool';
 
 export const SHELL_TOOLS: Partial<Record<ToolId, ShellTool>> = {
     remover: removerTool as ShellTool,
     zip: zipTool,
+    converter: converterTool as ShellTool,
     resize: resizeTool as ShellTool,
     watermark: watermarkTool as ShellTool,
     metadata: metadataTool as ShellTool,
