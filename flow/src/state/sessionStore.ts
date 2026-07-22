@@ -334,6 +334,21 @@ export function useSessionIngest(
             if (fresh.length) onIngest(fresh);
         };
 
+        // Prune local items that were deleted while this tool was inactive.
+        // Removals never trigger processing, so — unlike ingest — they must NOT
+        // wait for the settle: otherwise re-entering a tool shows the just-deleted
+        // files for 450ms, then they vanish and the empty tool collapses.
+        const pruneRemovals = () => {
+            const { accept, onRemove } = cbs.current;
+            const liveIds = new Set(getSnapshot().files.filter(accept).map(f => f.id));
+            const removed: string[] = [];
+            for (const id of Array.from(seen.current.keys())) {
+                if (!liveIds.has(id)) { seen.current.delete(id); removed.push(id); }
+            }
+            if (removed.length) onRemove(removed);
+        };
+        pruneRemovals();
+
         // Settle first (rail-surfing must cost nothing), then reconcile live on
         // every store change while this tool stays active.
         let settled = false;
