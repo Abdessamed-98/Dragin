@@ -45,6 +45,10 @@ export interface ShellTool<S = any> {
     kind?: 'grid' | 'focus';
     /** FOCUS tools only: renders the entire body (preview/editor/result + actions). */
     Body?: React.FC<FocusBodyProps>;
+    /** FOCUS tools that render their OWN header/empty (wrapped legacy tools like
+     *  pdf) — the shell skips its header + empty dropzone and hands the Body the
+     *  whole panel. */
+    hideHeader?: boolean;
     /** GRID tools: clicking a DONE cell opens this editor overlay for that file
      *  (remover magic-brush). */
     CellEditor?: React.FC<{ file: SessionFile; onClose: () => void }>;
@@ -383,11 +387,13 @@ import { paletteTool, ocrTool, cropperTool } from './focusTools';
 import { removerTool } from './removerTool';
 import { zipTool } from './zipTool';
 import { converterTool } from './converterTool';
+import { pdfTool } from './pdfTool';
 
 export const SHELL_TOOLS: Partial<Record<ToolId, ShellTool>> = {
     remover: removerTool as ShellTool,
     zip: zipTool,
     converter: converterTool as ShellTool,
+    pdf: pdfTool,
     resize: resizeTool as ShellTool,
     watermark: watermarkTool as ShellTool,
     metadata: metadataTool as ShellTool,

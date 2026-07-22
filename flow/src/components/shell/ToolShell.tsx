@@ -168,6 +168,14 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
     // live-session read (instant switch, no flash); its Body owns everything else.
     if (desc.kind === 'focus' && desc.Body) {
         const Body = desc.Body;
+        // Wrapped legacy tools (pdf) own their header/empty — give them the panel.
+        if (desc.hideHeader) {
+            return (
+                <div className="absolute inset-0 flex flex-col rounded-2xl overflow-hidden">
+                    <Body files={files} accent={desc.accent} inputAccept={desc.inputAccept} onAddFiles={addFiles} onClose={onClose} />
+                </div>
+            );
+        }
         return (
             <div className="absolute inset-0 flex flex-col rounded-2xl overflow-hidden">
                 <ToolHeader icon={<desc.Icon className={`w-4 h-4 ${ac.icon}`} />} title={t(desc.titleKey)} count={files.length} onClose={onClose} onSettings={onOpenSettings} />
