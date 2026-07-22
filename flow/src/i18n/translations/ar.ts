@@ -156,6 +156,7 @@ export const ar = {
   'shell.paste': 'لصق',
   'shell.clear': 'مسح الكل',
   'shell.download': 'حفظ',
+  'compressor.run': 'ضغط',
 
   // --- DockApp ---
   'dock.crashed': 'الشريط توقف عن العمل',

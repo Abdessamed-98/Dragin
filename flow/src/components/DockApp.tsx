@@ -514,7 +514,10 @@ const DockAppInner: React.FC = () => {
 
     useSessionIngest(expandedToolId === 'remover', 'remover', f => toolAccepts('remover', f),
         b => ingestSessionTool('remover', b), ids => removeSessionToolItems('remover', ids));
-    useSessionIngest(expandedToolId === 'compressor', 'compressor', f => toolAccepts('compressor', f),
+    // Compressor migrated to the shell (SHELL_TOOLS) — its ToolShell owns ingest
+    // + processing now. Disabled here so it can't double-process. (remover/cropper
+    // stay on this session path until they migrate.)
+    useSessionIngest(false, 'compressor', f => toolAccepts('compressor', f),
         b => ingestSessionTool('compressor', b), ids => removeSessionToolItems('compressor', ids));
     useSessionIngest(expandedToolId === 'cropper', 'cropper', f => toolAccepts('cropper', f),
         b => ingestSessionTool('cropper', b), ids => removeSessionToolItems('cropper', ids));

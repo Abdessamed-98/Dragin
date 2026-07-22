@@ -10,10 +10,11 @@
  * MetadataTool (which stay in the repo, unused-for-shell, for easy rollback).
  */
 import React from 'react';
-import { LucideIcon, Scaling, Type, ShieldAlert, Image as ImageIcon, Link2, Unlink2 } from 'lucide-react';
+import { LucideIcon, Scaling, Type, ShieldAlert, Image as ImageIcon, Link2, Unlink2, PenTool, Shapes, PenLine, LayoutGrid, Maximize2, Minimize2 } from 'lucide-react';
 import { SessionFile, sessionStore } from '../../state/sessionStore';
 import { toolAccepts } from '../../state/toolCompat';
-import { resizeImage, addWatermark, scrubMetadata } from '../../services/api';
+import { resizeImage, addWatermark, scrubMetadata, vectorizeImage, compressImage, startUpscale, getUpscaleProgress, fetchUpscaleResultBlob, cleanupUpscaleJob, getUpscaleStatus } from '../../services/api';
+import type { VectorizeOptions, UpscaleScale, UpscaleModel } from '../../services/api';
 import { ToolId } from '../../types';
 
 export interface ProcessResult { resultUrl: string; badge?: string }
@@ -36,11 +37,20 @@ export interface ShellTool<S = any> {
     emptyHintKey?: string;
     defaults: S;
     autoProcessDirect: boolean;
+    /** Max files processed at once (default 3). Lower for tools that each spawn a
+     *  heavy backend process (upscaler/converter → 2). */
+    concurrency?: number;
     canRun?: (state: S, files: SessionFile[]) => boolean;
+    /** Optional backend capability probe (e.g. upscaler needs Real-ESRGAN). When
+     *  it resolves false, the action is disabled and an unavailable note shows. */
+    checkAvailable?: () => Promise<boolean>;
+    /** i18n key for the "tool unavailable" note (paired with checkAvailable). */
+    unavailableKey?: string;
     Controls?: React.FC<ControlsProps<S>>;
     /** Transform ONE file (the tool's INPUT, not necessarily currentFile) and
-     *  applyResult. Returns the result URL + a short done-badge caption. */
-    process: (item: { id: string; file: File; name: string }, state: S) => Promise<ProcessResult>;
+     *  applyResult. Returns the result URL + a short done-badge caption.
+     *  `onProgress(pct)` (0–100) drives a determinate overlay for polled jobs. */
+    process: (item: { id: string; file: File; name: string }, state: S, onProgress?: (pct: number) => void) => Promise<ProcessResult>;
 }
 
 const isImg = (f: File) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|tiff?|gif)$/i.test(f.name);
@@ -213,8 +223,146 @@ const metadataTool: ShellTool<Record<string, never>> = {
     },
 };
 
+// ── VECTORIZER ─────────────────────────────────────────────────────────────
+type VecPreset = 'photo' | 'logo' | 'sketch' | 'pixel';
+interface VecState { smoothness: number; colorMode: 'color' | 'binary'; colorPrecision: number; preset: VecPreset | null; }
+const VEC_PRESETS: Record<VecPreset, { colormode: 'color' | 'binary'; colorPrecision: number; smoothness: number; mode: 'spline' | 'polygon' | 'none'; hierarchical: 'stacked' | 'cutout'; layer_difference: number; filter_speckle: number }> = {
+    photo: { colormode: 'color', colorPrecision: 7, smoothness: 50, mode: 'spline', hierarchical: 'stacked', layer_difference: 16, filter_speckle: 4 },
+    logo: { colormode: 'color', colorPrecision: 4, smoothness: 75, mode: 'spline', hierarchical: 'stacked', layer_difference: 32, filter_speckle: 12 },
+    sketch: { colormode: 'binary', colorPrecision: 1, smoothness: 55, mode: 'spline', hierarchical: 'stacked', layer_difference: 16, filter_speckle: 6 },
+    pixel: { colormode: 'color', colorPrecision: 8, smoothness: 0, mode: 'polygon', hierarchical: 'cutout', layer_difference: 0, filter_speckle: 0 },
+};
+const vtracerOptions = (s: VecState): Partial<VectorizeOptions> => {
+    const t = s.smoothness / 100;
+    const ex = s.preset ? VEC_PRESETS[s.preset] : null;
+    return {
+        colormode: s.colorMode, mode: ex?.mode ?? 'spline', hierarchical: ex?.hierarchical ?? 'stacked',
+        layer_difference: ex?.layer_difference ?? 16,
+        corner_threshold: Math.round(5 + t * 115), splice_threshold: Math.round(5 + t * 95), length_threshold: 1.0 + t * 5.0,
+        filter_speckle: ex ? ex.filter_speckle : Math.round(1 + t * 4),
+        color_precision: s.colorMode === 'binary' ? 1 : s.colorPrecision, path_precision: 8,
+    };
+};
+const VEC_PRESET_BTNS: { key: VecPreset; label: string; Icon: LucideIcon }[] = [
+    { key: 'photo', label: 'Photo', Icon: ImageIcon }, { key: 'logo', label: 'Logo', Icon: Shapes },
+    { key: 'sketch', label: 'Sketch', Icon: PenLine }, { key: 'pixel', label: 'Pixel', Icon: LayoutGrid },
+];
+const VectorizerControls: React.FC<ControlsProps<VecState>> = ({ state, set }) => {
+    const isColor = state.colorMode === 'color';
+    const applyPreset = (name: VecPreset) => { const p = VEC_PRESETS[name]; set({ preset: name, colorMode: p.colormode, colorPrecision: p.colorPrecision, smoothness: p.smoothness }); };
+    return (
+        <div className="px-4 py-3 border-b border-[var(--separator)] shrink-0 space-y-2.5">
+            <div className="flex items-center gap-1.5">
+                {VEC_PRESET_BTNS.map(({ key, label, Icon }) => (
+                    <button key={key} onClick={() => applyPreset(key)}
+                        className={`flex-1 flex flex-col items-center gap-1 py-1.5 rounded-lg border ${state.preset === key ? 'border-rose-500/60 bg-rose-500/10 text-rose-300' : 'border-[var(--separator)] bg-[var(--surface)] text-[var(--text-3)] hover:text-[var(--text)]'}`}>
+                        <Icon className="w-3.5 h-3.5" /><span className="text-[10px] font-semibold">{label}</span>
+                    </button>
+                ))}
+            </div>
+            <div className="flex items-center gap-3">
+                <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)] w-16 shrink-0">Smooth</label>
+                <input type="range" min={0} max={100} value={state.smoothness} onChange={e => set({ smoothness: Number(e.target.value), preset: null })} className="flex-1 accent-rose-500" />
+            </div>
+            <div className="flex items-center gap-2">
+                <button onClick={() => set({ colorMode: isColor ? 'binary' : 'color', preset: null })}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border shrink-0 ${isColor ? 'border-rose-500/60 bg-rose-500/10 text-rose-300' : 'border-[var(--separator)] bg-[var(--surface)] text-[var(--text-3)]'}`}>
+                    {isColor ? 'Color' : 'B & W'}
+                </button>
+                <input type="range" min={2} max={8} value={state.colorPrecision} disabled={!isColor}
+                    onChange={e => set({ colorPrecision: Number(e.target.value), preset: null })} className="flex-1 accent-rose-500 disabled:opacity-40" />
+            </div>
+        </div>
+    );
+};
+const vectorizerTool: ShellTool<VecState> = {
+    id: 'vectorizer', accent: 'rose', Icon: PenTool, titleKey: 'vectorizer.headerTitle', actionLabelKey: 'vectorizer.run',
+    accept: f => toolAccepts('vectorizer', f) && isImg(f.currentFile), inputAccept: 'image/*',
+    emptyTitleKey: 'vectorizer.headerTitle',
+    defaults: { smoothness: 0, colorMode: 'binary', colorPrecision: 3, preset: null },
+    autoProcessDirect: true, Controls: VectorizerControls,
+    process: async ({ id, file, name }, s) => {
+        const r = await vectorizeImage(file, vtracerOptions(s));
+        await sessionStore.applyResult(id, new Blob([r.svgString], { type: 'image/svg+xml' }), `${baseName(name)}.svg`, 'vectorizer');
+        return { resultUrl: r.svgDataUrl, badge: `${r.pathCount}p` };
+    },
+};
+
+// ── UPSCALER ───────────────────────────────────────────────────────────────
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+interface UpState { scale: UpscaleScale; model: UpscaleModel; }
+const UpscalerControls: React.FC<ControlsProps<UpState>> = ({ state, set }) => (
+    <div className="px-4 py-3 border-b border-[var(--separator)] shrink-0 flex flex-col gap-2.5">
+        <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)] w-12 shrink-0">Scale</span>
+            {[2, 4].map(sc => (
+                <button key={sc} onClick={() => set({ scale: sc as UpscaleScale })}
+                    className={`flex-1 py-1 rounded-lg text-[11px] font-semibold border ${state.scale === sc ? 'border-pink-500/60 bg-pink-500/10 text-pink-300' : 'border-[var(--separator)] bg-[var(--surface)] text-[var(--text-3)] hover:text-[var(--text)]'}`}>{sc}x</button>
+            ))}
+        </div>
+        <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)] w-12 shrink-0">Model</span>
+            {([['realesrgan-x4plus', 'General'], ['realesrgan-x4plus-anime', 'Anime']] as const).map(([v, label]) => (
+                <button key={v} onClick={() => set({ model: v })}
+                    className={`flex-1 py-1 rounded-lg text-[11px] font-semibold border ${state.model === v ? 'border-pink-500/60 bg-pink-500/10 text-pink-300' : 'border-[var(--separator)] bg-[var(--surface)] text-[var(--text-3)] hover:text-[var(--text)]'}`}>{label}</button>
+            ))}
+        </div>
+    </div>
+);
+const upscalerTool: ShellTool<UpState> = {
+    id: 'upscaler', accent: 'pink', Icon: Maximize2, titleKey: 'upscaler.headerTitle', actionLabelKey: 'upscaler.upscale',
+    accept: f => toolAccepts('upscaler', f) && isImg(f.currentFile), inputAccept: 'image/*',
+    emptyTitleKey: 'upscaler.headerTitle',
+    defaults: { scale: 4, model: 'realesrgan-x4plus' },
+    autoProcessDirect: false, concurrency: 2, Controls: UpscalerControls,
+    checkAvailable: () => getUpscaleStatus().then(r => r.available).catch(() => false),
+    unavailableKey: 'upscaler.unavailable',
+    process: async ({ id, file, name }, s, onProgress) => {
+        const { jobId } = await startUpscale(file, s.scale, s.model);
+        try {
+            for (; ;) {
+                const prog = await getUpscaleProgress(jobId);
+                if (prog.status === 'done') {
+                    onProgress?.(100);
+                    const blob = await fetchUpscaleResultBlob(jobId);
+                    await sessionStore.applyResult(id, blob, `${baseName(name)}-${s.scale}x.png`, 'upscaler');
+                    return { resultUrl: URL.createObjectURL(blob), badge: `${s.scale}x` };
+                }
+                if (prog.status === 'error') throw new Error(prog.error || 'Upscale failed');
+                onProgress?.(prog.progress);
+                await sleep(1000);
+            }
+        } finally {
+            cleanupUpscaleJob(jobId).catch(() => { });
+        }
+    },
+};
+
+// ── COMPRESSOR ─────────────────────────────────────────────────────────────
+const CompressorControls: React.FC<ControlsProps<{ quality: number }>> = ({ state, set }) => (
+    <div className="px-4 py-3 border-b border-[var(--separator)] shrink-0 flex items-center gap-3">
+        <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)] w-16 shrink-0">Quality</label>
+        <input type="range" min={10} max={100} value={state.quality} onChange={e => set({ quality: Number(e.target.value) })} className="flex-1 accent-emerald-500" />
+        <span className="text-[11px] text-[var(--text-2)] w-8 text-right">{state.quality}</span>
+    </div>
+);
+const compressorTool: ShellTool<{ quality: number }> = {
+    id: 'compressor', accent: 'emerald', Icon: Minimize2, titleKey: 'tool.compressor.title', actionLabelKey: 'compressor.run',
+    accept: f => toolAccepts('compressor', f) && isImg(f.currentFile), inputAccept: 'image/*',
+    emptyTitleKey: 'tool.compressor.title',
+    defaults: { quality: 70 }, autoProcessDirect: true, Controls: CompressorControls,
+    process: async ({ id, file, name }, s) => {
+        const r = await compressImage(file, s.quality);
+        await sessionStore.applyResult(id, r.url, `${baseName(name)}-compressed${extOf(name)}`, 'compressor');
+        return { resultUrl: r.url, badge: r.saved };
+    },
+};
+
 export const SHELL_TOOLS: Partial<Record<ToolId, ShellTool>> = {
     resize: resizeTool as ShellTool,
     watermark: watermarkTool as ShellTool,
     metadata: metadataTool as ShellTool,
+    vectorizer: vectorizerTool as ShellTool,
+    upscaler: upscalerTool as ShellTool,
+    compressor: compressorTool as ShellTool,
 };

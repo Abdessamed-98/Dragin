@@ -79,11 +79,12 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
         if (!f) return;
         const prev = processingStore.getTool(toolId)[fileId];
         const input = prev?.input ?? f.currentFile;
-        processingStore.setItem(toolId, fileId, { status: 'processing', revision: f.revision, input });
+        processingStore.setItem(toolId, fileId, { status: 'processing', revision: f.revision, input, progress: undefined });
+        const onProgress = (pct: number) => processingStore.setItem(toolId, fileId, { status: 'processing', revision: f.revision, input, progress: pct });
         try {
-            const { resultUrl, badge } = await desc.process({ id: fileId, file: input, name: f.name }, stateRef.current);
+            const { resultUrl, badge } = await desc.process({ id: fileId, file: input, name: f.name }, stateRef.current, onProgress);
             const nf = snap();
-            processingStore.setItem(toolId, fileId, { status: 'done', revision: nf?.revision ?? f.revision, resultUrl, badge, input });
+            processingStore.setItem(toolId, fileId, { status: 'done', revision: nf?.revision ?? f.revision, resultUrl, badge, input, progress: undefined });
         } catch (e: any) {
             processingStore.setItem(toolId, fileId, { status: 'error', revision: f.revision, error: e?.message ?? String(e), input });
         }
@@ -99,7 +100,7 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
             processingStore.setItem(toolId, it.id, { status: 'idle', revision: it.revision, input: f?.currentFile ?? it.file });
             if (it.direct && desc.autoProcessDirect) direct.push(it.id);
         }
-        if (direct.length) runPool(direct, runOne);
+        if (direct.length) runPool(direct, runOne, desc.concurrency ?? 3);
     }, [toolId, desc, runOne]);
 
     const onRemove = useCallback((ids: string[]) => processingStore.removeItems(toolId, ids), [toolId]);
@@ -108,8 +109,8 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
     const processIdle = useCallback(() => {
         const map = processingStore.getTool(toolId);
         const idle = files.filter(f => map[f.id]?.status === 'idle').map(f => f.id);
-        if (idle.length) runPool(idle, runOne);
-    }, [toolId, files, runOne]);
+        if (idle.length) runPool(idle, runOne, desc.concurrency ?? 3);
+    }, [toolId, files, runOne, desc]);
 
     // Settings changed WITHIN this tool → mark processed items idle so the user
     // re-runs with the new settings (manual, matching the carried-files policy).
@@ -141,7 +142,16 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
     const anyProcessing = files.some(f => fresh(f)?.status === 'processing');
     const doneOutputs: DoneOutput[] = files.filter(f => fresh(f)?.status === 'done')
         .map(f => ({ name: f.name, url: fresh(f)!.resultUrl || f.currentUrl, path: (f.currentFile as any).path ?? null }));
-    const canRun = desc.canRun ? desc.canRun(state, files) : true;
+    // Backend capability probe (e.g. upscaler → Real-ESRGAN). Undefined = unknown/ok.
+    const [available, setAvailable] = React.useState<boolean | undefined>(undefined);
+    useEffect(() => {
+        if (!desc.checkAvailable) { setAvailable(undefined); return; }
+        let alive = true;
+        desc.checkAvailable().then(ok => { if (alive) setAvailable(ok); }).catch(() => { if (alive) setAvailable(false); });
+        return () => { alive = false; };
+    }, [toolId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const canRun = (desc.canRun ? desc.canRun(state, files) : true) && available !== false;
 
     // Global "clear all data" removes files from the session → useSessionIngest's
     // onRemove fires → processingStore is pruned automatically. No local handler.
@@ -176,6 +186,12 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
                 onAddFiles={addFiles}
                 cellAspect={undefined}
             />
+
+            {available === false && desc.unavailableKey && (
+                <div className="mx-3 mb-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-[11px] text-amber-300 shrink-0">
+                    {t(desc.unavailableKey)}
+                </div>
+            )}
 
             <ToolFooter
                 accent={desc.accent}

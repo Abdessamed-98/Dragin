@@ -56,7 +56,13 @@ const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClass
             {src
                 ? <img src={src} className={`w-full h-full object-cover ${processing ? 'opacity-40' : ''}`} alt="" draggable={false} />
                 : <div className="w-full h-full flex items-center justify-center"><Loader2 className={`w-4 h-4 ${ac.spinnerDim} animate-spin`} /></div>}
-            {processing && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className={`w-5 h-5 ${ac.spinner} animate-spin`} /></div>}
+            {processing && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                    {typeof state?.progress === 'number'
+                        ? <span className={`text-[11px] font-bold ${ac.spinner} bg-black/55 px-1.5 py-0.5 rounded-full`}>{Math.round(state.progress)}%</span>
+                        : <Loader2 className={`w-5 h-5 ${ac.spinner} animate-spin`} />}
+                </div>
+            )}
             {error && <div className="absolute inset-0 flex items-center justify-center bg-red-950/70" title={state?.error}><AlertCircle className="w-4 h-4 text-red-400" /></div>}
             {done && state?.badge && <div className="absolute bottom-0.5 right-0.5 text-[8px] leading-none bg-black/65 text-white px-1 py-0.5 rounded flex items-center gap-0.5"><Check className="w-2 h-2" />{state.badge}</div>}
         </div>

@@ -29,6 +29,8 @@ export interface ItemState {
     resultUrl?: string;
     /** Short caption for the done-badge, e.g. "1280×720" or "cleaned". */
     badge?: string;
+    /** 0–100 while processing a determinate job (upscale/convert); omit for spinner. */
+    progress?: number;
     error?: string;
 }
 

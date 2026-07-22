@@ -158,6 +158,7 @@ export const en: Record<TranslationKey, string> = {
   'shell.paste': 'Paste',
   'shell.clear': 'Clear all',
   'shell.download': 'Save',
+  'compressor.run': 'Compress',
 
   // --- DockApp ---
   'dock.crashed': 'Dock stopped working',

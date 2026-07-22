@@ -44,6 +44,42 @@ export const ACCENTS: Record<string, AccentClasses> = {
         dropIconBg: 'bg-orange-500/20',
         button: 'bg-orange-600 hover:bg-orange-500 text-white',
     },
+    rose: {
+        icon: 'text-rose-400',
+        spinner: 'text-rose-400',
+        spinnerDim: 'text-rose-400/40',
+        dropBorder: 'border-rose-400',
+        dropBg: 'bg-rose-500/10',
+        dropIconBg: 'bg-rose-500/20',
+        button: 'bg-rose-600 hover:bg-rose-500 text-white',
+    },
+    pink: {
+        icon: 'text-pink-400',
+        spinner: 'text-pink-400',
+        spinnerDim: 'text-pink-400/40',
+        dropBorder: 'border-pink-400',
+        dropBg: 'bg-pink-500/10',
+        dropIconBg: 'bg-pink-500/20',
+        button: 'bg-pink-600 hover:bg-pink-500 text-white',
+    },
+    emerald: {
+        icon: 'text-emerald-400',
+        spinner: 'text-emerald-400',
+        spinnerDim: 'text-emerald-400/40',
+        dropBorder: 'border-emerald-400',
+        dropBg: 'bg-emerald-500/10',
+        dropIconBg: 'bg-emerald-500/20',
+        button: 'bg-emerald-600 hover:bg-emerald-500 text-white',
+    },
+    blue: {
+        icon: 'text-blue-400',
+        spinner: 'text-blue-400',
+        spinnerDim: 'text-blue-400/40',
+        dropBorder: 'border-blue-400',
+        dropBg: 'bg-blue-500/10',
+        dropIconBg: 'bg-blue-500/20',
+        button: 'bg-blue-600 hover:bg-blue-500 text-white',
+    },
 };
 
 export const accentOf = (accent: string): AccentClasses => ACCENTS[accent] ?? ACCENTS.sky;
