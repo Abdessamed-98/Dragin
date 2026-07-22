@@ -388,12 +388,14 @@ import { removerTool } from './removerTool';
 import { zipTool } from './zipTool';
 import { converterTool } from './converterTool';
 import { pdfTool } from './pdfTool';
+import { shelfTool } from './shelfTool';
 
 export const SHELL_TOOLS: Partial<Record<ToolId, ShellTool>> = {
     remover: removerTool as ShellTool,
     zip: zipTool,
     converter: converterTool as ShellTool,
     pdf: pdfTool,
+    shelf: shelfTool,
     resize: resizeTool as ShellTool,
     watermark: watermarkTool as ShellTool,
     metadata: metadataTool as ShellTool,
