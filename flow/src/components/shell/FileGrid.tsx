@@ -61,17 +61,17 @@ const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClass
     const isVideo = file.kind === 'video';
     const isAudio = file.kind === 'audio';
 
-    // Thumbnail per kind: images via the shared cache; video → a still frame;
-    // audio → no thumbnail (icon placeholder).
+    // Thumbnail per kind, all through the shared cache (one extraction per
+    // id+revision, reused across cells + tool switches): images via the backend,
+    // video via a canvas still-frame; audio → no thumbnail (icon placeholder).
     useEffect(() => {
         if (isAudio) { setThumb(null); return; }
         let alive = true;
-        if (isVideo) {
-            videoFrame(file.currentFile).then(f => { if (alive) setThumb(f); });
-        } else {
-            sessionStore.getThumb(file.id, file.revision, () => getFileThumbnail(file.currentFile, 96))
-                .then(t => { if (alive) setThumb(t?.url ?? null); });
-        }
+        const make = isVideo
+            ? async () => { const f = await videoFrame(file.currentFile); return f ? { url: f, needsRevoke: false } : null; }
+            : () => getFileThumbnail(file.currentFile, 96);
+        sessionStore.getThumb(file.id, file.revision, make)
+            .then(t => { if (alive) setThumb(t?.url ?? null); });
         return () => { alive = false; };
     }, [file.id, file.revision, isVideo, isAudio]);
 
