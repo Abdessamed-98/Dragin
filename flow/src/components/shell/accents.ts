@@ -80,6 +80,24 @@ export const ACCENTS: Record<string, AccentClasses> = {
         dropIconBg: 'bg-blue-500/20',
         button: 'bg-blue-600 hover:bg-blue-500 text-white',
     },
+    violet: {
+        icon: 'text-violet-400',
+        spinner: 'text-violet-400',
+        spinnerDim: 'text-violet-400/40',
+        dropBorder: 'border-violet-400',
+        dropBg: 'bg-violet-500/10',
+        dropIconBg: 'bg-violet-500/20',
+        button: 'bg-violet-600 hover:bg-violet-500 text-white',
+    },
+    fuchsia: {
+        icon: 'text-fuchsia-400',
+        spinner: 'text-fuchsia-400',
+        spinnerDim: 'text-fuchsia-400/40',
+        dropBorder: 'border-fuchsia-400',
+        dropBg: 'bg-fuchsia-500/10',
+        dropIconBg: 'bg-fuchsia-500/20',
+        button: 'bg-fuchsia-600 hover:bg-fuchsia-500 text-white',
+    },
 };
 
 export const accentOf = (accent: string): AccentClasses => ACCENTS[accent] ?? ACCENTS.sky;

@@ -519,7 +519,9 @@ const DockAppInner: React.FC = () => {
     // stay on this session path until they migrate.)
     useSessionIngest(false, 'compressor', f => toolAccepts('compressor', f),
         b => ingestSessionTool('compressor', b), ids => removeSessionToolItems('compressor', ids));
-    useSessionIngest(expandedToolId === 'cropper', 'cropper', f => toolAccepts('cropper', f),
+    // Cropper migrated to the shell (focus archetype). Disabled here (remover
+    // stays on this session path until it migrates).
+    useSessionIngest(false, 'cropper', f => toolAccepts('cropper', f),
         b => ingestSessionTool('cropper', b), ids => removeSessionToolItems('cropper', ids));
 
     // Output name for a session-tool transform (mirrors ToolWidget's download naming).

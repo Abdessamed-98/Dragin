@@ -33,6 +33,7 @@ import { useI18n } from '../../i18n/I18nContext';
 import { ToolId } from '../../types';
 import { ToolHeader } from '../ToolHeader';
 import { FileGrid } from './FileGrid';
+import { FocusEmpty } from './FocusView';
 import { ToolFooter, DoneOutput } from './ToolFooter';
 import { SHELL_TOOLS } from './shellTools';
 import { accentOf } from './accents';
@@ -63,7 +64,7 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
     const desc = SHELL_TOOLS[toolId]!;
     const ac = accentOf(desc.accent);
 
-    const [state, set] = useToolUi(toolId, desc.defaults);
+    const [state, set] = useToolUi(toolId, desc.defaults ?? {});
     const stateRef = useRef(state);
     stateRef.current = state;
 
@@ -76,7 +77,7 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
     const runOne = useCallback(async (fileId: string) => {
         const snap = () => sessionStore.getSnapshot().files.find(f => f.id === fileId);
         const f = snap();
-        if (!f) return;
+        if (!f || !desc.process) return;
         const prev = processingStore.getTool(toolId)[fileId];
         const input = prev?.input ?? f.currentFile;
         processingStore.setItem(toolId, fileId, { status: 'processing', revision: f.revision, input, progress: undefined });
@@ -159,6 +160,20 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
 
     const Controls = desc.Controls;
 
+    // FOCUS archetype — single-image analyzer/editor. Shares the header + the
+    // live-session read (instant switch, no flash); its Body owns everything else.
+    if (desc.kind === 'focus' && desc.Body) {
+        const Body = desc.Body;
+        return (
+            <div className="absolute inset-0 flex flex-col rounded-2xl overflow-hidden">
+                <ToolHeader icon={<desc.Icon className={`w-4 h-4 ${ac.icon}`} />} title={t(desc.titleKey)} count={files.length} onClose={onClose} onSettings={onOpenSettings} />
+                {files.length === 0
+                    ? <FocusEmpty accent={desc.accent} inputAccept={desc.inputAccept} icon={<desc.Icon className="w-8 h-8 text-[var(--text-3)]" />} title={t(desc.emptyTitleKey)} hint={desc.emptyHintKey ? t(desc.emptyHintKey) : undefined} onAddFiles={addFiles} />
+                    : <Body files={files} accent={desc.accent} inputAccept={desc.inputAccept} onAddFiles={addFiles} onClose={onClose} />}
+            </div>
+        );
+    }
+
     return (
         <div className="absolute inset-0 flex flex-col rounded-2xl overflow-hidden">
             <ToolHeader
@@ -196,7 +211,7 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
             <ToolFooter
                 accent={desc.accent}
                 actionIcon={<desc.Icon className="w-4 h-4" />}
-                actionLabel={t(desc.actionLabelKey)}
+                actionLabel={t(desc.actionLabelKey ?? desc.titleKey)}
                 hasIdle={hasIdle}
                 canRun={canRun}
                 anyProcessing={anyProcessing}

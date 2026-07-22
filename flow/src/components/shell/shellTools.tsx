@@ -25,18 +25,34 @@ export interface ControlsProps<S = any> {
     files: SessionFile[];
 }
 
+/** Props a FOCUS tool's Body receives — it renders the whole area below the
+ *  header (preview/editor/result + its own actions) and reads the session live. */
+export interface FocusBodyProps {
+    files: SessionFile[];
+    accent: string;
+    inputAccept: string;
+    onAddFiles: (files: File[]) => void;
+    onClose: () => void;
+}
+
 export interface ShellTool<S = any> {
     id: ToolId;
     accent: string;
     Icon: LucideIcon;
     titleKey: string;
-    actionLabelKey: string;
+    /** 'grid' (default) = batch transform archetype; 'focus' = single-image
+     *  (analyzer/editor) archetype rendered via Body. */
+    kind?: 'grid' | 'focus';
+    /** FOCUS tools only: renders the entire body (preview/editor/result + actions). */
+    Body?: React.FC<FocusBodyProps>;
+    /** Footer run-button label (grid tools). */
+    actionLabelKey?: string;
     accept: (f: SessionFile) => boolean;
     inputAccept: string;
     emptyTitleKey: string;
     emptyHintKey?: string;
-    defaults: S;
-    autoProcessDirect: boolean;
+    defaults?: S;
+    autoProcessDirect?: boolean;
     /** Max files processed at once (default 3). Lower for tools that each spawn a
      *  heavy backend process (upscaler/converter → 2). */
     concurrency?: number;
@@ -47,10 +63,10 @@ export interface ShellTool<S = any> {
     /** i18n key for the "tool unavailable" note (paired with checkAvailable). */
     unavailableKey?: string;
     Controls?: React.FC<ControlsProps<S>>;
-    /** Transform ONE file (the tool's INPUT, not necessarily currentFile) and
-     *  applyResult. Returns the result URL + a short done-badge caption.
+    /** GRID tools: transform ONE file (the tool's INPUT, not necessarily
+     *  currentFile) and applyResult. Returns the result URL + a done-badge.
      *  `onProgress(pct)` (0–100) drives a determinate overlay for polled jobs. */
-    process: (item: { id: string; file: File; name: string }, state: S, onProgress?: (pct: number) => void) => Promise<ProcessResult>;
+    process?: (item: { id: string; file: File; name: string }, state: S, onProgress?: (pct: number) => void) => Promise<ProcessResult>;
 }
 
 const isImg = (f: File) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|tiff?|gif)$/i.test(f.name);
@@ -358,6 +374,8 @@ const compressorTool: ShellTool<{ quality: number }> = {
     },
 };
 
+import { paletteTool, ocrTool, cropperTool } from './focusTools';
+
 export const SHELL_TOOLS: Partial<Record<ToolId, ShellTool>> = {
     resize: resizeTool as ShellTool,
     watermark: watermarkTool as ShellTool,
@@ -365,4 +383,7 @@ export const SHELL_TOOLS: Partial<Record<ToolId, ShellTool>> = {
     vectorizer: vectorizerTool as ShellTool,
     upscaler: upscalerTool as ShellTool,
     compressor: compressorTool as ShellTool,
+    palette: paletteTool,
+    ocr: ocrTool,
+    cropper: cropperTool,
 };
