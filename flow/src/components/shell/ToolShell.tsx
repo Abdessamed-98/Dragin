@@ -197,7 +197,7 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
             />
 
             {Controls && files.length > 0 && (
-                <div key={toolId}>
+                <div key={`controls-${toolId}`}>
                     <Controls state={state} set={set} files={files} />
                 </div>
             )}
@@ -250,7 +250,7 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
                 onClear={clearAll}
             />
 
-            <ShellIngestor key={toolId} toolId={toolId} accept={desc.accept} onIngest={onIngest} onRemove={onRemove} />
+            <ShellIngestor key={`ingestor-${toolId}`} toolId={toolId} accept={desc.accept} onIngest={onIngest} onRemove={onRemove} />
         </div>
     );
 };
