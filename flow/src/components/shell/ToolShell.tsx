@@ -137,15 +137,36 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
         if (ok.length) sessionStore.addFiles(ok, toolId);
     }, [toolId, desc]);
 
-    // Footer derived state.
+    // Footer derived state. Pure editor tools (no process, e.g. cropper) never
+    // show a Run button; their "done" outputs are files this tool last touched.
     const fresh = (f: SessionFile): ItemState | undefined => { const s = items[f.id]; return s && s.revision === f.revision ? s : undefined; };
-    const hasIdle = files.some(f => { const s = items[f.id]; return !s || s.status === 'idle'; });
+    const isEditorTool = !desc.process;
+    const hasIdle = !isEditorTool && files.some(f => { const s = items[f.id]; return !s || s.status === 'idle'; });
     const anyProcessing = files.some(f => fresh(f)?.status === 'processing');
-    const doneOutputs: DoneOutput[] = files.filter(f => fresh(f)?.status === 'done')
-        .map(f => ({ name: f.name, url: fresh(f)!.resultUrl || f.currentUrl, path: (f.currentFile as any).path ?? null }));
-    // Cell-editor overlay (remover magic-brush). Reset on tool switch.
+    const doneOutputs: DoneOutput[] = isEditorTool
+        ? files.filter(f => f.provenance[f.provenance.length - 1] === toolId)
+            .map(f => ({ name: f.name, url: f.currentUrl, path: (f.originalFile as any).path ?? null }))
+        : files.filter(f => fresh(f)?.status === 'done')
+            .map(f => ({ name: f.name, url: fresh(f)!.resultUrl || f.currentUrl, path: (f.currentFile as any).path ?? null }));
+    // Cell-editor overlay (remover magic-brush, cropper). Reset on tool switch.
     const [editingId, setEditingId] = React.useState<string | null>(null);
     useEffect(() => { setEditingId(null); }, [toolId]);
+
+    // Editor tools (autoEditSingle): a LONE file opens straight in the editor —
+    // multiple files stay in the grid, click one to edit. Only fires when the
+    // count ARRIVES at 1 (0→1 or on tool entry), so closing the editor with one
+    // file loaded doesn't bounce back in.
+    const prevEditCountRef = useRef(-1);
+    const prevEditToolRef = useRef<ToolId | null>(null);
+    useEffect(() => {
+        const switched = prevEditToolRef.current !== toolId;
+        prevEditToolRef.current = toolId;
+        const prev = switched ? 0 : prevEditCountRef.current;
+        prevEditCountRef.current = files.length;
+        if (desc.autoEditSingle && desc.CellEditor && files.length === 1 && prev === 0) {
+            setEditingId(files[0].id);
+        }
+    }, [files.length, toolId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Backend capability probe (e.g. upscaler → Real-ESRGAN). Undefined = unknown/ok.
     const [available, setAvailable] = React.useState<boolean | undefined>(undefined);
@@ -215,6 +236,7 @@ export const ToolShell: React.FC<ToolShellProps> = ({ toolId, onClose, onOpenSet
                 showOriginal={(state as any).showOriginal === true}
                 transparent={desc.transparent}
                 onCellClick={desc.CellEditor ? (f => setEditingId(f.id)) : undefined}
+                cellClickMode={desc.cellEditOnClick}
             />
 
             {/* Per-cell editor overlay (remover magic-brush) */}

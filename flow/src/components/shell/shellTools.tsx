@@ -49,9 +49,15 @@ export interface ShellTool<S = any> {
      *  pdf) — the shell skips its header + empty dropzone and hands the Body the
      *  whole panel. */
     hideHeader?: boolean;
-    /** GRID tools: clicking a DONE cell opens this editor overlay for that file
-     *  (remover magic-brush). */
+    /** GRID tools: clicking a cell opens this editor overlay for that file
+     *  (remover magic-brush, cropper). */
     CellEditor?: React.FC<{ file: SessionFile; onClose: () => void }>;
+    /** When cells become clickable: 'done' (default — after this tool produced a
+     *  result, e.g. brush a cutout) or 'always' (pure editors like crop). */
+    cellEditOnClick?: 'done' | 'always';
+    /** Editor tools: when exactly ONE file arrives, open the editor directly
+     *  instead of a one-cell grid (crop treats one image at a time). */
+    autoEditSingle?: boolean;
     /** GRID tools: render cutout cells on a transparency checkerboard. */
     transparent?: boolean;
     /** Footer run-button label (grid tools). */

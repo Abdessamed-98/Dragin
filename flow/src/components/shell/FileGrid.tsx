@@ -49,14 +49,16 @@ interface FileGridProps {
     showOriginal?: boolean;
     /** Checkered transparency backdrop (cutouts). */
     transparent?: boolean;
-    /** Click a done cell → open an editor (remover magic-brush). */
+    /** Click a cell → open an editor (remover magic-brush, cropper). */
     onCellClick?: (file: SessionFile) => void;
+    /** When cells are clickable: 'done' (default) or 'always' (pure editors). */
+    cellClickMode?: 'done' | 'always';
 }
 
 const CHECKER = 'repeating-conic-gradient(#808080 0% 25%, #a0a0a0 0% 50%) 50% / 16px 16px';
 
 /** One cell: shared thumbnail (or this tool's result) + status overlay. */
-const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClasses; cellAspect?: string; showOriginal?: boolean; transparent?: boolean; onClick?: (f: SessionFile) => void }> = ({ file, state, ac, cellAspect, showOriginal, transparent, onClick }) => {
+const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClasses; cellAspect?: string; showOriginal?: boolean; transparent?: boolean; onClick?: (f: SessionFile) => void; clickMode?: 'done' | 'always' }> = ({ file, state, ac, cellAspect, showOriginal, transparent, onClick, clickMode = 'done' }) => {
     const [thumb, setThumb] = useState<string | null>(null);
     const isVideo = file.kind === 'video';
     const isAudio = file.kind === 'audio';
@@ -81,7 +83,7 @@ const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClass
     const error = fresh && state.status === 'error';
     const done = fresh && state.status === 'done';
     const src = showOriginal ? file.originalUrl : ((fresh && state.resultUrl) || thumb);
-    const clickable = !!onClick && !!done && !showOriginal;
+    const clickable = !!onClick && !showOriginal && (clickMode === 'always' || !!done);
 
     return (
         <div onClick={clickable ? () => onClick!(file) : undefined}
@@ -106,7 +108,7 @@ const GridCell: React.FC<{ file: SessionFile; state?: ItemState; ac: AccentClass
     );
 };
 
-export const FileGrid: React.FC<FileGridProps> = ({ files, items, accent, inputAccept, emptyIcon, emptyTitle, emptyHint, onAddFiles, cellAspect, showOriginal, transparent, onCellClick }) => {
+export const FileGrid: React.FC<FileGridProps> = ({ files, items, accent, inputAccept, emptyIcon, emptyTitle, emptyHint, onAddFiles, cellAspect, showOriginal, transparent, onCellClick, cellClickMode }) => {
     const [isDragOver, setIsDragOver] = useState(false);
     const ac = accentOf(accent);
 
@@ -139,7 +141,7 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, items, accent, inputA
             ) : (
                 <div className="flex-1 min-h-0 overflow-y-auto -mr-1 pr-1">
                     <div className="grid grid-cols-3 gap-1.5">
-                        {files.map(f => <GridCell key={f.id} file={f} state={items[f.id]} ac={ac} cellAspect={cellAspect} showOriginal={showOriginal} transparent={transparent} onClick={onCellClick} />)}
+                        {files.map(f => <GridCell key={f.id} file={f} state={items[f.id]} ac={ac} cellAspect={cellAspect} showOriginal={showOriginal} transparent={transparent} onClick={onCellClick} clickMode={cellClickMode} />)}
                         <label style={cellAspect ? { aspectRatio: cellAspect } : undefined}
                             className="rounded-lg border border-dashed border-[var(--border)] cursor-pointer flex items-center justify-center hover:border-[var(--border-2)] aspect-square">
                             <Upload className="w-4 h-4 text-[var(--text-3)]" />
