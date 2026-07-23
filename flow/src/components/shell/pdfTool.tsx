@@ -6,15 +6,20 @@
  * This brings pdf onto the shell frame + lets the old ToolWidget path retire,
  * with zero risk to pdf's internals. It reads the session via its own ingest.
  */
-import React from 'react';
-import { FileText } from 'lucide-react';
-import { PdfTool } from '../tools/PdfTool';
+import React, { Suspense } from 'react';
+import { FileText, Loader2 } from 'lucide-react';
 import { toolAccepts } from '../../state/toolCompat';
 import type { ShellTool, FocusBodyProps } from './shellTools';
 
+// Lazy: PdfTool is the largest component in the app and only needed when the
+// pdf panel opens — keep it out of the startup bundle.
+const PdfTool = React.lazy(() => import('../tools/PdfTool').then(m => ({ default: m.PdfTool })));
+
 const PdfBody: React.FC<FocusBodyProps> = ({ onClose }) => (
     <div className="flex-1 relative min-h-0">
-        <PdfTool onClose={onClose} active={true} />
+        <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-6 h-6 text-red-400 animate-spin" /></div>}>
+            <PdfTool onClose={onClose} active={true} />
+        </Suspense>
     </div>
 );
 

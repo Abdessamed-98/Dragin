@@ -6,6 +6,9 @@ const path = require('path');
 const uIOhook = require('uiohook-napi').uIOhook;
 const log = require('electron-log');
 
+// Startup perf marks — process launch → app ready → windows/backend ready.
+// Read them in the log after a cold start to see where launch time goes.
+const PERF_T0 = Date.now();
 let pyServer = null;
 let tray = null;
 let rebuildTrayMenu = null; // assigned inside app.whenReady
@@ -171,7 +174,14 @@ function startPythonServer() {
         },
     });
 
-    pyServer.stdout.on('data', (data) => log.info(`[Python] ${data}`));
+    pyServer.stdout.on('data', (data) => {
+        log.info(`[Python] ${data}`);
+        // Startup perf mark: Flask announces readiness on stdout.
+        if (!global.__perfBackendReady && String(data).includes('Running on')) {
+            global.__perfBackendReady = true;
+            log.info(`[Perf] backend ready +${Date.now() - PERF_T0}ms`);
+        }
+    });
     pyServer.stderr.on('data', (data) => {
         const msg = data.toString();
         // Flask logs to stderr by default, so not all stderr is errors
@@ -770,6 +780,11 @@ const createDockWindow = () => {
         dockWindow.loadFile(prodPath, { search: 'window=dock' });
     }
 
+    // Startup perf mark: renderer parsed + executed (dock usable shortly after).
+    dockWindow.webContents.once('did-finish-load', () => {
+        log.info(`[Perf] dock renderer loaded +${Date.now() - PERF_T0}ms`);
+    });
+
     // Topmost so the dock stays above normal windows.
     dockWindow.setAlwaysOnTop(true, 'screen-saver');
 
@@ -908,6 +923,7 @@ const createGalleryWindow = () => {
 
 // --- APP LIFECYCLE ---
 app.whenReady().then(() => {
+    log.info(`[Perf] app ready +${Date.now() - PERF_T0}ms`);
     // macOS: strict accessory (tray/menu-bar) app — never show a Dock icon.
     // LSUIElement in Info.plist covers packaged builds; this covers dev runs.
     if (process.platform === 'darwin' && app.dock) app.dock.hide();

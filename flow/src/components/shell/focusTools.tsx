@@ -8,13 +8,16 @@
  * cropper — an editor: CropperTool on the focused file, save → applyResult.
  */
 import React, { useEffect, useState } from 'react';
-import { Loader2, Check, Copy, Trash2, Palette as PaletteIcon, ScanText, Crop as CropIcon } from 'lucide-react';
+import { Loader2, Check, Copy, Trash2, Download, Palette as PaletteIcon, ScanText, Crop as CropIcon } from 'lucide-react';
 import { SessionFile, sessionStore } from '../../state/sessionStore';
 import { toolAccepts } from '../../state/toolCompat';
 import { extractPalette, extractText } from '../../services/api';
+import { saveOutputs } from '../../services/saveOutput';
 import type { PaletteColor } from '../../services/api';
-import { CropperTool } from '../tools/CropperTool';
 import { ToolIconButton } from '../ToolIconButton';
+
+// Lazy: the crop canvas only loads when the cropper opens in edit mode.
+const CropperTool = React.lazy(() => import('../tools/CropperTool').then(m => ({ default: m.CropperTool })));
 import { FocusView } from './FocusView';
 import { accentOf } from './accents';
 import type { ShellTool, FocusBodyProps } from './shellTools';
@@ -112,24 +115,67 @@ export const ocrTool: ShellTool = {
 };
 
 // ── CROPPER (editor) ─────────────────────────────────────────────────────────
+// Two modes: EDIT (the crop canvas) → on Crop, applyResult + switch to PREVIEW
+// (the result, with Crop-again / Save / Trash). Without the mode split, the
+// revision bump from applyResult remounted a fresh crop canvas on the cropped
+// image — an endless editor loop.
 const CropperBody: React.FC<FocusBodyProps> = ({ files, accent, onClose }) => {
     const ac = accentOf(accent);
     const [focusId, setFocusId] = useState<string | null>(null);
+    const [editing, setEditing] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
     useEffect(() => {
         if (!files.length) { setFocusId(null); return; }
         if (!focusId || !files.some(f => f.id === focusId)) setFocusId(files[files.length - 1].id);
     }, [files, focusId]);
     const focused = files.find(f => f.id === focusId) ?? files[files.length - 1];
+    // A newly-focused file opens in the editor; its own crop result shows as preview.
+    useEffect(() => { setEditing(true); }, [focused?.id]); // eslint-disable-line react-hooks/exhaustive-deps
     if (!focused) return null;
     const ext = focused.name.match(/\.[^.]+$/)?.[0] || '.png';
+    const cropped = focused.provenance[focused.provenance.length - 1] === 'cropper';
+
+    const download = async () => {
+        setIsSaving(true);
+        try { await saveOutputs([{ name: focused.name, url: focused.currentUrl, originalPath: (focused.originalFile as any).path ?? null }], 'cropped'); }
+        catch (e) { console.error('Save failed', e); } finally { setIsSaving(false); }
+    };
+
     return (
         <div className="flex-1 flex flex-col min-h-0">
             <div className="flex-1 relative min-h-0 m-3 rounded-xl overflow-hidden">
-                <CropperTool key={`${focused.id}:${focused.revision}`}
-                    imageSrc={focused.currentUrl}
-                    onSave={newUrl => { sessionStore.applyResult(focused.id, newUrl, `${focused.name.replace(/\.[^.]+$/, '')}_cropped${ext}`, 'cropper'); }}
-                    onCancel={() => sessionStore.revert(focused.id)} />
+                {editing ? (
+                    <React.Suspense fallback={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-6 h-6 text-orange-400 animate-spin" /></div>}>
+                        <CropperTool key={`${focused.id}:${focused.revision}`}
+                            imageSrc={focused.currentUrl}
+                            onSave={newUrl => {
+                                sessionStore.applyResult(focused.id, newUrl, `${focused.name.replace(/\.[^.]+$/, '')}_cropped${ext}`, 'cropper');
+                                setEditing(false);
+                            }}
+                            onCancel={() => setEditing(false)} />
+                    </React.Suspense>
+                ) : (
+                    <div className="w-full h-full bg-black/20 border border-[var(--separator)] rounded-xl flex items-center justify-center">
+                        <img src={focused.currentUrl} className="max-w-full max-h-full object-contain" draggable={false} alt="" />
+                        {cropped && <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[11px] bg-black/60 text-white px-2 py-0.5 rounded-full flex items-center gap-1"><Check className="w-3 h-3 text-green-400" /> cropped</div>}
+                    </div>
+                )}
             </div>
+            {/* Preview-mode actions */}
+            {!editing && (
+                <div className="flex items-center gap-1.5 px-3 pb-3 shrink-0">
+                    <button onClick={() => setEditing(true)}
+                        className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-bold text-white ${ac.button}`}>
+                        <CropIcon className="w-4 h-4" /> Crop again
+                    </button>
+                    <div className="flex-1 flex items-center gap-1">
+                        <ToolIconButton onClick={download} disabled={isSaving || !cropped} title="Save">
+                            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        </ToolIconButton>
+                        <ToolIconButton onClick={() => { sessionStore.remove(files.map(f => f.id)); onClose(); }} disabled={!files.length} danger title="Clear all"><Trash2 className="w-4 h-4" /></ToolIconButton>
+                    </div>
+                </div>
+            )}
             {files.length > 1 && (
                 <div className="shrink-0 flex items-center gap-1.5 overflow-x-auto px-3 pb-3">
                     {files.map(f => (
@@ -138,8 +184,10 @@ const CropperBody: React.FC<FocusBodyProps> = ({ files, accent, onClose }) => {
                             <img src={f.currentUrl} className="w-full h-full object-cover" draggable={false} alt="" />
                         </button>
                     ))}
-                    <button onClick={() => { sessionStore.remove(files.map(f => f.id)); onClose(); }} title="Clear all"
-                        className="shrink-0 ml-auto p-2 rounded-lg text-[var(--text-2)] hover:text-[var(--red)] bg-[var(--surface-2)] hover:bg-[var(--surface-3)]"><Trash2 className="w-4 h-4" /></button>
+                    {editing && (
+                        <button onClick={() => { sessionStore.remove(files.map(f => f.id)); onClose(); }} title="Clear all"
+                            className="shrink-0 ml-auto p-2 rounded-lg text-[var(--text-2)] hover:text-[var(--red)] bg-[var(--surface-2)] hover:bg-[var(--surface-3)]"><Trash2 className="w-4 h-4" /></button>
+                    )}
                 </div>
             )}
         </div>

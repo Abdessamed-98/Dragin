@@ -6,13 +6,15 @@
  *  • Clicking a done cutout opens the magic-brush editor (CellEditor).
  * All edits write back via applyResult so the cutout carries to the next tool.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import { Eye, EyeOff, Scissors, Loader2, Sparkles } from 'lucide-react';
 import { SessionFile, sessionStore } from '../../state/sessionStore';
 import { toolAccepts } from '../../state/toolCompat';
 import { removeBackgroundBen2, checkBen2ModelLoaded, trimTransparency } from '../../services/api';
-import { MagicBrushTool } from '../tools/MagicBrushTool';
 import type { ShellTool, ControlsProps } from './shellTools';
+
+// Lazy: the brush editor (canvas engine) only loads when a cutout is clicked.
+const MagicBrushTool = React.lazy(() => import('../tools/MagicBrushTool').then(m => ({ default: m.MagicBrushTool })));
 
 const isImg = (f: File) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|tiff?|gif)$/i.test(f.name);
 const outName = (name: string) => `${name.replace(/\.[^.]+$/, '')}-BGremoved.png`;
@@ -58,12 +60,14 @@ const RemoverControls: React.FC<ControlsProps<RemoverState>> = ({ state, set, fi
 };
 
 const RemoverEditor: React.FC<{ file: SessionFile; onClose: () => void }> = ({ file, onClose }) => (
-    <MagicBrushTool
-        originalImageSrc={file.originalUrl}
-        processedImageSrc={file.currentUrl}
-        onSave={newUrl => { sessionStore.applyResult(file.id, newUrl, outName(file.name), 'remover'); onClose(); }}
-        onCancel={onClose}
-    />
+    <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center bg-black/40"><Loader2 className="w-6 h-6 text-indigo-400 animate-spin" /></div>}>
+        <MagicBrushTool
+            originalImageSrc={file.originalUrl}
+            processedImageSrc={file.currentUrl}
+            onSave={newUrl => { sessionStore.applyResult(file.id, newUrl, outName(file.name), 'remover'); onClose(); }}
+            onCancel={onClose}
+        />
+    </Suspense>
 );
 
 export const removerTool: ShellTool<RemoverState> = {
