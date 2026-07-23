@@ -184,6 +184,11 @@ function startPythonServer() {
     });
     pyServer.stderr.on('data', (data) => {
         const msg = data.toString();
+        // Startup perf mark: Flask/Werkzeug announces readiness on STDERR.
+        if (!global.__perfBackendReady && msg.includes('Running on')) {
+            global.__perfBackendReady = true;
+            log.info(`[Perf] backend ready +${Date.now() - PERF_T0}ms`);
+        }
         // Flask logs to stderr by default, so not all stderr is errors
         if (msg.includes('Error') || msg.includes('Traceback')) {
             log.error(`[Python Error] ${msg}`);
